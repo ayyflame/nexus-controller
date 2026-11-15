@@ -21,12 +21,6 @@ export const PLACEHOLDERS: Partial<Record<PageId, PlaceholderInfo>> = {
     planned: ["Trigger deadzones and hair-trigger thresholds", "Adaptive trigger resistance profiles", "Digital/analog behaviour per output mode"],
     milestone: "Milestone 4",
   },
-  "macro-studio": {
-    title: "Macro Studio",
-    summary: "Record and play back user-triggered input sequences.",
-    planned: ["Timeline editor", "Record from controller", "Trigger bindings and repeat options"],
-    milestone: "Milestone 5",
-  },
   "controller-settings": {
     title: "Controller Settings",
     summary: "Hardware features of the connected DualSense.",

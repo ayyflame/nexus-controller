@@ -22,6 +22,9 @@ use nexus_device_manager::{
 };
 use nexus_dualsense::DualSenseDriver;
 use nexus_input_processing::ProcessingPipeline;
+use nexus_macro_engine::{
+    Macro, MacroButton, MacroLibrary, MacroRecorder, MacroRunner, RecordingResult,
+};
 use nexus_telemetry::{unix_millis, LogEntry, LogLevel, RateCounter, RawReport, Telemetry};
 use nexus_virtual_controller::{
     BackendStatus, OutputStatus, UnavailableBackend, VirtualControllerBackend, VirtualOutputManager,
@@ -62,8 +65,13 @@ impl Default for EngineConfig {
 pub struct DeviceSnapshot {
     pub device: ConnectedDevice,
     pub connected_at_ms: u64,
-    /// Latest **processed** state. `None` until the first valid report arrives.
+    /// Latest **physical** input exactly as parsed. `None` until the first
+    /// valid report arrives.
     pub input: Option<ControllerState>,
+    /// What games would receive: input after processing and macros.
+    pub processed: Option<ControllerState>,
+    /// IDs of macros currently playing on this controller.
+    pub playing_macros: Vec<String>,
     pub last_report_ms: Option<u64>,
     pub report_rate_hz: f64,
     pub total_reports: u64,
@@ -84,6 +92,39 @@ pub struct EngineStatus {
     pub output_backend: String,
     pub output_backend_status: BackendStatus,
     pub devices: Vec<DeviceSnapshot>,
+    pub macros: MacroRuntimeStatus,
+}
+
+/// Whether macros can affect games right now, and recording progress.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacroRuntimeStatus {
+    /// Macros that are enabled, assigned and have a sequence.
+    pub armed: usize,
+    /// `true` only when a virtual controller exists for macro output.
+    pub games_can_receive: bool,
+    /// User-facing explanation when `games_can_receive` is false.
+    pub blocked_reason: Option<String>,
+    pub recording: Option<RecordingStatus>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordingStatus {
+    pub elapsed_ms: u64,
+    pub presses: usize,
+    /// Buttons held right now (being recorded).
+    pub held: Vec<MacroButton>,
+    pub limit_reached: bool,
+    /// The controller disconnected; recording stopped.
+    pub interrupted: bool,
+}
+
+struct RecordingState {
+    recorder: MacroRecorder,
+    /// Only the first controller that reports is recorded.
+    device: Option<DeviceId>,
+    interrupted: bool,
 }
 
 /// What Windows reported for one HID collection during the latest scan.
@@ -202,6 +243,8 @@ struct Shared {
     subscribers: Mutex<Vec<Sender<EngineEvent>>>,
     enumeration_error: Mutex<Option<String>>,
     hid_scan: Mutex<Vec<HidDiagnostic>>,
+    macros: Arc<MacroLibrary>,
+    recording: Mutex<Option<RecordingState>>,
     hid_backend: String,
     hid_available: bool,
     output_backend: String,
@@ -268,6 +311,8 @@ impl Engine {
             subscribers: Mutex::new(Vec::new()),
             enumeration_error: Mutex::new(None),
             hid_scan: Mutex::new(Vec::new()),
+            macros: Arc::new(MacroLibrary::new()),
+            recording: Mutex::new(None),
             hid_backend: hid.name().to_owned(),
             hid_available: hid.is_available(),
             output_backend: probe.name().to_owned(),
@@ -317,17 +362,128 @@ impl Engine {
     }
 
     pub fn status(&self) -> EngineStatus {
+        // Take each lock in its own statement: guards created inside a struct
+        // literal live until the end of the whole expression.
+        let macros = self.macro_status();
         let devices = lock(&self.shared.devices).values().cloned().collect();
+        let enumeration_error = lock(&self.shared.enumeration_error).clone();
+        let requested_output = *lock(&self.shared.requested_output);
         EngineStatus {
             revision: self.revision(),
             hid_backend: self.shared.hid_backend.clone(),
             hid_available: self.shared.hid_available,
-            enumeration_error: lock(&self.shared.enumeration_error).clone(),
-            requested_output: *lock(&self.shared.requested_output),
+            enumeration_error,
+            requested_output,
             output_backend: self.shared.output_backend.clone(),
             output_backend_status: self.shared.output_backend_status.clone(),
             devices,
+            macros,
         }
+    }
+
+    fn macro_status(&self) -> MacroRuntimeStatus {
+        let requested = *lock(&self.shared.requested_output);
+        let any_active = lock(&self.shared.devices)
+            .values()
+            .any(|d| d.output.active.is_some());
+        let blocked_reason = match (&self.shared.output_backend_status, requested) {
+            _ if any_active => None,
+            (BackendStatus::Unavailable { .. }, _) => Some(
+                "Games can't receive macros yet: NEXUS has no virtual controller driver installed. \
+                 You can still create, record and test macros here."
+                    .to_owned(),
+            ),
+            (BackendStatus::Ready { .. }, VirtualOutputKind::Disabled) => Some(
+                "Turn on a virtual controller (Settings → Virtual Output) so games receive macros."
+                    .to_owned(),
+            ),
+            (BackendStatus::Ready { .. }, _) => {
+                Some("Connect your controller so NEXUS can create the virtual controller.".to_owned())
+            }
+        };
+        let recording = lock(&self.shared.recording)
+            .as_ref()
+            .map(|r| RecordingStatus {
+                elapsed_ms: r.recorder.elapsed_ms(Instant::now()),
+                presses: r.recorder.presses(),
+                held: r.recorder.held(),
+                limit_reached: r.recorder.limit_reached(),
+                interrupted: r.interrupted,
+            });
+        MacroRuntimeStatus {
+            armed: self
+                .shared
+                .macros
+                .get()
+                .iter()
+                .filter(|m| m.is_armed())
+                .count(),
+            games_can_receive: blocked_reason.is_none(),
+            blocked_reason,
+            recording,
+        }
+    }
+
+    /// Replaces the macros the engine runs. Running macros stop; each starts
+    /// again on its next trigger press.
+    pub fn set_macros(&self, macros: Vec<Macro>) {
+        self.shared.macros.set(macros);
+        self.shared.bump();
+    }
+
+    /// Starts recording physical button input. Macros are paused meanwhile.
+    pub fn start_recording(&self) -> Result<(), String> {
+        // Record the first controller that is sending input, starting from
+        // its current state so buttons already held are not captured.
+        let source = lock(&self.shared.devices)
+            .values()
+            .find_map(|d| d.input.map(|input| (d.device.id.clone(), input)));
+        let Some((device, baseline)) = source else {
+            return Err("Connect your controller to record a macro.".to_owned());
+        };
+        let mut rec = lock(&self.shared.recording);
+        if rec.is_some() {
+            return Err("A recording is already in progress.".to_owned());
+        }
+        let now = Instant::now();
+        let mut recorder = MacroRecorder::new(now);
+        recorder.feed(&baseline, now);
+        *rec = Some(RecordingState {
+            recorder,
+            device: Some(device),
+            interrupted: false,
+        });
+        drop(rec);
+        self.shared.macros.set_suspended(true);
+        self.shared.bump();
+        self.shared
+            .log(LogLevel::Info, "macro", "Macro recording started");
+        Ok(())
+    }
+
+    /// Stops recording and returns the captured sequence.
+    pub fn stop_recording(&self) -> Result<RecordingResult, String> {
+        let state = lock(&self.shared.recording).take();
+        self.shared.macros.set_suspended(false);
+        self.shared.bump();
+        let state = state.ok_or_else(|| "No recording is in progress.".to_owned())?;
+        let result = state.recorder.finish(Instant::now());
+        self.shared.log(
+            LogLevel::Info,
+            "macro",
+            format!("Macro recording stopped ({} actions)", result.steps.len()),
+        );
+        Ok(result)
+    }
+
+    /// Discards a recording in progress, if any.
+    pub fn cancel_recording(&self) {
+        if lock(&self.shared.recording).take().is_some() {
+            self.shared
+                .log(LogLevel::Info, "macro", "Macro recording cancelled");
+        }
+        self.shared.macros.set_suspended(false);
+        self.shared.bump();
     }
 
     /// Receives every subsequent device event and log entry.
@@ -489,6 +645,8 @@ struct EngineSessionHandler {
     shared: Arc<Shared>,
     id: DeviceId,
     pipeline: ProcessingPipeline,
+    macros: MacroRunner,
+    last_physical: Option<ControllerState>,
     output: VirtualOutputManager,
     output_generation: u64,
     rate: RateCounter,
@@ -518,6 +676,8 @@ fn new_session_handler(
             device: device.clone(),
             connected_at_ms: unix_millis(),
             input: None,
+            processed: None,
+            playing_macros: Vec::new(),
             last_report_ms: None,
             report_rate_hz: 0.0,
             total_reports: 0,
@@ -531,6 +691,8 @@ fn new_session_handler(
         shared: shared.clone(),
         id: device.id.clone(),
         pipeline: ProcessingPipeline::new(),
+        macros: MacroRunner::new(shared.macros.clone()),
+        last_physical: None,
         output,
         output_generation: generation,
         rate: RateCounter::new(Duration::from_secs(1)),
@@ -539,6 +701,36 @@ fn new_session_handler(
 }
 
 impl EngineSessionHandler {
+    /// physical → processing → macros → virtual output.
+    fn run_pipeline(
+        &mut self,
+        physical: &ControllerState,
+    ) -> (ControllerState, Option<Vec<String>>) {
+        let mut out = self.pipeline.run(physical);
+        let was_playing = self.macros.playing();
+        self.macros.process(physical, &mut out, Instant::now());
+        self.output.submit(&out);
+        let playing = self.macros.playing();
+        (out, (playing != was_playing).then_some(playing))
+    }
+
+    fn feed_recording(&self, physical: &ControllerState) {
+        if !self.shared.macros.is_suspended() {
+            return; // fast path: not recording
+        }
+        if let Some(rec) = lock(&self.shared.recording).as_mut() {
+            if rec.interrupted {
+                return;
+            }
+            match &rec.device {
+                Some(d) if *d != self.id => return,
+                None => rec.device = Some(self.id.clone()),
+                _ => {}
+            }
+            rec.recorder.feed(physical, Instant::now());
+        }
+    }
+
     fn sync_output_mode(&mut self) {
         let generation = self.shared.output_generation.load(Ordering::Acquire);
         if generation == self.output_generation {
@@ -567,10 +759,11 @@ impl SessionHandler for EngineSessionHandler {
             .telemetry
             .record_raw(&self.id.0, raw, error.clone());
 
-        let processed = parsed.ok().map(|state| {
-            let processed = self.pipeline.run(&state);
-            self.output.submit(&processed);
-            processed
+        let physical = parsed.ok();
+        let processed = physical.map(|state| {
+            self.feed_recording(&state);
+            self.last_physical = Some(state);
+            self.run_pipeline(&state)
         });
 
         let (rate, total, errors) = (
@@ -584,16 +777,35 @@ impl SessionHandler for EngineSessionHandler {
             s.report_rate_hz = rate;
             s.total_reports = total;
             s.parse_errors = errors;
-            match processed {
-                Some(state) => s.input = Some(state),
+            match (physical, processed) {
+                (Some(input), Some((out, playing))) => {
+                    s.input = Some(input);
+                    s.processed = Some(out);
+                    if let Some(p) = playing {
+                        s.playing_macros = p;
+                    }
+                }
                 // Keep the last valid state; record why this report failed.
-                None => s.last_parse_error = error,
+                _ => s.last_parse_error = error,
             }
         });
     }
 
     fn on_idle(&mut self) {
         self.sync_output_mode();
+        // Keep macro timing moving even if reports pause briefly.
+        if let Some(physical) = self.last_physical {
+            self.macros.refresh(&physical);
+            if !self.macros.playing().is_empty() {
+                let (out, playing) = self.run_pipeline(&physical);
+                self.shared.update_device(&self.id, |s| {
+                    s.processed = Some(out);
+                    if let Some(p) = playing {
+                        s.playing_macros = p;
+                    }
+                });
+            }
+        }
         self.rate.roll(Instant::now());
         let rate = self.rate.rate_hz();
         if rate != self.last_rate_published {
@@ -608,6 +820,14 @@ impl SessionHandler for EngineSessionHandler {
     }
 
     fn on_end(&mut self, _reason: &DisconnectReason) {
+        // Release every macro press before the virtual device goes away.
+        self.macros.stop_all();
+        if let Some(rec) = lock(&self.shared.recording).as_mut() {
+            if rec.device.as_ref() == Some(&self.id) {
+                rec.interrupted = true;
+                self.shared.bump();
+            }
+        }
         if let Err(e) = self.output.release() {
             self.shared.log(
                 LogLevel::Error,

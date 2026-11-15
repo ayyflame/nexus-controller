@@ -25,3 +25,4 @@ nexus-controller-core.workspace = true
 nexus-engine.workspace = true
 nexus-profile-manager.workspace = true
 nexus-telemetry.workspace = true
+nexus-macro-engine.workspace = true

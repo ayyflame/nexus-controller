@@ -39,3 +39,14 @@ Setup steps: `docs/windows-setup.md`. Useful tools: **Settings → HID Devices (
 | # | Step | Expected | Result |
 |---|---|---|---|
 | 21 | Close the window while connected | Process exits within 1 s; controller usable by other apps immediately | |
+
+## Macro Studio (with the controller connected)
+
+| # | Step | Expected | Result |
+|---|---|---|---|
+| 22 | Create Macro → Record → press Square, Triangle → Stop | Two actions with roughly your timing | |
+| 23 | Repeat over Bluetooth | Same result | |
+| 24 | Assign R3, Play Once, save; press R3 | "Test with your controller" shows Square then Triangle; *Playing* badge | |
+| 25 | Repeat While Held / Toggle | Repeats while held / until pressed again | |
+| 26 | Unplug the controller while a Toggle macro plays | Macro stops; nothing stays pressed after reconnect | |
+| 27 | Close NEXUS during recording, then reopen | App closes cleanly; saved macros still listed | |

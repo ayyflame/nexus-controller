@@ -1,8 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
-  AppInfo, CommandError, EngineEvent, HidDiagnostic, EngineStatus, LogEntry, Profile, RawReport,
-  VirtualOutputKind,
+  AppInfo, CommandError, EngineEvent, HidDiagnostic, EngineStatus, LogEntry, Macro, Profile, RawReport,
+  RecordingResult, ValidationIssue, VirtualOutputKind,
 } from "../types/engine";
 
 export const EVENT_STATUS = "nexus://status";
@@ -11,6 +11,14 @@ export const EVENT_ENGINE = "nexus://engine-event";
 /** True only inside the NEXUS desktop shell, where the Rust engine exists. */
 export function isDesktopShell(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
+/** Field-level validation issues carried by a command error, if any. */
+export function errorIssues(e: unknown): ValidationIssue[] {
+  if (typeof e === "object" && e !== null && "issues" in e) {
+    return ((e as CommandError).issues ?? []) as ValidationIssue[];
+  }
+  return [];
 }
 
 export function errorMessage(e: unknown): string {
@@ -32,6 +40,15 @@ export const engineApi = {
   getActiveProfile: () => invoke<Profile>("get_active_profile"),
   setActiveProfile: (id: number) => invoke<Profile>("set_active_profile", { id }),
   setVirtualOutput: (mode: VirtualOutputKind) => invoke<Profile>("set_virtual_output", { mode }),
+
+  listMacros: () => invoke<Macro[]>("list_macros"),
+  saveMacro: (definition: Macro) => invoke<Macro>("save_macro", { definition }),
+  deleteMacro: (id: string) => invoke<void>("delete_macro", { id }),
+  duplicateMacro: (id: string) => invoke<Macro>("duplicate_macro", { id }),
+  setMacroEnabled: (id: string, enabled: boolean) => invoke<Macro>("set_macro_enabled", { id, enabled }),
+  startMacroRecording: () => invoke<void>("start_macro_recording"),
+  stopMacroRecording: () => invoke<RecordingResult>("stop_macro_recording"),
+  cancelMacroRecording: () => invoke<void>("cancel_macro_recording"),
 
   onStatus: (cb: (s: EngineStatus) => void): Promise<UnlistenFn> =>
     listen<EngineStatus>(EVENT_STATUS, (e) => cb(e.payload)),

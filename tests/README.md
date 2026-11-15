@@ -17,6 +17,10 @@ cargo test --workspace
 | End-to-end engine (mock HID + synthetic reports) | `crates/engine/src/tests.rs` |
 | Virtual output switching policy | `crates/virtual-controller/src/lib.rs` |
 | Profiles / last-used persistence | `crates/profile-manager/src/lib.rs` |
+| Macro model, playback modes, recording | `crates/macro-engine/src/` |
+| Macro storage and v1→v2 migration | `crates/profile-manager/src/macros.rs` |
+| Macros end to end (synthetic reports) | `crates/engine/src/tests.rs` |
+| Macro Studio helpers (frontend) | `apps/desktop/src/lib/macros.test.ts` (`npm test`) |
 | Telemetry bounds and rates | `crates/telemetry/src/lib.rs` |
 
 All input reports used in tests are **synthetic** (built by `nexus_dualsense::synthetic`). The mock HID backend is compiled only for tests (`cfg(test)` / `test-support` feature) and is never part of the application.

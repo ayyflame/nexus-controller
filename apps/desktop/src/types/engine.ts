@@ -69,7 +69,12 @@ export interface OutputStatus {
 export interface DeviceSnapshot {
   device: ConnectedDevice;
   connectedAtMs: number;
+  /** Physical input exactly as read from the controller. */
   input: ControllerState | null;
+  /** What games would receive: input after processing and macros. */
+  processed: ControllerState | null;
+  /** IDs of macros playing on this controller right now. */
+  playingMacros: string[];
   lastReportMs: number | null;
   reportRateHz: number;
   totalReports: number;
@@ -87,6 +92,22 @@ export interface EngineStatus {
   outputBackend: string;
   outputBackendStatus: BackendStatus;
   devices: DeviceSnapshot[];
+  macros: MacroRuntimeStatus;
+}
+
+export interface MacroRuntimeStatus {
+  armed: number;
+  gamesCanReceive: boolean;
+  blockedReason: string | null;
+  recording: RecordingStatus | null;
+}
+
+export interface RecordingStatus {
+  elapsedMs: number;
+  presses: number;
+  held: MacroButton[];
+  limitReached: boolean;
+  interrupted: boolean;
 }
 
 export type DisconnectReason =
@@ -127,7 +148,47 @@ export interface AppInfo {
   storageWarning: string | null;
 }
 
-export interface CommandError { message: string }
+export interface CommandError { message: string; issues?: ValidationIssue[] }
+
+// ---- Macros (crates/macro-engine) ----
+
+export type MacroButton =
+  | "south" | "east" | "west" | "north"
+  | "leftShoulder" | "rightShoulder" | "leftTrigger" | "rightTrigger"
+  | "leftStick" | "rightStick" | "start" | "select" | "home" | "touchpad" | "mute"
+  | "dpadUp" | "dpadDown" | "dpadLeft" | "dpadRight";
+
+export type PlaybackMode = "once" | "repeatWhileHeld" | "toggle";
+
+export interface MacroStep {
+  id: string;
+  buttons: MacroButton[];
+  holdMs: number;
+  delayAfterMs: number;
+}
+
+export interface Macro {
+  id: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+  steps: MacroStep[];
+  trigger: MacroButton | null;
+  mode: PlaybackMode;
+  repeatDelayMs: number;
+  blockTrigger: boolean;
+  createdAtMs: number;
+  updatedAtMs: number;
+}
+
+export interface ValidationIssue { field: string; message: string }
+
+export interface RecordingResult {
+  steps: MacroStep[];
+  durationMs: number;
+  presses: number;
+  limitReached: boolean;
+}
 
 /** What Windows reported for one HID collection (serial/MAC masked). */
 export interface HidDiagnostic {

@@ -1,0 +1,510 @@
+use crate::buttons::MacroButton;
+use crate::model::{Macro, MacroStep, PlaybackMode};
+use nexus_controller_core::ControllerState;
+use serde::Serialize;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, RwLock};
+use std::time::Instant;
+
+/// Where a sequence is at a given time since it started.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SequencePoint {
+    /// Index of the current step (holding or waiting after it).
+    pub step: Option<usize>,
+    /// Whether that step's buttons are held right now.
+    pub pressed: bool,
+    /// The whole sequence has finished.
+    pub finished: bool,
+}
+
+/// Pure timeline evaluation, shared by playback and tests.
+pub fn sequence_at(steps: &[MacroStep], elapsed_ms: u64) -> SequencePoint {
+    let mut t = 0u64;
+    for (i, s) in steps.iter().enumerate() {
+        t += s.hold_ms as u64;
+        if elapsed_ms < t {
+            return SequencePoint {
+                step: Some(i),
+                pressed: true,
+                finished: false,
+            };
+        }
+        t += s.delay_after_ms as u64;
+        if elapsed_ms < t {
+            return SequencePoint {
+                step: Some(i),
+                pressed: false,
+                finished: false,
+            };
+        }
+    }
+    SequencePoint {
+        step: None,
+        pressed: false,
+        finished: true,
+    }
+}
+
+/// The set of macros the engine runs, shared between the UI-facing engine
+/// API and every controller's [`MacroRunner`]. Updates are picked up by
+/// runners on their next report without locking on the hot path.
+#[derive(Default)]
+pub struct MacroLibrary {
+    macros: RwLock<Arc<Vec<Macro>>>,
+    generation: AtomicU64,
+    suspended: AtomicBool,
+}
+
+impl MacroLibrary {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Replaces the library. Running macros are stopped and restarted only by
+    /// a fresh trigger press.
+    pub fn set(&self, macros: Vec<Macro>) {
+        *self.macros.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(macros);
+        self.generation.fetch_add(1, Ordering::AcqRel);
+    }
+
+    pub fn get(&self) -> Arc<Vec<Macro>> {
+        self.macros
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    pub fn generation(&self) -> u64 {
+        self.generation.load(Ordering::Acquire)
+    }
+
+    /// While suspended (e.g. while recording) no macro reacts to its trigger
+    /// and running macros stop.
+    pub fn set_suspended(&self, suspended: bool) {
+        self.suspended.store(suspended, Ordering::Release);
+    }
+
+    pub fn is_suspended(&self) -> bool {
+        self.suspended.load(Ordering::Acquire)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct Slot {
+    trigger_was_down: bool,
+    toggled_on: bool,
+    started: Option<Instant>,
+}
+
+/// Runs macros for one physical controller. Owned by that controller's
+/// reader thread; dropping it releases every macro press because presses
+/// only ever exist in the output state computed by [`MacroRunner::process`].
+pub struct MacroRunner {
+    library: Arc<MacroLibrary>,
+    generation: Option<u64>,
+    macros: Arc<Vec<Macro>>,
+    slots: Vec<Slot>,
+}
+
+impl MacroRunner {
+    pub fn new(library: Arc<MacroLibrary>) -> Self {
+        Self {
+            library,
+            generation: None,
+            macros: Arc::new(Vec::new()),
+            slots: Vec::new(),
+        }
+    }
+
+    /// Reads triggers from `physical` and writes macro presses into `output`.
+    pub fn process(
+        &mut self,
+        physical: &ControllerState,
+        output: &mut ControllerState,
+        now: Instant,
+    ) {
+        self.reload_if_changed(physical);
+
+        if self.library.is_suspended() {
+            for (m, slot) in self.macros.iter().zip(&mut self.slots) {
+                *slot = Slot {
+                    trigger_was_down: m.trigger.is_some_and(|t| t.is_pressed(physical)),
+                    ..Slot::default()
+                };
+            }
+            return;
+        }
+
+        let mut blocked = 0u32;
+        let mut pressed = 0u32;
+        for (m, slot) in self.macros.iter().zip(&mut self.slots) {
+            let Some(trigger) = m.trigger.filter(|_| m.is_armed()) else {
+                continue;
+            };
+            let down = trigger.is_pressed(physical);
+            let edge = down && !slot.trigger_was_down;
+            slot.trigger_was_down = down;
+            if m.block_trigger {
+                blocked |= trigger.bit();
+            }
+
+            match m.mode {
+                PlaybackMode::Once => {
+                    if edge && slot.started.is_none() {
+                        slot.started = Some(now);
+                    }
+                }
+                PlaybackMode::RepeatWhileHeld => {
+                    if !down {
+                        slot.started = None;
+                    } else if slot.started.is_none() {
+                        slot.started = Some(now);
+                    }
+                }
+                PlaybackMode::Toggle => {
+                    if edge {
+                        slot.toggled_on = !slot.toggled_on;
+                        slot.started = slot.toggled_on.then_some(now);
+                    }
+                }
+            }
+
+            let Some(started) = slot.started else {
+                continue;
+            };
+            let elapsed = now.saturating_duration_since(started).as_millis() as u64;
+            let elapsed = match m.mode {
+                PlaybackMode::Once => elapsed,
+                // Loop: one cycle is the sequence plus the pause between repeats.
+                _ => elapsed % (m.duration_ms() + m.repeat_delay_ms as u64).max(1),
+            };
+            let point = sequence_at(&m.steps, elapsed);
+            if point.finished && m.mode == PlaybackMode::Once {
+                slot.started = None;
+                continue;
+            }
+            if let (Some(i), true) = (point.step, point.pressed) {
+                pressed |= m.steps[i].buttons.iter().fold(0, |acc, b| acc | b.bit());
+            }
+        }
+
+        // Blocked triggers are hidden first so a macro may still press them.
+        for b in MacroButton::from_mask(blocked & !pressed) {
+            b.set(output, false);
+        }
+        for b in MacroButton::from_mask(pressed) {
+            b.set(output, true);
+        }
+    }
+
+    /// Picks up library changes without producing output. Call it when no
+    /// report arrived, so a new macro is ready before its trigger is pressed.
+    pub fn refresh(&mut self, physical: &ControllerState) {
+        self.reload_if_changed(physical);
+    }
+
+    fn reload_if_changed(&mut self, physical: &ControllerState) {
+        let generation = self.library.generation();
+        if self.generation == Some(generation) {
+            return;
+        }
+        self.generation = Some(generation);
+        self.macros = self.library.get();
+        // Start from the current physical state so a trigger already held
+        // during an edit does not fire the macro by itself.
+        self.slots = self
+            .macros
+            .iter()
+            .map(|m| Slot {
+                trigger_was_down: m.trigger.is_some_and(|t| t.is_pressed(physical)),
+                ..Slot::default()
+            })
+            .collect();
+    }
+
+    /// IDs of macros currently playing (including toggled-on macros in their
+    /// pause between repeats).
+    pub fn playing(&self) -> Vec<String> {
+        self.macros
+            .iter()
+            .zip(&self.slots)
+            .filter(|(_, s)| s.started.is_some())
+            .map(|(m, _)| m.id.clone())
+            .collect()
+    }
+
+    /// Stops every macro immediately.
+    pub fn stop_all(&mut self) {
+        for slot in &mut self.slots {
+            slot.started = None;
+            slot.toggled_on = false;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::tests::{sample, step};
+    use std::time::Duration;
+
+    fn at(t0: Instant, ms: u64) -> Instant {
+        t0 + Duration::from_millis(ms)
+    }
+
+    fn pressed(b: MacroButton) -> ControllerState {
+        let mut s = ControllerState::default();
+        b.set(&mut s, true);
+        s
+    }
+
+    /// Runs one frame and returns the output.
+    fn frame(r: &mut MacroRunner, physical: &ControllerState, now: Instant) -> ControllerState {
+        let mut out = *physical;
+        r.process(physical, &mut out, now);
+        out
+    }
+
+    fn runner(macros: Vec<Macro>) -> (Arc<MacroLibrary>, MacroRunner) {
+        let lib = Arc::new(MacroLibrary::new());
+        lib.set(macros);
+        let mut r = MacroRunner::new(lib.clone());
+        // A real session starts with the controller at rest.
+        let idle = ControllerState::default();
+        r.process(&idle, &mut idle.clone(), Instant::now());
+        (lib, r)
+    }
+
+    /// Cross 100 ms, wait 50, Circle 100 ms, wait 0  → total 250 ms.
+    fn two_step(mode: PlaybackMode) -> Macro {
+        let mut m = sample("m", Some(MacroButton::RightStick));
+        m.steps = vec![
+            step(&[MacroButton::South], 100, 50),
+            step(&[MacroButton::East], 100, 0),
+        ];
+        m.mode = mode;
+        m.repeat_delay_ms = 50;
+        m
+    }
+
+    #[test]
+    fn sequence_timeline() {
+        let steps = vec![
+            step(&[MacroButton::South], 100, 50),
+            step(&[MacroButton::East], 100, 0),
+        ];
+        assert_eq!(
+            sequence_at(&steps, 0),
+            SequencePoint {
+                step: Some(0),
+                pressed: true,
+                finished: false
+            }
+        );
+        assert!(sequence_at(&steps, 99).pressed);
+        assert_eq!(
+            sequence_at(&steps, 100),
+            SequencePoint {
+                step: Some(0),
+                pressed: false,
+                finished: false
+            }
+        );
+        assert_eq!(
+            sequence_at(&steps, 150),
+            SequencePoint {
+                step: Some(1),
+                pressed: true,
+                finished: false
+            }
+        );
+        assert!(sequence_at(&steps, 250).finished);
+        assert!(sequence_at(&[], 0).finished);
+    }
+
+    #[test]
+    fn play_once_runs_full_sequence_even_after_release() {
+        let t0 = Instant::now();
+        let (_, mut r) = runner(vec![two_step(PlaybackMode::Once)]);
+        let idle = ControllerState::default();
+        let trig = pressed(MacroButton::RightStick);
+
+        frame(&mut r, &idle, t0);
+        let out = frame(&mut r, &trig, at(t0, 0));
+        assert!(out.buttons.south, "first step pressed immediately");
+        assert!(!out.buttons.right_stick, "trigger hidden from output");
+        let out = frame(&mut r, &idle, at(t0, 120)); // released trigger
+        assert!(!out.buttons.south && !out.buttons.east, "in the wait");
+        let out = frame(&mut r, &idle, at(t0, 160));
+        assert!(out.buttons.east);
+        assert_eq!(r.playing(), vec!["m".to_string()]);
+        let out = frame(&mut r, &idle, at(t0, 260));
+        assert_eq!(out, idle, "finished: nothing pressed");
+        assert!(r.playing().is_empty());
+    }
+
+    #[test]
+    fn play_once_ignores_presses_while_playing_and_replays_after() {
+        let t0 = Instant::now();
+        let (_, mut r) = runner(vec![two_step(PlaybackMode::Once)]);
+        let idle = ControllerState::default();
+        let trig = pressed(MacroButton::RightStick);
+        frame(&mut r, &trig, t0);
+        frame(&mut r, &idle, at(t0, 50));
+        frame(&mut r, &trig, at(t0, 60)); // second press mid-sequence: ignored
+        assert!(
+            frame(&mut r, &trig, at(t0, 160)).buttons.east,
+            "original timing kept"
+        );
+        frame(&mut r, &idle, at(t0, 300));
+        assert!(
+            frame(&mut r, &trig, at(t0, 310)).buttons.south,
+            "replays on next press"
+        );
+    }
+
+    #[test]
+    fn repeat_while_held_loops_and_stops_on_release() {
+        let t0 = Instant::now();
+        let (_, mut r) = runner(vec![two_step(PlaybackMode::RepeatWhileHeld)]);
+        let trig = pressed(MacroButton::RightStick);
+        assert!(frame(&mut r, &trig, t0).buttons.south);
+        // Cycle = 250 + 50 repeat pause = 300 ms.
+        assert!(
+            !frame(&mut r, &trig, at(t0, 270)).buttons.south,
+            "repeat pause"
+        );
+        assert!(
+            frame(&mut r, &trig, at(t0, 310)).buttons.south,
+            "second pass"
+        );
+        let out = frame(&mut r, &ControllerState::default(), at(t0, 320));
+        assert_eq!(out, ControllerState::default(), "release stops at once");
+        assert!(r.playing().is_empty());
+    }
+
+    #[test]
+    fn toggle_starts_and_stops_on_presses() {
+        let t0 = Instant::now();
+        let (_, mut r) = runner(vec![two_step(PlaybackMode::Toggle)]);
+        let idle = ControllerState::default();
+        let trig = pressed(MacroButton::RightStick);
+        frame(&mut r, &trig, t0);
+        frame(&mut r, &idle, at(t0, 30));
+        assert!(
+            frame(&mut r, &idle, at(t0, 610)).buttons.south,
+            "still looping (3rd pass)"
+        );
+        frame(&mut r, &trig, at(t0, 700)); // toggle off
+        assert_eq!(frame(&mut r, &idle, at(t0, 710)), idle);
+        assert!(r.playing().is_empty());
+    }
+
+    #[test]
+    fn disabled_unassigned_or_empty_macros_do_nothing() {
+        let t0 = Instant::now();
+        let mut disabled = two_step(PlaybackMode::Once);
+        disabled.enabled = false;
+        let unassigned = sample("u", None);
+        let mut empty = sample("e", Some(MacroButton::LeftStick));
+        empty.steps.clear();
+        let (_, mut r) = runner(vec![disabled, unassigned, empty]);
+        for b in [MacroButton::RightStick, MacroButton::LeftStick] {
+            let s = pressed(b);
+            assert_eq!(
+                frame(&mut r, &s, t0),
+                s,
+                "disabled macro must pass input through"
+            );
+        }
+    }
+
+    #[test]
+    fn block_trigger_can_be_turned_off() {
+        let t0 = Instant::now();
+        let mut m = two_step(PlaybackMode::Once);
+        m.block_trigger = false;
+        let (_, mut r) = runner(vec![m]);
+        let out = frame(&mut r, &pressed(MacroButton::RightStick), t0);
+        assert!(out.buttons.right_stick && out.buttons.south);
+    }
+
+    #[test]
+    fn trigger_held_when_runner_starts_does_not_fire() {
+        let lib = Arc::new(MacroLibrary::new());
+        lib.set(vec![two_step(PlaybackMode::Once)]);
+        let mut r = MacroRunner::new(lib);
+        let t0 = Instant::now();
+        let trig = pressed(MacroButton::RightStick);
+        assert!(!frame(&mut r, &trig, t0).buttons.south);
+        frame(&mut r, &ControllerState::default(), at(t0, 10));
+        assert!(frame(&mut r, &trig, at(t0, 20)).buttons.south);
+    }
+
+    #[test]
+    fn library_update_stops_playback_and_needs_fresh_press() {
+        let t0 = Instant::now();
+        let (lib, mut r) = runner(vec![two_step(PlaybackMode::RepeatWhileHeld)]);
+        let trig = pressed(MacroButton::RightStick);
+        assert!(frame(&mut r, &trig, t0).buttons.south);
+        let mut once = two_step(PlaybackMode::Once);
+        once.steps[0].buttons = vec![MacroButton::North];
+        lib.set(vec![once]);
+        // Trigger still held across the update: must not auto-fire.
+        let out = frame(&mut r, &trig, at(t0, 10));
+        assert!(!out.buttons.north && !out.buttons.south);
+        frame(&mut r, &ControllerState::default(), at(t0, 20));
+        assert!(frame(&mut r, &trig, at(t0, 30)).buttons.north);
+    }
+
+    #[test]
+    fn suspension_stops_everything() {
+        let t0 = Instant::now();
+        let (lib, mut r) = runner(vec![two_step(PlaybackMode::Toggle)]);
+        let trig = pressed(MacroButton::RightStick);
+        frame(&mut r, &trig, t0);
+        lib.set_suspended(true);
+        let out = frame(&mut r, &trig, at(t0, 5));
+        assert_eq!(
+            out, trig,
+            "pass-through while suspended, trigger not hidden"
+        );
+        assert!(r.playing().is_empty());
+        lib.set_suspended(false);
+        assert!(
+            !frame(&mut r, &trig, at(t0, 10)).buttons.south,
+            "held trigger is not a new press"
+        );
+    }
+
+    #[test]
+    fn several_macros_combine_and_chords_press_together() {
+        let t0 = Instant::now();
+        let mut a = two_step(PlaybackMode::Once);
+        a.steps = vec![step(
+            &[MacroButton::LeftShoulder, MacroButton::RightShoulder],
+            100,
+            0,
+        )];
+        let mut b = sample("b", Some(MacroButton::LeftStick));
+        b.steps = vec![step(&[MacroButton::DpadUp], 100, 0)];
+        let (_, mut r) = runner(vec![a, b]);
+        let mut both = pressed(MacroButton::RightStick);
+        MacroButton::LeftStick.set(&mut both, true);
+        let out = frame(&mut r, &both, t0);
+        assert!(out.buttons.left_shoulder && out.buttons.right_shoulder && out.dpad.up());
+        assert!(!out.buttons.left_stick && !out.buttons.right_stick);
+        assert_eq!(r.playing().len(), 2);
+    }
+
+    #[test]
+    fn stop_all_and_drop_release_presses() {
+        let t0 = Instant::now();
+        let (_, mut r) = runner(vec![two_step(PlaybackMode::Toggle)]);
+        frame(&mut r, &pressed(MacroButton::RightStick), t0);
+        r.stop_all();
+        let idle = ControllerState::default();
+        assert_eq!(frame(&mut r, &idle, at(t0, 5)), idle);
+    }
+}

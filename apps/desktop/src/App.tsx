@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Sidebar, type PageId } from "./components/Sidebar";
 import { EngineProvider, useEngine } from "./hooks/useEngine";
 import { Dashboard } from "./pages/Dashboard";
+import { MacroStudio } from "./pages/MacroStudio";
 import { Performance } from "./pages/Performance";
 import { PLACEHOLDERS, Placeholder } from "./pages/Placeholder";
 import { Profiles } from "./pages/Profiles";
@@ -13,6 +14,7 @@ function Page({ id }: { id: PageId }) {
     case "settings": return <Settings />;
     case "profiles": return <Profiles />;
     case "performance": return <Performance />;
+    case "macro-studio": return <MacroStudio />;
     default: {
       const info = PLACEHOLDERS[id];
       return info ? <Placeholder info={info} /> : null;

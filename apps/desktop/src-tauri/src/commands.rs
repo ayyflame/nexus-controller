@@ -4,7 +4,8 @@
 use crate::AppState;
 use nexus_controller_core::VirtualOutputKind;
 use nexus_engine::{EngineStatus, HidDiagnostic};
-use nexus_profile_manager::Profile;
+use nexus_macro_engine::{Macro, RecordingResult, ValidationIssue};
+use nexus_profile_manager::{Profile, ProfileError, ProfileStore};
 use nexus_telemetry::{LogEntry, RawReport};
 use serde::Serialize;
 use tauri::State;
@@ -12,13 +13,30 @@ use tauri::State;
 #[derive(Debug, Serialize)]
 pub struct CommandError {
     pub message: String,
+    /// Field-level problems for forms (macro validation).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub issues: Option<Vec<ValidationIssue>>,
 }
 
 impl<E: std::fmt::Display> From<E> for CommandError {
     fn from(e: E) -> Self {
         Self {
             message: e.to_string(),
+            issues: None,
         }
+    }
+}
+
+fn profile_error(e: ProfileError) -> CommandError {
+    match e {
+        ProfileError::InvalidMacro(issues) => CommandError {
+            message: issues
+                .first()
+                .map(|i| i.message.clone())
+                .unwrap_or_else(|| "The macro is not valid.".to_owned()),
+            issues: Some(issues),
+        },
+        other => other.into(),
     }
 }
 
@@ -118,4 +136,74 @@ pub fn set_virtual_output(
     };
     state.engine.set_output_mode(mode);
     Ok(profile)
+}
+
+// ---- Macro Studio -----------------------------------------------------------
+
+/// Hands the stored library to the engine after every change.
+fn sync_engine(state: &AppState, store: &ProfileStore) -> CmdResult<Vec<Macro>> {
+    let macros = store.list_macros().map_err(profile_error)?;
+    state.engine.set_macros(macros.clone());
+    Ok(macros)
+}
+
+#[tauri::command]
+pub fn list_macros(state: State<'_, AppState>) -> CmdResult<Vec<Macro>> {
+    let store = state.store.lock().map_err(|_| "profile store poisoned")?;
+    store.list_macros().map_err(profile_error)
+}
+
+/// Creates (empty `id`) or updates a macro. Rejected with field-level
+/// `issues` if invalid or conflicting.
+#[tauri::command]
+pub fn save_macro(state: State<'_, AppState>, definition: Macro) -> CmdResult<Macro> {
+    let mut store = state.store.lock().map_err(|_| "profile store poisoned")?;
+    let saved = store.save_macro(definition).map_err(profile_error)?;
+    sync_engine(&state, &store)?;
+    Ok(saved)
+}
+
+#[tauri::command]
+pub fn delete_macro(state: State<'_, AppState>, id: String) -> CmdResult<()> {
+    let mut store = state.store.lock().map_err(|_| "profile store poisoned")?;
+    store.delete_macro(&id).map_err(profile_error)?;
+    sync_engine(&state, &store)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn duplicate_macro(state: State<'_, AppState>, id: String) -> CmdResult<Macro> {
+    let mut store = state.store.lock().map_err(|_| "profile store poisoned")?;
+    let copy = store.duplicate_macro(&id).map_err(profile_error)?;
+    sync_engine(&state, &store)?;
+    Ok(copy)
+}
+
+#[tauri::command]
+pub fn set_macro_enabled(
+    state: State<'_, AppState>,
+    id: String,
+    enabled: bool,
+) -> CmdResult<Macro> {
+    let mut store = state.store.lock().map_err(|_| "profile store poisoned")?;
+    let m = store
+        .set_macro_enabled(&id, enabled)
+        .map_err(profile_error)?;
+    sync_engine(&state, &store)?;
+    Ok(m)
+}
+
+#[tauri::command]
+pub fn start_macro_recording(state: State<'_, AppState>) -> CmdResult<()> {
+    state.engine.start_recording().map_err(Into::into)
+}
+
+#[tauri::command]
+pub fn stop_macro_recording(state: State<'_, AppState>) -> CmdResult<RecordingResult> {
+    state.engine.stop_recording().map_err(Into::into)
+}
+
+#[tauri::command]
+pub fn cancel_macro_recording(state: State<'_, AppState>) {
+    state.engine.cancel_recording();
 }

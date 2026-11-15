@@ -267,3 +267,185 @@ fn mac_addresses_in_instance_ids_are_masked() {
         r"USB\VID_054C&PID_0CE6\6&ABCDEF&0&3"
     );
 }
+
+// ---- Macros -------------------------------------------------------------
+
+use nexus_macro_engine::{Macro, MacroButton, MacroStep, PlaybackMode};
+
+const R3: (usize, u8) = (1, 0x80);
+const CROSS: (usize, u8) = (0, 0x20);
+const CIRCLE: (usize, u8) = (0, 0x40);
+
+fn report(bits: &[(usize, u8)]) -> Vec<u8> {
+    let mut p = Payload::neutral();
+    for (byte, mask) in bits {
+        p.buttons[*byte] |= mask;
+    }
+    p.usb_report()
+}
+
+fn jump_macro(mode: PlaybackMode) -> Macro {
+    Macro {
+        id: "jump".into(),
+        name: "Jump".into(),
+        description: String::new(),
+        enabled: true,
+        steps: vec![MacroStep {
+            id: "s1".into(),
+            buttons: vec![MacroButton::South],
+            hold_ms: 2000,
+            delay_after_ms: 0,
+        }],
+        trigger: Some(MacroButton::RightStick),
+        mode,
+        repeat_delay_ms: 50,
+        block_trigger: true,
+        created_at_ms: 0,
+        updated_at_ms: 0,
+    }
+}
+
+fn connected_engine() -> (MockHidBackend, Engine) {
+    let backend = MockHidBackend::new();
+    backend.plug(usb_info());
+    let e = engine(&backend);
+    wait_status(&e, "connect", |s| s.devices.len() == 1);
+    backend.push_report(PATH, report(&[]));
+    wait_status(&e, "first input", |s| s.devices[0].input.is_some());
+    (backend, e)
+}
+
+#[test]
+fn macro_runs_from_physical_trigger_and_shows_in_processed_output() {
+    let (backend, e) = connected_engine();
+    e.set_macros(vec![jump_macro(PlaybackMode::Once)]);
+    backend.push_report(PATH, report(&[R3]));
+    let s = wait_status(&e, "macro playing", |s| {
+        !s.devices[0].playing_macros.is_empty()
+    });
+    let d = &s.devices[0];
+    let physical = d.input.unwrap();
+    let out = d.processed.unwrap();
+    assert!(
+        physical.buttons.right_stick && !physical.buttons.south,
+        "physical input untouched"
+    );
+    assert!(out.buttons.south, "macro pressed Cross in output");
+    assert!(!out.buttons.right_stick, "trigger hidden from output");
+    assert_eq!(d.playing_macros, vec!["jump".to_string()]);
+    assert_eq!(s.macros.armed, 1);
+    assert!(
+        !s.macros.games_can_receive,
+        "no virtual output in this build"
+    );
+    assert!(s
+        .macros
+        .blocked_reason
+        .as_deref()
+        .unwrap()
+        .contains("virtual controller driver"));
+}
+
+#[test]
+fn disconnect_stops_macros_and_reconnect_starts_clean() {
+    let (backend, e) = connected_engine();
+    e.set_macros(vec![jump_macro(PlaybackMode::Toggle)]);
+    backend.push_report(PATH, report(&[R3]));
+    wait_status(&e, "playing", |s| !s.devices[0].playing_macros.is_empty());
+    backend.unplug(PATH);
+    wait_status(&e, "disconnect", |s| s.devices.is_empty());
+    backend.plug(usb_info());
+    wait_status(&e, "reconnect", |s| s.devices.len() == 1);
+    backend.push_report(PATH, report(&[]));
+    let s = wait_status(&e, "input", |s| s.devices[0].processed.is_some());
+    assert!(
+        s.devices[0].playing_macros.is_empty(),
+        "toggled macro did not survive reconnect"
+    );
+    assert!(!s.devices[0].processed.unwrap().buttons.south);
+}
+
+#[test]
+fn recording_captures_real_reports_and_pauses_macros() {
+    let (backend, e) = connected_engine();
+    e.set_macros(vec![jump_macro(PlaybackMode::Once)]);
+    e.start_recording().unwrap();
+    assert!(e.start_recording().is_err(), "only one recording at a time");
+
+    for (bits, ms) in [
+        (vec![R3], 150),
+        (vec![], 100),
+        (vec![CIRCLE], 120),
+        (vec![], 0),
+    ] {
+        backend.push_report(PATH, report(&bits));
+        std::thread::sleep(Duration::from_millis(ms));
+    }
+    let s = wait_status(&e, "presses recorded", |s| {
+        s.macros
+            .recording
+            .as_ref()
+            .is_some_and(|r| r.presses == 2 && r.held.is_empty())
+    });
+    assert!(
+        s.devices[0].playing_macros.is_empty(),
+        "trigger did not fire while recording"
+    );
+
+    let result = e.stop_recording().unwrap();
+    let buttons: Vec<_> = result.steps.iter().map(|s| s.buttons.clone()).collect();
+    assert_eq!(
+        buttons,
+        vec![vec![MacroButton::RightStick], vec![MacroButton::East]]
+    );
+    assert!(
+        result.steps[0].hold_ms >= 100,
+        "timing captured: {:?}",
+        result.steps
+    );
+    assert!(e.status().macros.recording.is_none());
+
+    // Macros work again after recording.
+    backend.push_report(PATH, report(&[]));
+    backend.push_report(PATH, report(&[R3]));
+    wait_status(&e, "macro resumes", |s| {
+        !s.devices[0].playing_macros.is_empty()
+    });
+}
+
+#[test]
+fn recording_requires_controller_and_reports_disconnect() {
+    let backend = MockHidBackend::new();
+    let e = engine(&backend);
+    assert!(e
+        .start_recording()
+        .unwrap_err()
+        .contains("Connect your controller"));
+    assert!(e.stop_recording().is_err());
+
+    let (backend, e) = connected_engine();
+    e.start_recording().unwrap();
+    backend.push_report(PATH, report(&[CROSS]));
+    wait_status(&e, "held", |s| {
+        s.macros.recording.as_ref().is_some_and(|r| r.presses == 1)
+    });
+    backend.unplug(PATH);
+    wait_status(&e, "interrupted", |s| {
+        s.macros.recording.as_ref().is_some_and(|r| r.interrupted)
+    });
+    let result = e.stop_recording().unwrap();
+    assert_eq!(result.steps.len(), 1, "what was captured is kept");
+}
+
+#[test]
+fn cancel_recording_resumes_macros() {
+    let (backend, e) = connected_engine();
+    e.set_macros(vec![jump_macro(PlaybackMode::Once)]);
+    e.start_recording().unwrap();
+    e.cancel_recording();
+    assert!(e.status().macros.recording.is_none());
+    backend.push_report(PATH, report(&[R3]));
+    wait_status(&e, "macro runs", |s| {
+        !s.devices[0].playing_macros.is_empty()
+    });
+}

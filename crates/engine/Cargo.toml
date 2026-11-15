@@ -16,6 +16,7 @@ nexus-dualsense.workspace = true
 nexus-input-processing.workspace = true
 nexus-virtual-controller.workspace = true
 nexus-telemetry.workspace = true
+nexus-macro-engine.workspace = true
 serde.workspace = true
 
 [dev-dependencies]

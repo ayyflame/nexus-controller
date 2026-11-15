@@ -31,8 +31,8 @@ nexus-controller/
 │   ├── input-processing/         InputProcessor trait + ordered pipeline (pass-through in M1)
 │   ├── virtual-controller/       VirtualControllerBackend trait + one-device-per-controller policy
 │   ├── button-mapping/           Placeholder crate (documented scope only)
-│   ├── macro-engine/             Placeholder crate (documented scope only)
-│   ├── profile-manager/          SQLite profile store, schema migrations, last-used profile
+│   ├── macro-engine/             Macro model/validation, MacroRunner (playback), MacroRecorder
+│   ├── profile-manager/          SQLite profiles + macro library (schema v2), migrations, last-used profile
 │   ├── telemetry/                Bounded event log, raw report history, report-rate counters
 │   └── engine/                   Runtime: wires everything together, owns threads, snapshots
 ├── apps/desktop/
@@ -111,3 +111,7 @@ The TypeScript mirror is in `src/types/engine.ts`. A Rust test pins the JSON sha
 - No administrator rights are needed. HID enumeration uses zero-access query handles.
 - No driver is installed or bundled.
 - Enumeration is restricted to vendor IDs that a registered driver claims, so unrelated HID devices (keyboards, security keys) are never queried.
+
+## Macros
+
+See [`macro-studio.md`](macro-studio.md). Each controller's reader thread runs physical input → `ProcessingPipeline` → `MacroRunner` (from `macro-engine`) → virtual output. `DeviceSnapshot.input` is the physical state and `DeviceSnapshot.processed` is what games would receive. Macros are stored once in the profile database and shared by every profile.

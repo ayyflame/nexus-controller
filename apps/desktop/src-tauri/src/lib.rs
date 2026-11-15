@@ -51,6 +51,11 @@ pub fn run() {
                 initial_output: profile.virtual_output,
                 ..Default::default()
             }));
+            // Macros are shared by all profiles; hand the library to the engine.
+            match store.list_macros() {
+                Ok(macros) => engine.set_macros(macros),
+                Err(e) => eprintln!("NEXUS: could not load macros: {e}"),
+            }
             let bridge = bridge::Bridge::spawn(app.handle().clone(), engine.clone());
 
             app.manage(AppState {
@@ -73,6 +78,14 @@ pub fn run() {
             commands::get_active_profile,
             commands::set_active_profile,
             commands::set_virtual_output,
+            commands::list_macros,
+            commands::save_macro,
+            commands::delete_macro,
+            commands::duplicate_macro,
+            commands::set_macro_enabled,
+            commands::start_macro_recording,
+            commands::stop_macro_recording,
+            commands::cancel_macro_recording,
         ])
         .build(tauri::generate_context!())
         .expect("failed to build the NEXUS application");

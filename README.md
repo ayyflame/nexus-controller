@@ -79,6 +79,7 @@ Output goes to `target\release\bundle\nsis\` and `target\release\bundle\msi\`. T
 - [DualSense report format, USB vs Bluetooth](docs/dualsense-protocol.md)
 - [Milestone 1 report](docs/milestone-1-report.md)
 - [Milestone 2 proposal](docs/milestone-2-proposal.md)
+- [Macro Studio](docs/macro-studio.md)
 - [Installing NEXUS (end users)](docs/install-windows.md)
 - [Developer setup on Windows 11 and hardware validation](docs/windows-setup.md)
 - [Hardware verification checklist](tests/hardware-verification.md)

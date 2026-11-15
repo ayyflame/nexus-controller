@@ -1,0 +1,49 @@
+import { useCallback, useState } from "react";
+
+const LIMIT = 100;
+
+/** Value with undo/redo. `set` records a history entry. */
+export function useHistory<T>(initial: T) {
+  const [state, setState] = useState<{ past: T[]; present: T; future: T[] }>({
+    past: [], present: initial, future: [],
+  });
+
+  const set = useCallback((next: T | ((prev: T) => T)) => {
+    setState((s) => {
+      const value = typeof next === "function" ? (next as (p: T) => T)(s.present) : next;
+      if (Object.is(value, s.present)) return s;
+      return { past: [...s.past, s.present].slice(-LIMIT), present: value, future: [] };
+    });
+  }, []);
+
+  /** Replaces the value without creating an undo entry (e.g. after loading). */
+  const reset = useCallback((value: T) => setState({ past: [], present: value, future: [] }), []);
+
+  const undo = useCallback(() => {
+    setState((s) => {
+      const prev = s.past[s.past.length - 1];
+      if (prev === undefined) return s;
+      return { past: s.past.slice(0, -1), present: prev, future: [s.present, ...s.future] };
+    });
+  }, []);
+
+  const redo = useCallback(() => {
+    setState((s) => {
+      const next = s.future[0];
+      if (next === undefined) return s;
+      return { past: [...s.past, s.present], present: next, future: s.future.slice(1) };
+    });
+  }, []);
+
+  return {
+    value: state.present,
+    set,
+    reset,
+    undo,
+    redo,
+    canUndo: state.past.length > 0,
+    canRedo: state.future.length > 0,
+  };
+}
+
+export type History<T> = ReturnType<typeof useHistory<T>>;

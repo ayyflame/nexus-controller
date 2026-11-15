@@ -15,11 +15,17 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
 pub const DEFAULT_PROFILE_NAME: &str = "Default";
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 const KEY_LAST_PROFILE: &str = "last_profile_id";
+
+mod macros;
 
 #[derive(Debug, Error)]
 pub enum ProfileError {
+    #[error("{}", .0.iter().map(|i| i.message.as_str()).collect::<Vec<_>>().join(" "))]
+    InvalidMacro(Vec<nexus_macro_engine::ValidationIssue>),
+    #[error("macro {0} not found")]
+    MacroNotFound(String),
     #[error("database error: {0}")]
     Database(#[from] rusqlite::Error),
     #[error("profile {0} not found")]
@@ -44,7 +50,7 @@ pub struct ProfileStore {
     conn: Connection,
 }
 
-fn now_ms() -> i64 {
+pub(crate) fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
@@ -99,6 +105,21 @@ impl ProfileStore {
                     value TEXT NOT NULL
                 );
                 PRAGMA user_version = 1;",
+            )?;
+            tx.commit()?;
+        }
+        if version < 2 {
+            // v2: macro library. Macros are shared by every profile.
+            let tx = self.conn.transaction()?;
+            tx.execute_batch(
+                "CREATE TABLE macros (
+                    id            TEXT PRIMARY KEY,
+                    position      INTEGER NOT NULL,
+                    data_json     TEXT NOT NULL,
+                    created_at_ms INTEGER NOT NULL,
+                    updated_at_ms INTEGER NOT NULL
+                );
+                PRAGMA user_version = 2;",
             )?;
             tx.commit()?;
         }

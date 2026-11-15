@@ -1937,6 +1937,7 @@ version = "0.1.0"
 dependencies = [
  "nexus-controller-core",
  "nexus-engine",
+ "nexus-macro-engine",
  "nexus-profile-manager",
  "nexus-telemetry",
  "serde",
@@ -1968,6 +1969,7 @@ dependencies = [
  "nexus-device-manager",
  "nexus-dualsense",
  "nexus-input-processing",
+ "nexus-macro-engine",
  "nexus-telemetry",
  "nexus-virtual-controller",
  "serde",
@@ -1985,6 +1987,8 @@ name = "nexus-macro-engine"
 version = "0.1.0"
 dependencies = [
  "nexus-controller-core",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1992,8 +1996,10 @@ name = "nexus-profile-manager"
 version = "0.1.0"
 dependencies = [
  "nexus-controller-core",
+ "nexus-macro-engine",
  "rusqlite",
  "serde",
+ "serde_json",
  "thiserror 2.0.21",
 ]
 
