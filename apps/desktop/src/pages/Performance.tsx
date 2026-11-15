@@ -16,7 +16,7 @@ export function Performance() {
         <h2>Input Streams</h2>
         {devices.length === 0 ? <p className="muted">No controller connected.</p> : (
           <table className="table">
-            <thead><tr><th>Controller</th><th>Connection</th><th className="right">Report rate</th><th className="right">Reports</th><th className="right">Parse errors</th></tr></thead>
+            <thead><tr><th>Controller</th><th>Connection</th><th className="right">Report rate</th><th className="right">Reports</th><th className="right">Parse errors</th><th className="right" data-tip="Time NEXUS adds per report: processing, macros and output">NEXUS time p50 / p99</th></tr></thead>
             <tbody>
               {devices.map((d) => (
                 <tr key={d.device.id}>
@@ -25,6 +25,7 @@ export function Performance() {
                   <td className="right mono">{d.reportRateHz.toFixed(1)} Hz</td>
                   <td className="right mono">{d.totalReports.toLocaleString()}</td>
                   <td className="right mono">{d.parseErrors.toLocaleString()}</td>
+                  <td className="right mono">{d.pipelineLatency.samples ? `${d.pipelineLatency.p50Us} µs / ${d.pipelineLatency.p99Us} µs` : "—"}</td>
                 </tr>
               ))}
             </tbody>
@@ -32,8 +33,8 @@ export function Performance() {
         )}
       </div>
       <div className="notice dev">
-        <strong>In development.</strong> End-to-end latency, report jitter histograms, processing time per stage and
-        virtual-output timing will be added once virtual output exists (Milestone 2–3).
+        <strong>Measured here:</strong> the time NEXUS itself adds to each report (sticks, triggers, remapping, macros and output), over the last 256 reports.
+        End-to-end latency to the game will be measured once virtual output is enabled.
       </div>
     </div>
   );

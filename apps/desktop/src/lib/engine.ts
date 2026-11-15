@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   AppInfo, CommandError, EngineEvent, HidDiagnostic, EngineStatus, LogEntry, Macro, Profile, RawReport,
-  RecordingResult, ValidationIssue, VirtualOutputKind,
+  DriverStatus, ProcessingConfig, RecordingResult, ValidationIssue, VirtualOutputKind,
 } from "../types/engine";
 
 export const EVENT_STATUS = "nexus://status";
@@ -40,6 +40,14 @@ export const engineApi = {
   getActiveProfile: () => invoke<Profile>("get_active_profile"),
   setActiveProfile: (id: number) => invoke<Profile>("set_active_profile", { id }),
   setVirtualOutput: (mode: VirtualOutputKind) => invoke<Profile>("set_virtual_output", { mode }),
+  createProfile: (name: string) => invoke<Profile>("create_profile", { name }),
+  renameProfile: (id: number, name: string) => invoke<Profile>("rename_profile", { id, name }),
+  duplicateProfile: (id: number) => invoke<Profile>("duplicate_profile", { id }),
+  /** Returns the active profile afterwards. */
+  deleteProfile: (id: number) => invoke<Profile>("delete_profile", { id }),
+  setProcessing: (config: ProcessingConfig) => invoke<Profile>("set_processing", { config }),
+  stopAllMacros: () => invoke<void>("stop_all_macros"),
+  refreshDrivers: () => invoke<DriverStatus>("refresh_drivers"),
 
   listMacros: () => invoke<Macro[]>("list_macros"),
   saveMacro: (definition: Macro) => invoke<Macro>("save_macro", { definition }),

@@ -115,3 +115,26 @@ The TypeScript mirror is in `src/types/engine.ts`. A Rust test pins the JSON sha
 ## Macros
 
 See [`macro-studio.md`](macro-studio.md). Each controller's reader thread runs physical input → `ProcessingPipeline` → `MacroRunner` (from `macro-engine`) → virtual output. `DeviceSnapshot.input` is the physical state and `DeviceSnapshot.processed` is what games would receive. Macros are stored once in the profile database and shared by every profile.
+
+## Milestone 2 additions
+
+**Input pipeline.** Each controller's reader thread runs these stages in order:
+
+1. Parse the report into the physical `ControllerState`. This is the state shown in Live and Dashboard.
+2. Run `ConfiguredProcessor` (`input-processing`):
+   - sticks: deadzones, curve, sensitivity, anti-deadzone, circular output, inversion;
+   - triggers: deadzone, saturation, output range;
+   - button remapping.
+3. Run `MacroRunner` (`macro-engine`). It reads triggers from the *physical* state and overlays macro presses after remapping.
+4. Send to `VirtualOutputManager`, which uses `translate::to_xusb` / `to_ds4` once a backend exists.
+
+Settings and macros reach the reader threads through generation counters. Changes apply on the next report, with no locks held on the hot path and no allocation per report. The time NEXUS adds per report is measured in a fixed 256-sample window.
+
+**Device discovery.** `CM_Register_Notification` on the HID interface class wakes the supervisor on every arrival or removal. A 5-second scan remains as a safety net.
+
+**Profiles (schema v3).**
+- Each profile owns its processing settings (`settings_json`) and virtual output choice.
+- Macros are a shared library, while on/off is per profile (`profile_macros`).
+- Switching profile applies output mode, processing and macros together.
+
+**Virtual output.** See [`virtual-output.md`](virtual-output.md). Translation and driver detection are implemented. The ViGEmBus backend is gated on hardware validation.

@@ -4,7 +4,7 @@ import { EngineProvider, useEngine } from "./hooks/useEngine";
 import { Dashboard } from "./pages/Dashboard";
 import { MacroStudio } from "./pages/MacroStudio";
 import { Performance } from "./pages/Performance";
-import { PLACEHOLDERS, Placeholder } from "./pages/Placeholder";
+import { Controller } from "./pages/Controller";
 import { Profiles } from "./pages/Profiles";
 import { Settings } from "./pages/Settings";
 
@@ -15,10 +15,7 @@ function Page({ id }: { id: PageId }) {
     case "profiles": return <Profiles />;
     case "performance": return <Performance />;
     case "macro-studio": return <MacroStudio />;
-    default: {
-      const info = PLACEHOLDERS[id];
-      return info ? <Placeholder info={info} /> : null;
-    }
+    case "controller": return <Controller />;
   }
 }
 

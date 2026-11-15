@@ -12,7 +12,7 @@ import type { Macro } from "../types/engine";
 type View = { kind: "list" } | { kind: "create" } | { kind: "edit"; id: string };
 
 export function MacroStudio() {
-  const { connection, status } = useEngine();
+  const { connection, status, profile } = useEngine();
   const ready = connection.kind === "ready";
   const [macros, setMacros] = useState<Macro[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -24,7 +24,8 @@ export function MacroStudio() {
     try { setMacros(await engineApi.listMacros()); setLoaded(true); }
     catch (e) { setError(errorMessage(e)); }
   }, [ready]);
-  useEffect(() => { void reload(); }, [reload]);
+  // Which macros are on depends on the active profile.
+  useEffect(() => { void reload(); }, [reload, profile?.id]);
 
   const upsert = (m: Macro) => setMacros((list) =>
     list.some((x) => x.id === m.id) ? list.map((x) => (x.id === m.id ? m : x)) : [...list, m]);
@@ -89,9 +90,16 @@ function MacroList({ macros, loaded, error, gamesCanReceive, blockedReason, onCr
           <h1>Macro Studio</h1>
           <p className="muted">Record or build button sequences and start them with a single button.</p>
         </div>
-        <button className="btn-primary btn-create" onClick={onCreate}>
-          <span aria-hidden="true">＋</span> Create Macro
-        </button>
+        <div className="row gap">
+          {playing.length > 0 && (
+            <button className="btn-danger" onClick={() => void engineApi.stopAllMacros()} data-tip="Stop every macro immediately">
+              ■ Stop all macros
+            </button>
+          )}
+          <button className="btn-primary btn-create" onClick={onCreate}>
+            <span aria-hidden="true">＋</span> Create Macro
+          </button>
+        </div>
       </header>
 
       {!gamesCanReceive && blockedReason && (

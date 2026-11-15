@@ -3,58 +3,14 @@ import { Icon } from "../components/Icons";
 import { useEngine } from "../hooks/useEngine";
 import { buildDiagnosticsReport } from "../lib/diagnostics";
 import { engineApi, errorMessage } from "../lib/engine";
-import { backendReady, hex, outputLabel, time } from "../lib/format";
-import type { HidDiagnostic, LogEntry, RawReport, VirtualOutputKind } from "../types/engine";
-
-const OUTPUTS: VirtualOutputKind[] = ["disabled", "xbox360", "dualShock4"];
+import { hex, time } from "../lib/format";
+import type { HidDiagnostic, LogEntry, RawReport } from "../types/engine";
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="kv-row">
       <span className="muted">{label}</span>
       <span className="kv-value">{children}</span>
-    </div>
-  );
-}
-
-function VirtualOutputSection() {
-  const { status, profile, setProfile, connection } = useEngine();
-  const [error, setError] = useState<string | null>(null);
-  const disabled = connection.kind !== "ready";
-  const requested = status?.requestedOutput ?? profile?.virtualOutput ?? "disabled";
-  const backend = status?.outputBackendStatus;
-
-  const choose = async (mode: VirtualOutputKind) => {
-    setError(null);
-    try {
-      setProfile(await engineApi.setVirtualOutput(mode));
-    } catch (e) {
-      setError(errorMessage(e));
-    }
-  };
-
-  return (
-    <div className="card">
-      <h2>Virtual Output</h2>
-      <p className="muted small">
-        Which virtual controller games will see. Only one is ever active per physical controller, and the
-        previous one is removed before switching. The choice is saved to the active profile.
-      </p>
-      <div className="segmented" role="radiogroup" aria-label="Virtual output">
-        {OUTPUTS.map((o) => (
-          <button key={o} role="radio" aria-checked={requested === o} disabled={disabled}
-            className={requested === o ? "selected" : ""} onClick={() => choose(o)}>
-            {outputLabel[o]}
-          </button>
-        ))}
-      </div>
-      {backend && !backendReady(backend) && (
-        <div className="notice warn">
-          <strong>No virtual controller driver.</strong>{" "}
-          {backend.state === "unavailable" ? backend.reason : ""} Your selection is saved but no virtual device is created.
-        </div>
-      )}
-      {error && <div className="notice error">{error}</div>}
     </div>
   );
 }
@@ -222,7 +178,7 @@ export function Settings() {
         <div className="card">
           <h2>Device Discovery</h2>
           <Row label="HID backend">{status?.hidBackend ?? "—"}</Row>
-          <Row label="Automatic connect">Enabled (scans every second)</Row>
+          <Row label="Automatic connect">{status?.hotplugActive ? "Instant (Windows device notifications)" : "Enabled (scans every second)"}</Row>
           <Row label="Automatic reconnect">Enabled</Row>
           {status?.enumerationError && <div className="notice error">{status.enumerationError}</div>}
           <button className="btn-secondary" disabled={connection.kind !== "ready"}
@@ -232,7 +188,7 @@ export function Settings() {
         </div>
       </div>
 
-      <VirtualOutputSection />
+      <div className="notice dev">Virtual controller type and driver status are under <strong>Controller › Virtual Output</strong>.</div>
       <HidDevicesSection />
       <DiagnosticsSection />
     </div>

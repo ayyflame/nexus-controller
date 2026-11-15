@@ -2,19 +2,14 @@ import { Icon, type IconName } from "./Icons";
 import { useControllerPhase } from "./StatusPill";
 
 export type PageId =
-  | "dashboard" | "stick-tuning" | "button-mapping" | "trigger-settings" | "macro-studio"
-  | "controller-settings" | "profiles" | "performance" | "obs-overlay" | "settings";
+  | "dashboard" | "controller" | "macro-studio" | "profiles" | "performance" | "settings";
 
 export const NAV: Array<{ id: PageId; label: string; icon: IconName }> = [
   { id: "dashboard", label: "Dashboard", icon: "dashboard" },
-  { id: "stick-tuning", label: "Stick Tuning", icon: "stick" },
-  { id: "button-mapping", label: "Button Mapping", icon: "mapping" },
-  { id: "trigger-settings", label: "Trigger Settings", icon: "trigger" },
+  { id: "controller", label: "Controller", icon: "controller" },
   { id: "macro-studio", label: "Macro Studio", icon: "macro" },
-  { id: "controller-settings", label: "Controller Settings", icon: "controller" },
   { id: "profiles", label: "Profiles", icon: "profiles" },
   { id: "performance", label: "Performance", icon: "performance" },
-  { id: "obs-overlay", label: "OBS Overlay", icon: "overlay" },
 ];
 
 function NexusMark() {

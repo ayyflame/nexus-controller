@@ -75,6 +75,8 @@ export interface DeviceSnapshot {
   processed: ControllerState | null;
   /** IDs of macros playing on this controller right now. */
   playingMacros: string[];
+  /** Time NEXUS spends per report (processing, macros, output). */
+  pipelineLatency: LatencySummary;
   lastReportMs: number | null;
   reportRateHz: number;
   totalReports: number;
@@ -87,13 +89,20 @@ export interface EngineStatus {
   revision: number;
   hidBackend: string;
   hidAvailable: boolean;
+  hotplugActive: boolean;
   enumerationError: string | null;
   requestedOutput: VirtualOutputKind;
   outputBackend: string;
   outputBackendStatus: BackendStatus;
   devices: DeviceSnapshot[];
   macros: MacroRuntimeStatus;
+  drivers: DriverStatus;
 }
+
+export interface LatencySummary { p50Us: number; p99Us: number; maxUs: number; samples: number }
+
+export type DriverPresence = "installed" | "notInstalled" | "unknown";
+export interface DriverStatus { vigembus: DriverPresence; hidhide: DriverPresence }
 
 export interface MacroRuntimeStatus {
   armed: number;
@@ -136,6 +145,7 @@ export interface Profile {
   id: number;
   name: string;
   virtualOutput: VirtualOutputKind;
+  processing: ProcessingConfig;
   createdAtMs: number;
   updatedAtMs: number;
 }
@@ -209,4 +219,37 @@ export interface HidDiagnostic {
   identifiedModel: ControllerModel | null;
   connection: ConnectionType | null;
   origin: DeviceOrigin | null;
+}
+
+// ---- Processing (crates/input-processing/src/config.rs) ----
+
+export type DeadzoneShape = "radial" | "axial";
+export interface CurvePoint { x: number; y: number }
+export type ResponseCurve =
+  | { type: "linear" }
+  | { type: "power"; exponent: number }
+  | { type: "custom"; points: CurvePoint[] };
+
+export interface StickConfig {
+  deadzone: number;
+  outerDeadzone: number;
+  antiDeadzone: number;
+  sensitivity: number;
+  curve: ResponseCurve;
+  shape: DeadzoneShape;
+  circular: boolean;
+  invertX: boolean;
+  invertY: boolean;
+}
+
+export interface TriggerConfig { deadzone: number; maxInput: number; outputMin: number; outputMax: number }
+
+export interface RemapRule { from: MacroButton; to: MacroButton | null }
+
+export interface ProcessingConfig {
+  leftStick: StickConfig;
+  rightStick: StickConfig;
+  leftTrigger: TriggerConfig;
+  rightTrigger: TriggerConfig;
+  remap: RemapRule[];
 }

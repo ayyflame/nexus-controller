@@ -50,3 +50,18 @@ Setup steps: `docs/windows-setup.md`. Useful tools: **Settings → HID Devices (
 | 25 | Repeat While Held / Toggle | Repeats while held / until pressed again | |
 | 26 | Unplug the controller while a Toggle macro plays | Macro stops; nothing stays pressed after reconnect | |
 | 27 | Close NEXUS during recording, then reopen | App closes cleanly; saved macros still listed | |
+
+## Controller settings and profiles (Milestone 2)
+
+| # | Step | Expected | Result |
+|---|---|---|---|
+| 28 | Controller › Live: move each stick and trigger | "Your controller" and "Sent to the game" both move; deadzone circle visible | |
+| 29 | Sticks: set deadzone 30%, move the stick slightly | Gold dot stays centred until past the circle | |
+| 30 | Sticks: Precise curve, then Custom (drag a point) | Output follows the curve shown | |
+| 31 | Triggers: deadzone 20%, Full press at 60% | Output 0 below 20%, 100% from 60% | |
+| 32 | Buttons: Cross → Circle, Touchpad → Disabled | Live "Sent to the game" shows Circle; touchpad does nothing | |
+| 33 | Profiles: create, rename, duplicate, switch, delete | Settings follow the profile; nothing from the old profile stays active | |
+| 34 | Quit and reopen NEXUS | Last-used profile and its settings load | |
+| 35 | Plug/unplug USB and pair/unpair Bluetooth | Connect/disconnect appears instantly (Settings shows "Instant (Windows device notifications)") | |
+| 36 | Macro Studio: start a Toggle macro, press **Stop all macros** | Playing stops immediately; holding the trigger does not restart it | |
+| 37 | Repeat 28–32 and 36 over Bluetooth | Same results | |

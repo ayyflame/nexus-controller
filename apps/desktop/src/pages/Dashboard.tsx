@@ -62,6 +62,8 @@ export function Dashboard() {
 
   const requested = status?.requestedOutput ?? "disabled";
   const driverReady = status ? backendReady(status.outputBackendStatus) : false;
+  const activeOutput = device?.output.active ?? null;
+  const vigem = status?.drivers.vigembus;
 
   return (
     <div className="page">
@@ -73,29 +75,36 @@ export function Dashboard() {
         <StatusPill tone={phase.tone}>{phase.label}</StatusPill>
       </header>
 
-      <section className="stat-grid">
+      <section className="stat-grid six">
         <StatCard
-          label="Controller"
+          label="Physical controller"
           accent={live}
-          value={device ? modelLabel[device.device.model] : "—"}
-          sub={device ? (battery ? `Battery ${battery.percent}% · ${battery.status}` : "Battery not reported") : phase.label}
-        />
-        <StatCard
-          label="Connection"
-          value={device ? (
+          value={device ? modelLabel[device.device.model] : "Not connected"}
+          sub={device ? (
             <span className="inline-icon">
-              {device.device.connection !== "unknown" && <Icon name={device.device.connection} size={18} />}
-              {connectionLabel[device.device.connection]}
+              {device.device.connection !== "unknown" && <Icon name={device.device.connection} size={14} />}
+              {connectionLabel[device.device.connection]} · {device.reportRateHz.toFixed(0)} reports/s
+              {battery ? ` · ${battery.percent}%` : ""}
             </span>
-          ) : "—"}
-          sub={device ? `${device.reportRateHz.toFixed(0)} reports/s` : "Not connected"}
+          ) : phase.label}
         />
         <StatCard
-          label="Virtual Output"
-          value={outputLabel[requested]}
-          sub={requested === "disabled" ? "No virtual controller" : driverReady ? "Driver ready" : "Not active · no driver installed"}
+          label="Virtual controller"
+          value={activeOutput ? `${outputLabel[activeOutput]}` : "Not connected"}
+          sub={activeOutput ? "Connected" : requested === "disabled" ? "Turned off" : driverReady ? "Waiting for controller" : "Not available yet"}
         />
-        <StatCard label="Profile" value={profile?.name ?? "—"} sub="Last used profile" />
+        <StatCard label="Output type" value={outputLabel[requested]} sub="Controller › Virtual Output" />
+        <StatCard
+          label="Driver (ViGEmBus)"
+          value={vigem === "installed" ? "Installed" : vigem === "notInstalled" ? "Not installed" : "Unknown"}
+          sub={driverReady ? "Ready" : "Virtual output not enabled yet"}
+        />
+        <StatCard label="Profile" value={profile?.name ?? "—"} sub="Loads automatically at start-up" />
+        <StatCard
+          label="Macros"
+          value={`${status?.macros.armed ?? 0} on`}
+          sub={(device?.playingMacros.length ?? 0) > 0 ? `${device!.playingMacros.length} playing now` : status?.macros.gamesCanReceive ? "Reaching games" : "Testable in NEXUS only"}
+        />
       </section>
 
       <section className="dash-main">
