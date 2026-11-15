@@ -543,3 +543,19 @@ fn pipeline_latency_is_measured() {
     let l = s.devices[0].pipeline_latency;
     assert!(l.p50_us <= l.p99_us && l.p99_us <= l.max_us);
 }
+
+#[test]
+fn stop_all_macros_cancels_a_toggled_macro() {
+    let (backend, e) = connected_engine();
+    e.set_macros(vec![jump_macro(PlaybackMode::Toggle)]);
+    backend.push_report(PATH, report(&[]));
+    backend.push_report(PATH, report(&[R3]));
+    wait_status(&e, "playing", |s| !s.devices[0].playing_macros.is_empty());
+    e.stop_all_macros();
+    backend.push_report(PATH, report(&[]));
+    let s = wait_status(&e, "stopped", |s| s.devices[0].playing_macros.is_empty());
+    assert!(
+        !s.devices[0].processed.unwrap().buttons.south,
+        "no stuck press"
+    );
+}

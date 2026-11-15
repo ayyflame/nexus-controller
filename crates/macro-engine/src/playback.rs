@@ -54,6 +54,7 @@ pub struct MacroLibrary {
     macros: RwLock<Arc<Vec<Macro>>>,
     generation: AtomicU64,
     suspended: AtomicBool,
+    stop_requests: AtomicU64,
 }
 
 impl MacroLibrary {
@@ -88,6 +89,16 @@ impl MacroLibrary {
     pub fn is_suspended(&self) -> bool {
         self.suspended.load(Ordering::Acquire)
     }
+
+    /// Stops every running macro on every controller (including toggled
+    /// ones). Each starts again only on a fresh trigger press.
+    pub fn request_stop_all(&self) {
+        self.stop_requests.fetch_add(1, Ordering::AcqRel);
+    }
+
+    fn stop_requests(&self) -> u64 {
+        self.stop_requests.load(Ordering::Acquire)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -95,6 +106,9 @@ struct Slot {
     trigger_was_down: bool,
     toggled_on: bool,
     started: Option<Instant>,
+    /// Set by a stop: the trigger must be released before the macro can
+    /// start again (otherwise a held trigger would restart it at once).
+    latched: bool,
 }
 
 /// Runs macros for one physical controller. Owned by that controller's
@@ -103,6 +117,7 @@ struct Slot {
 pub struct MacroRunner {
     library: Arc<MacroLibrary>,
     generation: Option<u64>,
+    stops_seen: u64,
     macros: Arc<Vec<Macro>>,
     slots: Vec<Slot>,
 }
@@ -110,6 +125,7 @@ pub struct MacroRunner {
 impl MacroRunner {
     pub fn new(library: Arc<MacroLibrary>) -> Self {
         Self {
+            stops_seen: library.stop_requests(),
             library,
             generation: None,
             macros: Arc::new(Vec::new()),
@@ -125,6 +141,12 @@ impl MacroRunner {
         now: Instant,
     ) {
         self.reload_if_changed(physical);
+
+        let stops = self.library.stop_requests();
+        if stops != self.stops_seen {
+            self.stops_seen = stops;
+            self.stop_all();
+        }
 
         if self.library.is_suspended() {
             for (m, slot) in self.macros.iter().zip(&mut self.slots) {
@@ -145,6 +167,16 @@ impl MacroRunner {
             let down = trigger.is_pressed(physical);
             let edge = down && !slot.trigger_was_down;
             slot.trigger_was_down = down;
+            if !down {
+                slot.latched = false;
+            }
+            if slot.latched {
+                // Keep hiding the trigger, but play nothing until released.
+                if m.block_trigger {
+                    blocked |= trigger.bit();
+                }
+                continue;
+            }
             if m.block_trigger {
                 blocked |= trigger.bit();
             }
@@ -234,11 +266,13 @@ impl MacroRunner {
             .collect()
     }
 
-    /// Stops every macro immediately.
+    /// Stops every macro immediately. A macro starts again only after its
+    /// trigger has been released and pressed again.
     pub fn stop_all(&mut self) {
         for slot in &mut self.slots {
             slot.started = None;
             slot.toggled_on = false;
+            slot.latched = true;
         }
     }
 }
@@ -496,6 +530,31 @@ mod tests {
         assert!(out.buttons.left_shoulder && out.buttons.right_shoulder && out.dpad.up());
         assert!(!out.buttons.left_stick && !out.buttons.right_stick);
         assert_eq!(r.playing().len(), 2);
+    }
+
+    #[test]
+    fn stop_request_cancels_toggled_and_held_macros() {
+        let t0 = Instant::now();
+        let mut held = two_step(PlaybackMode::RepeatWhileHeld);
+        held.id = "held".into();
+        held.trigger = Some(MacroButton::LeftStick);
+        let (lib, mut r) = runner(vec![two_step(PlaybackMode::Toggle), held]);
+        let mut both = pressed(MacroButton::RightStick);
+        MacroButton::LeftStick.set(&mut both, true);
+        frame(&mut r, &both, t0);
+        assert_eq!(r.playing().len(), 2);
+        lib.request_stop_all();
+        // Trigger still held: nothing restarts until it is pressed again.
+        let out = frame(&mut r, &both, at(t0, 5));
+        assert!(!out.buttons.south, "no macro output after stop");
+        assert!(r.playing().is_empty());
+        frame(&mut r, &ControllerState::default(), at(t0, 10));
+        assert!(
+            frame(&mut r, &pressed(MacroButton::RightStick), at(t0, 20))
+                .buttons
+                .south,
+            "can start again"
+        );
     }
 
     #[test]

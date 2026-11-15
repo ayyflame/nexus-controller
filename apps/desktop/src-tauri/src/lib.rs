@@ -92,6 +92,7 @@ pub fn run() {
             commands::start_macro_recording,
             commands::stop_macro_recording,
             commands::cancel_macro_recording,
+            commands::stop_all_macros,
         ])
         .build(tauri::generate_context!())
         .expect("failed to build the NEXUS application");

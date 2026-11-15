@@ -504,6 +504,13 @@ impl Engine {
         self.shared.bump();
     }
 
+    /// Immediately stops every running macro on every controller.
+    pub fn stop_all_macros(&self) {
+        self.shared.macros.request_stop_all();
+        self.shared
+            .log(LogLevel::Info, "macro", "All macros stopped");
+    }
+
     /// Starts recording physical button input. Macros are paused meanwhile.
     pub fn start_recording(&self) -> Result<(), String> {
         // Record the first controller that is sending input, starting from

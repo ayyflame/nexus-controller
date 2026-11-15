@@ -251,6 +251,11 @@ pub fn stop_macro_recording(state: State<'_, AppState>) -> CmdResult<RecordingRe
 }
 
 #[tauri::command]
+pub fn stop_all_macros(state: State<'_, AppState>) {
+    state.engine.stop_all_macros();
+}
+
+#[tauri::command]
 pub fn cancel_macro_recording(state: State<'_, AppState>) {
     state.engine.cancel_recording();
 }
