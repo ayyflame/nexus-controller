@@ -1,0 +1,23 @@
+[package]
+name = "nexus-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+nexus-controller-core.workspace = true
+nexus-device-manager.workspace = true
+nexus-dualsense.workspace = true
+nexus-input-processing.workspace = true
+nexus-virtual-controller.workspace = true
+nexus-telemetry.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+nexus-device-manager = { workspace = true, features = ["test-support"] }
+nexus-dualsense = { workspace = true, features = ["test-support"] }

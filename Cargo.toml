@@ -1,0 +1,35 @@
+[workspace]
+resolver = "2"
+members = ["crates/*", "apps/desktop/src-tauri"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "UNLICENSED"
+publish = false
+rust-version = "1.89"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+rusqlite = { version = "0.43", features = ["bundled"] }
+windows-sys = "0.61"
+
+nexus-controller-core = { path = "crates/controller-core" }
+nexus-device-manager = { path = "crates/device-manager" }
+nexus-dualsense = { path = "crates/dualsense" }
+nexus-input-processing = { path = "crates/input-processing" }
+nexus-virtual-controller = { path = "crates/virtual-controller" }
+nexus-button-mapping = { path = "crates/button-mapping" }
+nexus-macro-engine = { path = "crates/macro-engine" }
+nexus-profile-manager = { path = "crates/profile-manager" }
+nexus-telemetry = { path = "crates/telemetry" }
+nexus-engine = { path = "crates/engine" }
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

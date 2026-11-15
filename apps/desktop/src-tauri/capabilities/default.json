@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Permissions for the main NEXUS window. Only core IPC and events; no filesystem, shell or HTTP access.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
