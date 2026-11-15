@@ -1941,6 +1941,7 @@ dependencies = [
  "nexus-macro-engine",
  "nexus-profile-manager",
  "nexus-telemetry",
+ "nexus-virtual-controller",
  "serde",
  "serde_json",
  "tauri",
@@ -2021,6 +2022,7 @@ dependencies = [
  "nexus-controller-core",
  "serde",
  "thiserror 2.0.21",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

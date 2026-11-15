@@ -343,7 +343,7 @@ fn macro_runs_from_physical_trigger_and_shows_in_processed_output() {
         .blocked_reason
         .as_deref()
         .unwrap()
-        .contains("virtual controller driver"));
+        .contains("virtual controller output isn't enabled"));
 }
 
 #[test]

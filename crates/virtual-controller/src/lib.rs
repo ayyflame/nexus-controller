@@ -6,10 +6,19 @@
 //! at most one virtual device per physical controller, and the previous
 //! device is always disconnected before a different mode is connected.
 //!
-//! Milestone 1 ships **no driver-backed implementation**. [`UnavailableBackend`]
-//! reports honestly that no driver is configured.
+//! * [`translate`] converts output state to Xbox 360 (XUSB) and DualShock 4
+//!   report layouts; any driver backend uses it.
+//! * [`drivers`] detects (read-only) whether ViGEmBus and HidHide exist.
+//!
+//! No driver-backed implementation is enabled yet: the experimental
+//! ViGEmBus backend is gated on real-hardware validation of DualSense input
+//! (see `docs/virtual-output.md`). [`UnavailableBackend`] reports that
+//! honestly.
 
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
+
+pub mod drivers;
+pub mod translate;
 
 use nexus_controller_core::{ControllerState, VirtualOutputKind};
 use serde::Serialize;
@@ -56,8 +65,8 @@ pub trait VirtualControllerBackend: Send {
 #[derive(Debug, Default)]
 pub struct UnavailableBackend;
 
-pub const NO_DRIVER_REASON: &str =
-    "No virtual controller driver is configured. Driver selection is pending review (Milestone 2).";
+pub const NO_DRIVER_REASON: &str = "Virtual controller output is not enabled in this build yet. \
+It will be turned on after NEXUS has been verified with a real DualSense over USB and Bluetooth.";
 
 impl VirtualControllerBackend for UnavailableBackend {
     fn name(&self) -> &'static str {

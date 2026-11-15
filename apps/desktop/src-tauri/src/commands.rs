@@ -89,6 +89,13 @@ pub fn get_hid_diagnostics(state: State<'_, AppState>) -> Vec<HidDiagnostic> {
 }
 
 #[tauri::command]
+pub fn refresh_drivers(
+    state: State<'_, AppState>,
+) -> nexus_virtual_controller::drivers::DriverStatus {
+    state.engine.refresh_drivers()
+}
+
+#[tauri::command]
 pub fn rescan_devices(state: State<'_, AppState>) {
     state.engine.rescan();
 }

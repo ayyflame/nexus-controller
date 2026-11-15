@@ -29,6 +29,7 @@ use nexus_telemetry::{
     unix_millis, LatencySummary, LatencyWindow, LogEntry, LogLevel, RateCounter, RawReport,
     Telemetry,
 };
+use nexus_virtual_controller::drivers::{probe_drivers, DriverStatus};
 use nexus_virtual_controller::{
     BackendStatus, OutputStatus, UnavailableBackend, VirtualControllerBackend, VirtualOutputManager,
 };
@@ -109,6 +110,8 @@ pub struct EngineStatus {
     pub output_backend_status: BackendStatus,
     pub devices: Vec<DeviceSnapshot>,
     pub macros: MacroRuntimeStatus,
+    /// Whether ViGEmBus / HidHide are installed (read-only check).
+    pub drivers: DriverStatus,
 }
 
 /// Whether macros can affect games right now, and recording progress.
@@ -261,6 +264,7 @@ struct Shared {
     subscribers: Mutex<Vec<Sender<EngineEvent>>>,
     enumeration_error: Mutex<Option<String>>,
     hid_scan: Mutex<Vec<HidDiagnostic>>,
+    drivers: Mutex<DriverStatus>,
     macros: Arc<MacroLibrary>,
     recording: Mutex<Option<RecordingState>>,
     processing: Mutex<Arc<ProcessingConfig>>,
@@ -333,6 +337,7 @@ impl Engine {
             subscribers: Mutex::new(Vec::new()),
             enumeration_error: Mutex::new(None),
             hid_scan: Mutex::new(Vec::new()),
+            drivers: Mutex::new(probe_drivers()),
             macros: Arc::new(MacroLibrary::new()),
             recording: Mutex::new(None),
             processing: Mutex::new(Arc::new(config.processing.sanitized())),
@@ -426,6 +431,7 @@ impl Engine {
         let devices = lock(&self.shared.devices).values().cloned().collect();
         let enumeration_error = lock(&self.shared.enumeration_error).clone();
         let requested_output = *lock(&self.shared.requested_output);
+        let drivers = *lock(&self.shared.drivers);
         EngineStatus {
             revision: self.revision(),
             hid_backend: self.shared.hid_backend.clone(),
@@ -437,6 +443,7 @@ impl Engine {
             output_backend_status: self.shared.output_backend_status.clone(),
             devices,
             macros,
+            drivers,
         }
     }
 
@@ -448,7 +455,7 @@ impl Engine {
         let blocked_reason = match (&self.shared.output_backend_status, requested) {
             _ if any_active => None,
             (BackendStatus::Unavailable { .. }, _) => Some(
-                "Games can't receive macros yet: NEXUS has no virtual controller driver installed. \
+                "Games can't receive macros yet: virtual controller output isn't enabled in this build. \
                  You can still create, record and test macros here."
                     .to_owned(),
             ),
@@ -596,6 +603,14 @@ impl Engine {
     /// notification). Triggers an immediate scan.
     pub fn notify_device_change(&self) {
         let _ = self.control.send(Control::DeviceChange);
+    }
+
+    /// Checks again whether the optional drivers are installed.
+    pub fn refresh_drivers(&self) -> DriverStatus {
+        let status = probe_drivers();
+        *lock(&self.shared.drivers) = status;
+        self.shared.bump();
+        status
     }
 
     pub fn rescan(&self) {
