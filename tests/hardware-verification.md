@@ -2,7 +2,7 @@
 
 None of these have been performed yet. Milestone 1 was built in a Linux container without access to Windows or a DualSense. Run them on Windows 11 x64 with a real DualSense and record the results.
 
-Useful tools: **Settings → Diagnostics → Raw HID Reports** (enable auto-refresh) and **Engine Log**.
+Setup steps: `docs/windows-setup.md`. Useful tools: **Settings → HID Devices (Sony)** (what Windows reports and how NEXUS classified it; **Copy diagnostics report**), **Raw HID Reports** (enable auto-refresh) and **Engine Log**.
 
 ## Discovery and connection
 

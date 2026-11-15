@@ -1,6 +1,15 @@
 # Virtual Controller Driver Evaluation
 
-Status: **decision pending review.** Nothing is installed or bundled. The engine ships with `UnavailableBackend`, which reports that no driver is configured.
+Status: **experimental ViGEmBus backend approved for Milestone 2 (2026-11-15). Production driver selection remains open.** Nothing is installed or bundled. The engine still ships with `UnavailableBackend`.
+
+## Approved conditions (Milestone 1 review)
+
+- Experimental ViGEmBus backend, supporting **both** Xbox 360 and DualShock 4 output.
+- Never installed silently; **explicit user approval** is required before any driver installation.
+- **Not bundled** in the production installer.
+- Implemented only behind the replaceable `VirtualControllerBackend` interface.
+- Its retired status and security/compatibility risks are documented (below) and surfaced in the app.
+- Work starts **only after** physical DualSense input is verified on real Windows 11 hardware.
 
 Research date: 2026-11-15. Sources were checked where the session's network allowed. `docs.nefarius.at` and `docs.lizardbyte.dev` were not reachable from the build environment, so some points rely on the projects' GitHub pages and READMEs. They are marked *(verify)*.
 

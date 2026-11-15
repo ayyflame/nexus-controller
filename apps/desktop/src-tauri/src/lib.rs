@@ -67,6 +67,7 @@ pub fn run() {
             commands::get_status,
             commands::get_event_log,
             commands::get_raw_reports,
+            commands::get_hid_diagnostics,
             commands::rescan_devices,
             commands::list_profiles,
             commands::get_active_profile,

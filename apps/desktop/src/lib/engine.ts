@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
-  AppInfo, CommandError, EngineEvent, EngineStatus, LogEntry, Profile, RawReport,
+  AppInfo, CommandError, EngineEvent, HidDiagnostic, EngineStatus, LogEntry, Profile, RawReport,
   VirtualOutputKind,
 } from "../types/engine";
 
@@ -26,6 +26,7 @@ export const engineApi = {
   getStatus: () => invoke<EngineStatus>("get_status"),
   getEventLog: (limit?: number) => invoke<LogEntry[]>("get_event_log", { limit }),
   getRawReports: (limit?: number) => invoke<RawReport[]>("get_raw_reports", { limit }),
+  getHidDiagnostics: () => invoke<HidDiagnostic[]>("get_hid_diagnostics"),
   rescanDevices: () => invoke<void>("rescan_devices"),
   listProfiles: () => invoke<Profile[]>("list_profiles"),
   getActiveProfile: () => invoke<Profile>("get_active_profile"),

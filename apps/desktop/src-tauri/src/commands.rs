@@ -3,7 +3,7 @@
 
 use crate::AppState;
 use nexus_controller_core::VirtualOutputKind;
-use nexus_engine::EngineStatus;
+use nexus_engine::{EngineStatus, HidDiagnostic};
 use nexus_profile_manager::Profile;
 use nexus_telemetry::{LogEntry, RawReport};
 use serde::Serialize;
@@ -62,6 +62,11 @@ pub fn get_raw_reports(state: State<'_, AppState>, limit: Option<usize>) -> Vec<
     state
         .engine
         .recent_raw_reports(limit.unwrap_or(32).min(MAX_LIMIT))
+}
+
+#[tauri::command]
+pub fn get_hid_diagnostics(state: State<'_, AppState>) -> Vec<HidDiagnostic> {
+    state.engine.hid_diagnostics()
 }
 
 #[tauri::command]

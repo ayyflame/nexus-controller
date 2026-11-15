@@ -128,3 +128,24 @@ export interface AppInfo {
 }
 
 export interface CommandError { message: string }
+
+/** What Windows reported for one HID collection (serial/MAC masked). */
+export interface HidDiagnostic {
+  path: string;
+  vendorId: number;
+  productId: number;
+  releaseNumber: number;
+  usagePage: number;
+  usage: number;
+  inputReportLen: number;
+  outputReportLen: number;
+  featureReportLen: number;
+  manufacturer: string | null;
+  product: string | null;
+  serialMasked: string | null;
+  instanceId: string | null;
+  ancestorInstanceIds: string[];
+  identifiedModel: ControllerModel | null;
+  connection: ConnectionType | null;
+  origin: DeviceOrigin | null;
+}

@@ -226,3 +226,44 @@ fn shutdown_releases_devices_and_is_idempotent() {
         .iter()
         .any(|l| l.message == "Engine stopped"));
 }
+
+#[test]
+fn hid_diagnostics_report_scan_with_masked_serial() {
+    let backend = MockHidBackend::new();
+    let mut info = usb_info();
+    info.serial_number = Some("a0:b1:c2:d3:e4:f5".into());
+    backend.plug(info);
+    let e = engine(&backend);
+    wait_status(&e, "connect", |s| s.devices.len() == 1);
+    let diag = e.hid_diagnostics();
+    assert_eq!(diag.len(), 1);
+    assert_eq!(
+        diag[0].identified_model,
+        Some(nexus_controller_core::ControllerModel::DualSense)
+    );
+    assert_eq!(diag[0].origin, Some(DeviceOrigin::Physical));
+    assert_eq!(diag[0].serial_masked.as_deref(), Some("***************f5"));
+    assert_eq!(diag[0].ancestor_instance_ids.len(), 3);
+}
+
+#[test]
+fn mask_serial_handles_short_values() {
+    assert_eq!(mask_serial(""), "");
+    assert_eq!(mask_serial("a"), "a");
+    assert_eq!(mask_serial("abc"), "*bc");
+}
+
+#[test]
+fn mac_addresses_in_instance_ids_are_masked() {
+    let id = r"BTHENUM\{00001124-0000-1000-8000-00805F9B34FB}_VID&0002054C_PID&0CE6\8&1A2B3C4D&0&A0B1C2D3E4F5_C00000000";
+    let masked = mask_mac_like(id);
+    assert!(masked.contains("&**********F5_C00000000"), "{masked}");
+    assert!(
+        masked.contains("00805F9B34FB}"),
+        "GUID tail must be kept: {masked}"
+    );
+    assert_eq!(
+        mask_mac_like(r"USB\VID_054C&PID_0CE6\6&ABCDEF&0&3"),
+        r"USB\VID_054C&PID_0CE6\6&ABCDEF&0&3"
+    );
+}

@@ -211,3 +211,8 @@ p { margin: 0; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+.hid-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; user-select: text; }
+.hid-item { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; }
+.hid-item b { color: var(--gold-bright); font-weight: 600; }
+.report-box { width: 100%; height: 220px; margin-top: 10px; background: var(--bg); color: #cfc6b2; border: 1px solid var(--border); border-radius: 6px; padding: 10px; font-size: 11.5px; user-select: text; resize: vertical; }

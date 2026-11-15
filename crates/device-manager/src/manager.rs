@@ -2,7 +2,8 @@ use crate::backend::HidBackend;
 use crate::session::{self, SessionContext, SessionHandlerFactory, STOP_REMOVED, STOP_SHUTDOWN};
 use crate::tracker::{Candidate, ConnectionTracker, TrackerAction};
 use nexus_controller_core::{
-    ConnectedDevice, ControllerDriver, DeviceEvent, DeviceId, DisconnectReason,
+    ConnectedDevice, ControllerDriver, DeviceEvent, DeviceId, DisconnectReason, HidDeviceInfo,
+    Identification,
 };
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -28,6 +29,14 @@ impl Default for DeviceManagerConfig {
     }
 }
 
+/// One HID collection from the vendor-filtered enumeration, with the
+/// identification result (if any). Kept for diagnostics.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ScannedDevice {
+    pub info: HidDeviceInfo,
+    pub identification: Option<Identification>,
+}
+
 struct RunningSession {
     device: ConnectedDevice,
     stop: Arc<AtomicU8>,
@@ -51,6 +60,7 @@ pub struct DeviceManager {
     notify: Arc<dyn Fn() + Send + Sync>,
     next_scan: Instant,
     last_enumeration_error: Option<String>,
+    last_scan: Vec<ScannedDevice>,
     thread_counter: u64,
 }
 
@@ -84,6 +94,7 @@ impl DeviceManager {
             notify,
             next_scan: Instant::now(),
             last_enumeration_error: None,
+            last_scan: Vec::new(),
             thread_counter: 0,
         }
     }
@@ -99,6 +110,12 @@ impl DeviceManager {
     /// The most recent enumeration error, cleared by the next successful scan.
     pub fn last_enumeration_error(&self) -> Option<&str> {
         self.last_enumeration_error.as_deref()
+    }
+
+    /// Every HID collection from the most recent successful scan whose vendor
+    /// a driver claims, including ones no driver identified.
+    pub fn last_scan(&self) -> &[ScannedDevice] {
+        &self.last_scan
     }
 
     pub fn connected_devices(&self) -> Vec<ConnectedDevice> {
@@ -164,18 +181,27 @@ impl DeviceManager {
             }
         };
 
-        let candidates: Vec<Candidate> = devices
-            .into_iter()
-            .filter_map(|info| {
-                self.drivers.iter().enumerate().find_map(|(i, d)| {
-                    d.identify(&info).map(|identification| Candidate {
-                        info: info.clone(),
-                        identification,
-                        driver: i,
-                    })
-                })
-            })
-            .collect();
+        let mut candidates = Vec::new();
+        let mut scanned = Vec::with_capacity(devices.len());
+        for info in devices {
+            let found = self
+                .drivers
+                .iter()
+                .enumerate()
+                .find_map(|(i, d)| d.identify(&info).map(|ident| (i, ident)));
+            scanned.push(ScannedDevice {
+                info: info.clone(),
+                identification: found.as_ref().map(|(_, ident)| ident.clone()),
+            });
+            if let Some((driver, identification)) = found {
+                candidates.push(Candidate {
+                    info,
+                    identification,
+                    driver,
+                });
+            }
+        }
+        self.last_scan = scanned;
 
         let (actions, tracker_events) = self.tracker.reconcile(candidates, now);
         events.extend(tracker_events);
@@ -515,6 +541,22 @@ mod tests {
         backend.set_fail_open("pad", false);
         // Retried after the 1 s backoff.
         poll_until(&mut m, |e| matches!(e, DeviceEvent::Connected { .. }));
+    }
+
+    #[test]
+    fn last_scan_lists_identified_and_unidentified_devices() {
+        let backend = MockHidBackend::new();
+        backend.plug(info("pad"));
+        let mut other = info("other");
+        other.vendor_id = 0x9999; // filtered out by vendor
+        backend.plug(other);
+        let rec = Recorder::default();
+        let mut m = manager(&backend, &rec);
+        m.poll();
+        let scan = m.last_scan();
+        assert_eq!(scan.len(), 1);
+        assert_eq!(scan[0].info.path, "pad");
+        assert!(scan[0].identification.is_some());
     }
 
     #[test]

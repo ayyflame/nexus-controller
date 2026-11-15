@@ -14,11 +14,11 @@
 #![forbid(unsafe_code)]
 
 use nexus_controller_core::{
-    ConnectedDevice, ConnectionType, ControllerDriver, ControllerState, DeviceEvent, DeviceId,
-    DisconnectReason, ReportError, VirtualOutputKind,
+    ConnectedDevice, ConnectionType, ControllerDriver, ControllerModel, ControllerState,
+    DeviceEvent, DeviceId, DeviceOrigin, DisconnectReason, ReportError, VirtualOutputKind,
 };
 use nexus_device_manager::{
-    platform_backend, DeviceManager, DeviceManagerConfig, HidBackend, SessionHandler,
+    platform_backend, DeviceManager, DeviceManagerConfig, HidBackend, ScannedDevice, SessionHandler,
 };
 use nexus_dualsense::DualSenseDriver;
 use nexus_input_processing::ProcessingPipeline;
@@ -86,6 +86,100 @@ pub struct EngineStatus {
     pub devices: Vec<DeviceSnapshot>,
 }
 
+/// What Windows reported for one HID collection during the latest scan.
+/// Used to diagnose identification problems on real hardware. The serial
+/// number (a Bluetooth DualSense reports its MAC address) is masked.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HidDiagnostic {
+    pub path: String,
+    pub vendor_id: u16,
+    pub product_id: u16,
+    pub release_number: u16,
+    pub usage_page: u16,
+    pub usage: u16,
+    pub input_report_len: u16,
+    pub output_report_len: u16,
+    pub feature_report_len: u16,
+    pub manufacturer: Option<String>,
+    pub product: Option<String>,
+    pub serial_masked: Option<String>,
+    pub instance_id: Option<String>,
+    pub ancestor_instance_ids: Vec<String>,
+    /// `None` if no driver recognised this collection.
+    pub identified_model: Option<ControllerModel>,
+    pub connection: Option<ConnectionType>,
+    pub origin: Option<DeviceOrigin>,
+}
+
+/// Keeps only the last two characters of a serial number.
+pub fn mask_serial(serial: &str) -> String {
+    let chars: Vec<char> = serial.chars().collect();
+    let keep = chars.len().min(2);
+    let hidden = chars.len() - keep;
+    "*".repeat(hidden) + &chars[hidden..].iter().collect::<String>()
+}
+
+/// Masks runs of exactly 12 hex digits (Bluetooth MAC addresses inside
+/// Windows instance IDs and paths), keeping the last two digits. Runs that
+/// end a GUID (followed by `}`) are left intact.
+pub fn mask_mac_like(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i].is_ascii_hexdigit() {
+            let start = i;
+            while i < chars.len() && chars[i].is_ascii_hexdigit() {
+                i += 1;
+            }
+            let run = &chars[start..i];
+            let bounded_before = start == 0 || !chars[start - 1].is_ascii_alphanumeric();
+            let next = chars.get(i).copied();
+            let bounded_after = next.is_none_or(|c| !c.is_ascii_alphanumeric());
+            if run.len() == 12 && bounded_before && bounded_after && next != Some('}') {
+                out.push_str("**********");
+                out.extend(&run[10..]);
+            } else {
+                out.extend(run);
+            }
+        } else {
+            out.push(chars[i]);
+            i += 1;
+        }
+    }
+    out
+}
+
+impl From<&ScannedDevice> for HidDiagnostic {
+    fn from(d: &ScannedDevice) -> Self {
+        let i = &d.info;
+        Self {
+            path: mask_mac_like(&i.path),
+            vendor_id: i.vendor_id,
+            product_id: i.product_id,
+            release_number: i.release_number,
+            usage_page: i.usage_page,
+            usage: i.usage,
+            input_report_len: i.input_report_len,
+            output_report_len: i.output_report_len,
+            feature_report_len: i.feature_report_len,
+            manufacturer: i.manufacturer.clone(),
+            product: i.product.clone(),
+            serial_masked: i.serial_number.as_deref().map(mask_serial),
+            instance_id: i.instance_id.as_deref().map(mask_mac_like),
+            ancestor_instance_ids: i
+                .ancestor_instance_ids
+                .iter()
+                .map(|a| mask_mac_like(a))
+                .collect(),
+            identified_model: d.identification.as_ref().map(|x| x.model),
+            connection: d.identification.as_ref().map(|x| x.connection),
+            origin: d.identification.as_ref().map(|x| x.origin),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "kind", content = "data", rename_all = "camelCase")]
 pub enum EngineEvent {
@@ -107,6 +201,7 @@ struct Shared {
     revision: AtomicU64,
     subscribers: Mutex<Vec<Sender<EngineEvent>>>,
     enumeration_error: Mutex<Option<String>>,
+    hid_scan: Mutex<Vec<HidDiagnostic>>,
     hid_backend: String,
     hid_available: bool,
     output_backend: String,
@@ -172,6 +267,7 @@ impl Engine {
             revision: AtomicU64::new(1),
             subscribers: Mutex::new(Vec::new()),
             enumeration_error: Mutex::new(None),
+            hid_scan: Mutex::new(Vec::new()),
             hid_backend: hid.name().to_owned(),
             hid_available: hid.is_available(),
             output_backend: probe.name().to_owned(),
@@ -255,6 +351,11 @@ impl Engine {
         );
     }
 
+    /// HID collections seen in the most recent scan (vendor-filtered).
+    pub fn hid_diagnostics(&self) -> Vec<HidDiagnostic> {
+        lock(&self.shared.hid_scan).clone()
+    }
+
     pub fn rescan(&self) {
         let _ = self.control.send(Control::Rescan);
     }
@@ -290,6 +391,7 @@ fn supervise(mut manager: DeviceManager, shared: Arc<Shared>, control: Receiver<
             handle_device_event(&shared, event);
         }
         sync_enumeration_error(&shared, manager.last_enumeration_error());
+        sync_scan(&shared, manager.last_scan());
 
         match control.recv_timeout(manager.time_until_next_scan()) {
             Ok(Control::Shutdown) | Err(RecvTimeoutError::Disconnected) => break,
@@ -301,6 +403,14 @@ fn supervise(mut manager: DeviceManager, shared: Arc<Shared>, control: Receiver<
         handle_device_event(&shared, event);
     }
     shared.log(LogLevel::Info, "engine", "Engine stopped");
+}
+
+fn sync_scan(shared: &Shared, scan: &[ScannedDevice]) {
+    let fresh: Vec<HidDiagnostic> = scan.iter().map(HidDiagnostic::from).collect();
+    let mut stored = lock(&shared.hid_scan);
+    if *stored != fresh {
+        *stored = fresh;
+    }
 }
 
 fn sync_enumeration_error(shared: &Shared, current: Option<&str>) {

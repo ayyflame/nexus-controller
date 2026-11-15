@@ -21,6 +21,6 @@ mod windows;
 pub mod mock;
 
 pub use backend::{platform_backend, HidBackend, UnsupportedBackend};
-pub use manager::{DeviceManager, DeviceManagerConfig};
+pub use manager::{DeviceManager, DeviceManagerConfig, ScannedDevice};
 pub use session::{SessionHandler, SessionHandlerFactory};
 pub use tracker::{Candidate, ConnectionTracker, TrackerAction};

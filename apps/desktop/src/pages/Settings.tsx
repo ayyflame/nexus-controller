@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Icon } from "../components/Icons";
 import { useEngine } from "../hooks/useEngine";
+import { buildDiagnosticsReport } from "../lib/diagnostics";
 import { engineApi, errorMessage } from "../lib/engine";
 import { backendReady, hex, outputLabel, time } from "../lib/format";
-import type { LogEntry, RawReport, VirtualOutputKind } from "../types/engine";
+import type { HidDiagnostic, LogEntry, RawReport, VirtualOutputKind } from "../types/engine";
 
 const OUTPUTS: VirtualOutputKind[] = ["disabled", "xbox360", "dualShock4"];
 
@@ -54,6 +55,81 @@ function VirtualOutputSection() {
         </div>
       )}
       {error && <div className="notice error">{error}</div>}
+    </div>
+  );
+}
+
+const hex4 = (n: number) => n.toString(16).toUpperCase().padStart(4, "0");
+
+function HidDevicesSection() {
+  const { connection, appInfo } = useEngine();
+  const [devices, setDevices] = useState<HidDiagnostic[]>([]);
+  const [report, setReport] = useState<string | null>(null);
+  const [copyState, setCopyState] = useState<string | null>(null);
+  const ready = connection.kind === "ready";
+
+  const refresh = useCallback(async () => {
+    if (ready) setDevices(await engineApi.getHidDiagnostics());
+  }, [ready]);
+  useEffect(() => {
+    void refresh();
+    if (!ready) return;
+    const t = setInterval(() => void refresh(), 2000);
+    return () => clearInterval(t);
+  }, [ready, refresh]);
+
+  const copyReport = async () => {
+    setCopyState(null);
+    try {
+      const text = await buildDiagnosticsReport(appInfo);
+      setReport(text);
+      try {
+        await navigator.clipboard.writeText(text);
+        setCopyState("Copied to clipboard.");
+      } catch {
+        setCopyState("Clipboard unavailable: select the text below and copy it manually.");
+      }
+    } catch (e) {
+      setCopyState(errorMessage(e));
+    }
+  };
+
+  return (
+    <div className="card">
+      <div className="card-title-row">
+        <h2>HID Devices (Sony)</h2>
+        <button className="btn-secondary" onClick={() => void copyReport()} disabled={!ready}>
+          Copy diagnostics report
+        </button>
+      </div>
+      <p className="muted small">
+        Every Sony HID collection Windows reported in the last scan, and how NEXUS classified it. The diagnostics
+        report adds recent raw reports and the engine log; serial numbers and MAC addresses are masked.
+      </p>
+      {devices.length === 0 ? <p className="muted small">No Sony HID devices found in the last scan.</p> : (
+        <div className="hid-list">
+          {devices.map((d) => (
+            <div key={d.path} className="hid-item">
+              <div className="row gap">
+                <strong>{d.product ?? "Unnamed HID device"}</strong>
+                <span className="mono small muted">VID {hex4(d.vendorId)} · PID {hex4(d.productId)} · usage {hex4(d.usagePage)}:{hex4(d.usage)}</span>
+              </div>
+              <div className="small">
+                {d.identifiedModel
+                  ? <>Identified as <b>{d.identifiedModel}</b> · connection <b>{d.connection}</b> · origin <b>{d.origin}</b></>
+                  : <span className="muted">Not identified as a supported controller</span>}
+                <span className="muted"> · report lengths in/out/feature {d.inputReportLen}/{d.outputReportLen}/{d.featureReportLen}</span>
+              </div>
+              <code className="mono hex">{d.instanceId ?? d.path}</code>
+              {d.ancestorInstanceIds.length > 0 && (
+                <code className="mono hex muted">↳ {d.ancestorInstanceIds.join("  ↳ ")}</code>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {copyState && <div className="notice dev small">{copyState}</div>}
+      {report && <textarea className="report-box mono" readOnly value={report} onFocus={(e) => e.currentTarget.select()} />}
     </div>
   );
 }
@@ -157,6 +233,7 @@ export function Settings() {
       </div>
 
       <VirtualOutputSection />
+      <HidDevicesSection />
       <DiagnosticsSection />
     </div>
   );
