@@ -1,3 +1,5 @@
+#![allow(clippy::field_reassign_with_default)] // tests build states step by step
+
 use crate::*;
 use nexus_controller_core::{Button, ControllerState, StickState, TriggerState};
 

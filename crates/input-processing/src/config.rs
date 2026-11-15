@@ -7,7 +7,7 @@
 use nexus_controller_core::Button;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ProcessingConfig {
     pub left_stick: StickConfig,
@@ -17,18 +17,6 @@ pub struct ProcessingConfig {
     /// Physical button → output button (`None` = disabled). Buttons not
     /// listed keep their normal function.
     pub remap: Vec<RemapRule>,
-}
-
-impl Default for ProcessingConfig {
-    fn default() -> Self {
-        Self {
-            left_stick: StickConfig::default(),
-            right_stick: StickConfig::default(),
-            left_trigger: TriggerConfig::default(),
-            right_trigger: TriggerConfig::default(),
-            remap: Vec::new(),
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
