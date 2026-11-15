@@ -1,4 +1,6 @@
-# Windows 11 Setup and Hardware Validation (Milestone 2, Phase A)
+# Developer Setup on Windows 11 (build from source)
+
+> **Just want to install and test NEXUS?** Use the installer instead: [`install-windows.md`](install-windows.md). This page is only for building from source.
 
 This guide covers plan items 6–10: setup, environment check, build and launch, then the USB and Bluetooth tests. **Do not install ViGEmBus or any other virtual controller driver yet.** That happens only after physical input is verified and you approve the install.
 

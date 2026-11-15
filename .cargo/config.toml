@@ -1,0 +1,4 @@
+# Link the Visual C++ runtime statically on Windows so the installed app does
+# not depend on the VC++ Redistributable being present on the user's PC.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

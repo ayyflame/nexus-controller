@@ -1,0 +1,40 @@
+# Installing NEXUS on Windows 11
+
+For testers and users. **No developer tools are needed**: no Rust, Node.js, Visual Studio, Git or terminal.
+(Developers who want to build from source should see [`windows-setup.md`](windows-setup.md).)
+
+## Install
+
+1. Open the [Releases page](https://github.com/ayyflame/nexus-controller/releases) while signed in to GitHub (the repository is private).
+2. Under the newest release, click **`NEXUS_0.1.0_x64-setup.exe`** to download it.
+3. Double-click the downloaded file.
+4. Windows SmartScreen may show **"Windows protected your PC"**, because the installer is not code-signed yet. Click **More info**, then **Run anyway**.
+5. Follow the setup wizard: **Next → Install → Finish**. No administrator password is needed, because NEXUS installs for your user account only.
+6. Start **NEXUS** from the Start menu or the desktop shortcut.
+
+NEXUS needs the Microsoft Edge WebView2 Runtime, which is already part of Windows 11. If it is somehow missing, the installer downloads it automatically.
+
+**Alternative:** `NEXUS_0.1.0_x64_en-US.msi` is a standard Windows Installer package. It installs for all users, so Windows will ask for administrator approval.
+
+## Test your DualSense
+
+1. **USB:** plug the controller in with a USB-C data cable. Within about a second, the dashboard shows **Connected · USB**. Move the sticks and press buttons; the diagram and values should follow.
+2. Open **Settings → HID Devices (Sony) → Copy diagnostics report**. Paste it into a text file named `diagnostics-usb.txt`. Do this while the controller is connected.
+3. Unplug the cable. The dashboard returns to **No controller**.
+4. **Bluetooth:** hold **Create + PS** on the controller until the light bar flashes quickly. Then go to **Windows Settings → Bluetooth & devices → Add device → Bluetooth** and pick **DualSense Wireless Controller**. NEXUS shows **Connected · Bluetooth**.
+5. Copy the diagnostics report again and save it as `diagnostics-bluetooth.txt`.
+6. Send both files, plus anything that looked wrong. The checklist in [`tests/hardware-verification.md`](../tests/hardware-verification.md) lists what to look for.
+
+If the controller never appears, close Steam, DS4Windows or similar tools, then click **Settings → Scan now**. Those apps can hide or lock the controller.
+
+## Uninstall
+
+**Windows Settings → Apps → Installed apps → NEXUS → Uninstall.**
+
+Your profile database stays in `%APPDATA%\com.nexus.controllerengine`. Delete that folder for a completely clean removal.
+
+## What NEXUS does not do in this version
+
+- It does not create virtual controllers.
+- It does not install drivers.
+- It does not change Windows controller settings.

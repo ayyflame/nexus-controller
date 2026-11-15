@@ -14,7 +14,20 @@ Tauri 2 · React · TypeScript · Rust · SQLite · Windows HID.
 
 See [`docs/milestone-1-report.md`](docs/milestone-1-report.md) for status and verification limits.
 
-## Requirements (Windows 11 x64)
+## Install (users and testers)
+
+Download the Windows installer from the [Releases page](https://github.com/ayyflame/nexus-controller/releases) and double-click it. No developer tools are needed. Step-by-step instructions are in [`docs/install-windows.md`](docs/install-windows.md).
+
+Installers are built automatically by GitHub Actions ([`.github/workflows/windows-release.yml`](.github/workflows/windows-release.yml)):
+
+- **Run workflow** on the Actions tab produces a downloadable artifact.
+- Pushing a `v*` tag, or publishing a release, attaches the installers to a GitHub Release.
+
+## Develop
+
+Everything below is only for building NEXUS from source.
+
+### Requirements (Windows 11 x64)
 
 | Tool | Version | Notes |
 |---|---|---|
@@ -29,7 +42,7 @@ Check your machine (read-only, no admin):
 powershell -ExecutionPolicy Bypass -File scripts\check-env.ps1
 ```
 
-## Run
+### Run
 
 ```powershell
 cd apps\desktop
@@ -39,7 +52,7 @@ npm run tauri dev
 
 The first build compiles all Rust dependencies, which takes a few minutes. No administrator rights are needed. No driver is installed.
 
-## Test and check
+### Test and check
 
 ```powershell
 # from the repository root
@@ -50,7 +63,7 @@ npm run typecheck
 npm run build
 ```
 
-## Build an installer
+### Build an installer locally
 
 ```powershell
 cd apps\desktop
@@ -66,7 +79,8 @@ Output goes to `target\release\bundle\nsis\` and `target\release\bundle\msi\`. T
 - [DualSense report format, USB vs Bluetooth](docs/dualsense-protocol.md)
 - [Milestone 1 report](docs/milestone-1-report.md)
 - [Milestone 2 proposal](docs/milestone-2-proposal.md)
-- [Windows 11 setup and hardware validation](docs/windows-setup.md)
+- [Installing NEXUS (end users)](docs/install-windows.md)
+- [Developer setup on Windows 11 and hardware validation](docs/windows-setup.md)
 - [Hardware verification checklist](tests/hardware-verification.md)
 
 ## Ground rules
