@@ -481,3 +481,65 @@ fn device_change_notification_connects_without_waiting_for_poll() {
     wait_status(&e, "reconnected via notification", |s| s.devices.len() == 1);
     assert!(!e.status().hotplug_active);
 }
+
+// ---- Processing ----------------------------------------------------------
+
+#[test]
+fn processing_settings_apply_live_and_remap_reaches_output() {
+    let (backend, e) = connected_engine();
+    let mut cfg = nexus_input_processing::ProcessingConfig::passthrough();
+    cfg.left_stick.deadzone = 0.5;
+    cfg.remap = vec![nexus_input_processing::RemapRule {
+        from: MacroButton::South,
+        to: Some(MacroButton::East),
+    }];
+    e.set_processing(cfg);
+    let mut p = Payload::neutral();
+    p.lx = 160; // ≈0.25: inside the new deadzone
+    p.buttons[0] |= CROSS.1;
+    backend.push_report(PATH, p.usb_report());
+    let s = wait_status(&e, "processed", |s| {
+        s.devices[0].input.is_some_and(|i| i.buttons.south)
+    });
+    let d = &s.devices[0];
+    let (input, out) = (d.input.unwrap(), d.processed.unwrap());
+    assert!(input.left_stick.x > 0.2, "physical input untouched");
+    assert_eq!(out.left_stick.x, 0.0, "deadzone applied");
+    assert!(
+        out.buttons.east && !out.buttons.south,
+        "Cross remapped to Circle"
+    );
+    assert_eq!(e.processing().left_stick.deadzone, 0.5);
+}
+
+#[test]
+fn macro_trigger_uses_physical_button_even_when_remapped() {
+    let (backend, e) = connected_engine();
+    let mut cfg = nexus_input_processing::ProcessingConfig::passthrough();
+    cfg.remap = vec![nexus_input_processing::RemapRule {
+        from: MacroButton::RightStick,
+        to: None,
+    }];
+    e.set_processing(cfg);
+    e.set_macros(vec![jump_macro(PlaybackMode::Once)]);
+    backend.push_report(PATH, report(&[]));
+    backend.push_report(PATH, report(&[R3]));
+    let s = wait_status(&e, "macro", |s| !s.devices[0].playing_macros.is_empty());
+    assert!(
+        s.devices[0].processed.unwrap().buttons.south,
+        "macro output after remapping"
+    );
+}
+
+#[test]
+fn pipeline_latency_is_measured() {
+    let (backend, e) = connected_engine();
+    for _ in 0..70 {
+        backend.push_report(PATH, report(&[]));
+    }
+    let s = wait_status(&e, "latency", |s| {
+        s.devices[0].pipeline_latency.samples >= 64
+    });
+    let l = s.devices[0].pipeline_latency;
+    assert!(l.p50_us <= l.p99_us && l.p99_us <= l.max_us);
+}

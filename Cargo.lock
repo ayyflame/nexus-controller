@@ -1980,6 +1980,8 @@ name = "nexus-input-processing"
 version = "0.1.0"
 dependencies = [
  "nexus-controller-core",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

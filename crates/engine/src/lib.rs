@@ -21,11 +21,14 @@ use nexus_device_manager::{
     platform_backend, DeviceManager, DeviceManagerConfig, HidBackend, ScannedDevice, SessionHandler,
 };
 use nexus_dualsense::DualSenseDriver;
-use nexus_input_processing::ProcessingPipeline;
+use nexus_input_processing::{ConfiguredProcessor, ProcessingConfig, ProcessingPipeline};
 use nexus_macro_engine::{
     Macro, MacroButton, MacroLibrary, MacroRecorder, MacroRunner, RecordingResult,
 };
-use nexus_telemetry::{unix_millis, LogEntry, LogLevel, RateCounter, RawReport, Telemetry};
+use nexus_telemetry::{
+    unix_millis, LatencySummary, LatencyWindow, LogEntry, LogLevel, RateCounter, RawReport,
+    Telemetry,
+};
 use nexus_virtual_controller::{
     BackendStatus, OutputStatus, UnavailableBackend, VirtualControllerBackend, VirtualOutputManager,
 };
@@ -48,6 +51,8 @@ pub struct EngineConfig {
     pub raw_report_capacity: usize,
     /// Register for OS device arrival/removal notifications (Windows).
     pub hotplug: bool,
+    /// Stick, trigger and remapping settings at start-up (from the profile).
+    pub processing: ProcessingConfig,
     /// Scan interval used as a safety net while notifications are active.
     pub hotplug_fallback_interval: Duration,
 }
@@ -60,6 +65,7 @@ impl Default for EngineConfig {
             log_capacity: 500,
             raw_report_capacity: 256,
             hotplug: true,
+            processing: ProcessingConfig::default(),
             hotplug_fallback_interval: Duration::from_secs(5),
         }
     }
@@ -78,6 +84,8 @@ pub struct DeviceSnapshot {
     pub processed: Option<ControllerState>,
     /// IDs of macros currently playing on this controller.
     pub playing_macros: Vec<String>,
+    /// Time NEXUS spends per report: processing, macros and output.
+    pub pipeline_latency: LatencySummary,
     pub last_report_ms: Option<u64>,
     pub report_rate_hz: f64,
     pub total_reports: u64,
@@ -255,6 +263,8 @@ struct Shared {
     hid_scan: Mutex<Vec<HidDiagnostic>>,
     macros: Arc<MacroLibrary>,
     recording: Mutex<Option<RecordingState>>,
+    processing: Mutex<Arc<ProcessingConfig>>,
+    processing_generation: AtomicU64,
     hid_backend: String,
     hid_available: bool,
     hotplug_active: std::sync::atomic::AtomicBool,
@@ -325,6 +335,8 @@ impl Engine {
             hid_scan: Mutex::new(Vec::new()),
             macros: Arc::new(MacroLibrary::new()),
             recording: Mutex::new(None),
+            processing: Mutex::new(Arc::new(config.processing.sanitized())),
+            processing_generation: AtomicU64::new(0),
             hid_backend: hid.name().to_owned(),
             hid_available: hid.is_available(),
             hotplug_active: std::sync::atomic::AtomicBool::new(false),
@@ -469,6 +481,20 @@ impl Engine {
             blocked_reason,
             recording,
         }
+    }
+
+    /// Applies new stick/trigger/remap settings to every controller on its
+    /// next report.
+    pub fn set_processing(&self, config: ProcessingConfig) {
+        *lock(&self.shared.processing) = Arc::new(config.sanitized());
+        self.shared
+            .processing_generation
+            .fetch_add(1, Ordering::AcqRel);
+        self.shared.bump();
+    }
+
+    pub fn processing(&self) -> ProcessingConfig {
+        (**lock(&self.shared.processing)).clone()
     }
 
     /// Replaces the macros the engine runs. Running macros stop; each starts
@@ -700,6 +726,9 @@ struct EngineSessionHandler {
     shared: Arc<Shared>,
     id: DeviceId,
     pipeline: ProcessingPipeline,
+    processing_generation: u64,
+    latency: LatencyWindow,
+    reports_since_latency_publish: u32,
     macros: MacroRunner,
     last_physical: Option<ControllerState>,
     output: VirtualOutputManager,
@@ -733,6 +762,7 @@ fn new_session_handler(
             input: None,
             processed: None,
             playing_macros: Vec::new(),
+            pipeline_latency: LatencySummary::default(),
             last_report_ms: None,
             report_rate_hz: 0.0,
             total_reports: 0,
@@ -745,7 +775,10 @@ fn new_session_handler(
     Box::new(EngineSessionHandler {
         shared: shared.clone(),
         id: device.id.clone(),
-        pipeline: ProcessingPipeline::new(),
+        pipeline: build_pipeline(&lock(&shared.processing)),
+        processing_generation: shared.processing_generation.load(Ordering::Acquire),
+        latency: LatencyWindow::default(),
+        reports_since_latency_publish: 0,
         macros: MacroRunner::new(shared.macros.clone()),
         last_physical: None,
         output,
@@ -755,16 +788,29 @@ fn new_session_handler(
     })
 }
 
+fn build_pipeline(config: &ProcessingConfig) -> ProcessingPipeline {
+    let mut p = ProcessingPipeline::new();
+    p.push(Box::new(ConfiguredProcessor::new(config)));
+    p
+}
+
 impl EngineSessionHandler {
-    /// physical → processing → macros → virtual output.
+    /// physical → processing (sticks, triggers, remap) → macros → virtual output.
     fn run_pipeline(
         &mut self,
         physical: &ControllerState,
     ) -> (ControllerState, Option<Vec<String>>) {
+        let started = Instant::now();
+        let generation = self.shared.processing_generation.load(Ordering::Acquire);
+        if generation != self.processing_generation {
+            self.processing_generation = generation;
+            self.pipeline = build_pipeline(&lock(&self.shared.processing));
+        }
         let mut out = self.pipeline.run(physical);
         let was_playing = self.macros.playing();
         self.macros.process(physical, &mut out, Instant::now());
         self.output.submit(&out);
+        self.latency.record(started.elapsed());
         let playing = self.macros.playing();
         (out, (playing != was_playing).then_some(playing))
     }
@@ -827,7 +873,15 @@ impl SessionHandler for EngineSessionHandler {
             self.rate.parse_errors,
         );
         self.last_rate_published = rate;
+        self.reports_since_latency_publish += 1;
+        let latency = (self.reports_since_latency_publish >= 64).then(|| {
+            self.reports_since_latency_publish = 0;
+            self.latency.summary()
+        });
         self.shared.update_device(&self.id, |s| {
+            if let Some(l) = latency {
+                s.pipeline_latency = l;
+            }
             s.last_report_ms = Some(unix_millis());
             s.report_rate_hz = rate;
             s.total_reports = total;

@@ -133,6 +133,60 @@ impl RateCounter {
     }
 }
 
+/// Fixed-size window of recent durations (microseconds) for latency
+/// percentiles. Recording never allocates.
+#[derive(Debug)]
+pub struct LatencyWindow {
+    samples: [u32; LATENCY_WINDOW],
+    len: usize,
+    next: usize,
+}
+
+pub const LATENCY_WINDOW: usize = 256;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LatencySummary {
+    pub p50_us: u32,
+    pub p99_us: u32,
+    pub max_us: u32,
+    pub samples: u32,
+}
+
+impl Default for LatencyWindow {
+    fn default() -> Self {
+        Self {
+            samples: [0; LATENCY_WINDOW],
+            len: 0,
+            next: 0,
+        }
+    }
+}
+
+impl LatencyWindow {
+    pub fn record(&mut self, d: Duration) {
+        self.samples[self.next] = d.as_micros().min(u32::MAX as u128) as u32;
+        self.next = (self.next + 1) % LATENCY_WINDOW;
+        self.len = (self.len + 1).min(LATENCY_WINDOW);
+    }
+
+    pub fn summary(&self) -> LatencySummary {
+        if self.len == 0 {
+            return LatencySummary::default();
+        }
+        let mut sorted = self.samples; // copy on the stack
+        let s = &mut sorted[..self.len];
+        s.sort_unstable();
+        let at = |q: f64| s[((s.len() - 1) as f64 * q).round() as usize];
+        LatencySummary {
+            p50_us: at(0.5),
+            p99_us: at(0.99),
+            max_us: s[s.len() - 1],
+            samples: self.len as u32,
+        }
+    }
+}
+
 /// Shared telemetry sink used by the engine.
 pub struct Telemetry {
     log: Mutex<Ring<LogEntry>>,
@@ -210,6 +264,25 @@ mod tests {
         assert_eq!(c.parse_errors, 5);
         c.roll(t0 + Duration::from_millis(3500));
         assert_eq!(c.rate_hz(), 0.0);
+    }
+
+    #[test]
+    fn latency_window_percentiles_and_wraparound() {
+        let mut w = LatencyWindow::default();
+        assert_eq!(w.summary(), LatencySummary::default());
+        for us in 1..=100u64 {
+            w.record(Duration::from_micros(us));
+        }
+        let s = w.summary();
+        assert_eq!(
+            (s.p50_us, s.p99_us, s.max_us, s.samples),
+            (51, 99, 100, 100)
+        );
+        for _ in 0..LATENCY_WINDOW {
+            w.record(Duration::from_micros(7));
+        }
+        assert_eq!(w.summary().max_us, 7, "old samples rolled out");
+        assert_eq!(w.summary().samples, LATENCY_WINDOW as u32);
     }
 
     #[test]

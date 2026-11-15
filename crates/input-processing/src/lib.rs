@@ -1,11 +1,24 @@
 //! Input processing: transforms normalized controller state before output.
 //!
-//! Milestone 1 provides the stage interface and an ordered pipeline only.
-//! Deadzones, response curves, trigger tuning and similar stages arrive in
-//! later milestones as additional [`InputProcessor`] implementations; the
-//! engine and output layers will not need to change.
+//! [`ConfiguredProcessor`] implements the user's settings from a
+//! [`ProcessingConfig`]: stick deadzones (radial or axial), outer deadzone,
+//! anti-deadzone, response curves, sensitivity, circular output, axis
+//! inversion, trigger deadzones and output ranges, and button remapping.
+//! Stages run on the controller's reader thread and never allocate.
 
 #![forbid(unsafe_code)]
+
+mod config;
+mod processor;
+
+pub use config::{
+    CurvePoint, DeadzoneShape, ProcessingConfig, RemapRule, ResponseCurve, StickConfig,
+    TriggerConfig, MAX_CURVE_POINTS,
+};
+pub use processor::{
+    evaluate_curve, process_stick, process_trigger, shape_magnitude, trigger_output,
+    ConfiguredProcessor,
+};
 
 use nexus_controller_core::ControllerState;
 
@@ -43,6 +56,9 @@ impl ProcessingPipeline {
         state
     }
 }
+
+#[cfg(test)]
+mod processing_tests;
 
 #[cfg(test)]
 mod tests {
