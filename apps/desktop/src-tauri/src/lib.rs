@@ -49,10 +49,11 @@ pub fn run() {
 
             let engine = Arc::new(Engine::start_default(EngineConfig {
                 initial_output: profile.virtual_output,
+                processing: profile.processing.clone(),
                 ..Default::default()
             }));
-            // Macros are shared by all profiles; hand the library to the engine.
-            match store.list_macros() {
+            // The macro library is shared; which macros are on is per profile.
+            match store.list_macros_for(profile.id) {
                 Ok(macros) => engine.set_macros(macros),
                 Err(e) => eprintln!("NEXUS: could not load macros: {e}"),
             }
@@ -78,6 +79,11 @@ pub fn run() {
             commands::get_active_profile,
             commands::set_active_profile,
             commands::set_virtual_output,
+            commands::create_profile,
+            commands::rename_profile,
+            commands::duplicate_profile,
+            commands::delete_profile,
+            commands::set_processing,
             commands::list_macros,
             commands::save_macro,
             commands::delete_macro,

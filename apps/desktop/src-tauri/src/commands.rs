@@ -4,6 +4,7 @@
 use crate::AppState;
 use nexus_controller_core::VirtualOutputKind;
 use nexus_engine::{EngineStatus, HidDiagnostic};
+use nexus_input_processing::ProcessingConfig;
 use nexus_macro_engine::{Macro, RecordingResult, ValidationIssue};
 use nexus_profile_manager::{Profile, ProfileError, ProfileStore};
 use nexus_telemetry::{LogEntry, RawReport};
@@ -110,14 +111,60 @@ pub fn get_active_profile(state: State<'_, AppState>) -> CmdResult<Profile> {
         .active_profile()?)
 }
 
+/// Makes the engine match `profile` completely: output mode, processing
+/// settings and the macros switched on in that profile. Running macros stop.
+fn apply_profile(state: &AppState, store: &ProfileStore, profile: &Profile) -> CmdResult<()> {
+    state.engine.set_output_mode(profile.virtual_output);
+    state.engine.set_processing(profile.processing.clone());
+    let macros = store.list_macros_for(profile.id).map_err(profile_error)?;
+    state.engine.set_macros(macros);
+    Ok(())
+}
+
 #[tauri::command]
 pub fn set_active_profile(state: State<'_, AppState>, id: i64) -> CmdResult<Profile> {
-    let profile = state
-        .store
-        .lock()
-        .map_err(|_| "profile store poisoned")?
-        .set_active_profile(id)?;
-    state.engine.set_output_mode(profile.virtual_output);
+    let mut store = state.store.lock().map_err(|_| "profile store poisoned")?;
+    let profile = store.set_active_profile(id).map_err(profile_error)?;
+    apply_profile(&state, &store, &profile)?;
+    Ok(profile)
+}
+
+#[tauri::command]
+pub fn create_profile(state: State<'_, AppState>, name: String) -> CmdResult<Profile> {
+    let mut store = state.store.lock().map_err(|_| "profile store poisoned")?;
+    store.create_profile(&name).map_err(profile_error)
+}
+
+#[tauri::command]
+pub fn rename_profile(state: State<'_, AppState>, id: i64, name: String) -> CmdResult<Profile> {
+    let mut store = state.store.lock().map_err(|_| "profile store poisoned")?;
+    store.rename_profile(id, &name).map_err(profile_error)
+}
+
+#[tauri::command]
+pub fn duplicate_profile(state: State<'_, AppState>, id: i64) -> CmdResult<Profile> {
+    let mut store = state.store.lock().map_err(|_| "profile store poisoned")?;
+    store.duplicate_profile(id).map_err(profile_error)
+}
+
+/// Deletes a profile and returns the (possibly new) active profile.
+#[tauri::command]
+pub fn delete_profile(state: State<'_, AppState>, id: i64) -> CmdResult<Profile> {
+    let mut store = state.store.lock().map_err(|_| "profile store poisoned")?;
+    let active = store.delete_profile(id).map_err(profile_error)?;
+    apply_profile(&state, &store, &active)?;
+    Ok(active)
+}
+
+/// Saves stick/trigger/remap settings to the active profile and applies them.
+#[tauri::command]
+pub fn set_processing(state: State<'_, AppState>, config: ProcessingConfig) -> CmdResult<Profile> {
+    let mut store = state.store.lock().map_err(|_| "profile store poisoned")?;
+    let active = store.active_profile().map_err(profile_error)?;
+    let profile = store
+        .set_processing(active.id, &config)
+        .map_err(profile_error)?;
+    state.engine.set_processing(profile.processing.clone());
     Ok(profile)
 }
 

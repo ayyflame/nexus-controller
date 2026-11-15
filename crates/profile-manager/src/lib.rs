@@ -1,13 +1,17 @@
 //! Profile and settings persistence (SQLite).
 //!
-//! Milestone 1 scope: a versioned schema, a guaranteed default profile,
-//! remembering the last-used profile, and each profile's selected virtual
-//! output. Processing settings are stored later in the `settings_json`
-//! column once their schema is defined.
+//! * Profiles: name, virtual output, and processing settings (sticks,
+//!   triggers, remapping) as JSON in `settings_json`.
+//! * The last-used profile is remembered and loaded at start-up.
+//! * Macros live in one shared library; which macros are switched on is
+//!   stored per profile (`profile_macros`, schema v3).
+//! * Every schema change is a numbered migration run in a transaction, so
+//!   existing user data is preserved across upgrades.
 
 #![forbid(unsafe_code)]
 
 use nexus_controller_core::VirtualOutputKind;
+use nexus_input_processing::ProcessingConfig;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 use std::path::Path;
@@ -15,10 +19,14 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
 pub const DEFAULT_PROFILE_NAME: &str = "Default";
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
+pub const MAX_PROFILE_NAME_LEN: usize = 40;
 const KEY_LAST_PROFILE: &str = "last_profile_id";
 
 mod macros;
+
+#[cfg(test)]
+mod profile_tests;
 
 #[derive(Debug, Error)]
 pub enum ProfileError {
@@ -30,18 +38,24 @@ pub enum ProfileError {
     Database(#[from] rusqlite::Error),
     #[error("profile {0} not found")]
     NotFound(i64),
-    #[error("invalid profile name")]
+    #[error("Give the profile a name (up to 40 characters).")]
     InvalidName,
+    #[error("A profile called “{0}” already exists.")]
+    NameTaken(String),
+    #[error("You can't delete your only profile.")]
+    LastProfile,
     #[error("database schema version {found} is newer than supported version {supported}")]
     SchemaTooNew { found: i64, supported: i64 },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Profile {
     pub id: i64,
     pub name: String,
     pub virtual_output: VirtualOutputKind,
+    /// Sticks, triggers and button remapping.
+    pub processing: ProcessingConfig,
     pub created_at_ms: i64,
     pub updated_at_ms: i64,
 }
@@ -123,6 +137,44 @@ impl ProfileStore {
             )?;
             tx.commit()?;
         }
+        if version < 3 {
+            // v3: which macros are on is stored per profile. Macros that were
+            // enabled before become enabled in every existing profile, so
+            // behaviour is unchanged after the upgrade.
+            let tx = self.conn.transaction()?;
+            tx.execute_batch(
+                "CREATE TABLE profile_macros (
+                    profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+                    macro_id   TEXT NOT NULL REFERENCES macros(id) ON DELETE CASCADE,
+                    PRIMARY KEY (profile_id, macro_id)
+                );",
+            )?;
+            let enabled: Vec<String> = {
+                let mut stmt = tx.prepare("SELECT id, data_json FROM macros")?;
+                let rows =
+                    stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+                let mut ids = Vec::new();
+                for row in rows {
+                    let (id, json) = row?;
+                    let on = serde_json::from_str::<serde_json::Value>(&json)
+                        .ok()
+                        .and_then(|v| v.get("enabled").and_then(|e| e.as_bool()))
+                        .unwrap_or(false);
+                    if on {
+                        ids.push(id);
+                    }
+                }
+                ids
+            };
+            for id in &enabled {
+                tx.execute(
+                    "INSERT INTO profile_macros (profile_id, macro_id) SELECT id, ?1 FROM profiles",
+                    [id],
+                )?;
+            }
+            tx.execute_batch("PRAGMA user_version = 3;")?;
+            tx.commit()?;
+        }
         Ok(())
     }
 
@@ -138,18 +190,39 @@ impl ProfileStore {
 
     fn row_to_profile(row: &rusqlite::Row<'_>) -> rusqlite::Result<Profile> {
         let output: String = row.get(2)?;
+        let settings: String = row.get(5)?;
         Ok(Profile {
             id: row.get(0)?,
             name: row.get(1)?,
             // Unknown values (from a newer build) degrade to Disabled.
             virtual_output: VirtualOutputKind::parse(&output).unwrap_or_default(),
+            // Missing or unreadable settings fall back to defaults; known
+            // fields are kept even if unknown ones are present.
+            processing: serde_json::from_str::<ProcessingConfig>(&settings)
+                .unwrap_or_default()
+                .sanitized(),
             created_at_ms: row.get(3)?,
             updated_at_ms: row.get(4)?,
         })
     }
 
     const SELECT: &'static str =
-        "SELECT id, name, virtual_output, created_at_ms, updated_at_ms FROM profiles";
+        "SELECT id, name, virtual_output, created_at_ms, updated_at_ms, settings_json FROM profiles";
+
+    fn check_profile_name(&self, name: &str, except: Option<i64>) -> Result<String, ProfileError> {
+        let name = name.trim();
+        if name.is_empty() || name.chars().count() > MAX_PROFILE_NAME_LEN {
+            return Err(ProfileError::InvalidName);
+        }
+        let taken = self
+            .list_profiles()?
+            .into_iter()
+            .any(|p| Some(p.id) != except && p.name.eq_ignore_ascii_case(name));
+        if taken {
+            return Err(ProfileError::NameTaken(name.to_owned()));
+        }
+        Ok(name.to_owned())
+    }
 
     pub fn list_profiles(&self) -> Result<Vec<Profile>, ProfileError> {
         let mut stmt = self
@@ -170,17 +243,98 @@ impl ProfileStore {
             .ok_or(ProfileError::NotFound(id))
     }
 
+    /// Creates a profile with default settings and no macros switched on.
     pub fn create_profile(&mut self, name: &str) -> Result<Profile, ProfileError> {
-        let name = name.trim();
-        if name.is_empty() || name.len() > 64 {
-            return Err(ProfileError::InvalidName);
-        }
+        let name = self.check_profile_name(name, None)?;
         let now = now_ms();
+        let settings = serde_json::to_string(&ProcessingConfig::default()).expect("serialises");
         self.conn.execute(
-            "INSERT INTO profiles (name, created_at_ms, updated_at_ms) VALUES (?1, ?2, ?2)",
-            params![name, now],
+            "INSERT INTO profiles (name, settings_json, created_at_ms, updated_at_ms) VALUES (?1, ?2, ?3, ?3)",
+            params![name, settings, now],
         )?;
         self.get_profile(self.conn.last_insert_rowid())
+    }
+
+    pub fn rename_profile(&mut self, id: i64, name: &str) -> Result<Profile, ProfileError> {
+        self.get_profile(id)?;
+        let name = self.check_profile_name(name, Some(id))?;
+        self.conn.execute(
+            "UPDATE profiles SET name = ?1, updated_at_ms = ?2 WHERE id = ?3",
+            params![name, now_ms(), id],
+        )?;
+        self.get_profile(id)
+    }
+
+    /// Copies a profile: settings, virtual output and which macros are on.
+    pub fn duplicate_profile(&mut self, id: i64) -> Result<Profile, ProfileError> {
+        let source = self.get_profile(id)?;
+        let names: Vec<String> = self
+            .list_profiles()?
+            .into_iter()
+            .map(|p| p.name.to_lowercase())
+            .collect();
+        let base: String = source
+            .name
+            .chars()
+            .take(MAX_PROFILE_NAME_LEN - 10)
+            .collect();
+        let name = (1..)
+            .map(|n| {
+                if n == 1 {
+                    format!("{base} (copy)")
+                } else {
+                    format!("{base} (copy {n})")
+                }
+            })
+            .find(|c| !names.contains(&c.to_lowercase()))
+            .expect("an unused name exists");
+        let now = now_ms();
+        let tx = self.conn.transaction()?;
+        tx.execute(
+            "INSERT INTO profiles (name, virtual_output, settings_json, created_at_ms, updated_at_ms)
+             SELECT ?1, virtual_output, settings_json, ?2, ?2 FROM profiles WHERE id = ?3",
+            params![name, now, id],
+        )?;
+        let new_id = tx.last_insert_rowid();
+        tx.execute(
+            "INSERT INTO profile_macros (profile_id, macro_id) SELECT ?1, macro_id FROM profile_macros WHERE profile_id = ?2",
+            params![new_id, id],
+        )?;
+        tx.commit()?;
+        self.get_profile(new_id)
+    }
+
+    /// Deletes a profile. The last profile can't be deleted; deleting the
+    /// active profile makes the first remaining profile active.
+    pub fn delete_profile(&mut self, id: i64) -> Result<Profile, ProfileError> {
+        self.get_profile(id)?;
+        if self.list_profiles()?.len() <= 1 {
+            return Err(ProfileError::LastProfile);
+        }
+        let was_active = self.active_profile()?.id == id;
+        self.conn
+            .execute("DELETE FROM profiles WHERE id = ?1", [id])?;
+        if was_active {
+            let first = self.list_profiles()?.remove(0);
+            self.set_active_profile(first.id)?;
+        }
+        self.active_profile()
+    }
+
+    pub fn set_processing(
+        &mut self,
+        id: i64,
+        config: &ProcessingConfig,
+    ) -> Result<Profile, ProfileError> {
+        let json = serde_json::to_string(&config.sanitized()).expect("serialises");
+        let changed = self.conn.execute(
+            "UPDATE profiles SET settings_json = ?1, updated_at_ms = ?2 WHERE id = ?3",
+            params![json, now_ms(), id],
+        )?;
+        if changed == 0 {
+            return Err(ProfileError::NotFound(id));
+        }
+        self.get_profile(id)
     }
 
     /// The last-used profile, falling back to the oldest profile if the
@@ -302,8 +456,12 @@ mod tests {
         ));
         assert!(matches!(
             s.create_profile(DEFAULT_PROFILE_NAME),
-            Err(ProfileError::Database(_))
+            Err(ProfileError::NameTaken(_))
         ));
+        assert!(
+            matches!(s.create_profile("default"), Err(ProfileError::NameTaken(_))),
+            "case-insensitive"
+        );
     }
 
     #[test]

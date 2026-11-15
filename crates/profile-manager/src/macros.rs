@@ -1,5 +1,7 @@
 //! Macro library persistence. Macros are stored once and are available in
-//! every profile.
+//! every profile; whether a macro is switched on is stored per profile
+//! (`profile_macros`). `Macro::enabled` as returned here always means
+//! "on in the active profile" unless a profile is named explicitly.
 
 use crate::{now_ms, ProfileError, ProfileStore};
 use nexus_macro_engine::{validate_macro, Macro, MAX_NAME_LEN};
@@ -17,17 +19,53 @@ impl ProfileStore {
     /// All macros in display order. Rows that cannot be read (for example,
     /// written by a newer NEXUS) are skipped but left untouched.
     pub fn list_macros(&self) -> Result<Vec<Macro>, ProfileError> {
+        let profile = self.active_profile()?.id;
+        self.list_macros_for(profile)
+    }
+
+    /// The library with `enabled` set for the given profile.
+    pub fn list_macros_for(&self, profile_id: i64) -> Result<Vec<Macro>, ProfileError> {
+        let enabled = self.enabled_macro_ids(profile_id)?;
         let mut stmt = self
             .conn
             .prepare("SELECT data_json FROM macros ORDER BY position, created_at_ms")?;
         let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
         let mut out = Vec::new();
         for json in rows {
-            if let Ok(m) = serde_json::from_str::<Macro>(&json?) {
+            if let Ok(mut m) = serde_json::from_str::<Macro>(&json?) {
+                m.enabled = enabled.contains(&m.id);
                 out.push(m);
             }
         }
         Ok(out)
+    }
+
+    fn enabled_macro_ids(&self, profile_id: i64) -> Result<Vec<String>, ProfileError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT macro_id FROM profile_macros WHERE profile_id = ?1")?;
+        let rows = stmt.query_map([profile_id], |r| r.get::<_, String>(0))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    fn set_enabled_in(
+        &self,
+        profile_id: i64,
+        macro_id: &str,
+        enabled: bool,
+    ) -> Result<(), ProfileError> {
+        if enabled {
+            self.conn.execute(
+                "INSERT OR IGNORE INTO profile_macros (profile_id, macro_id) VALUES (?1, ?2)",
+                params![profile_id, macro_id],
+            )?;
+        } else {
+            self.conn.execute(
+                "DELETE FROM profile_macros WHERE profile_id = ?1 AND macro_id = ?2",
+                params![profile_id, macro_id],
+            )?;
+        }
+        Ok(())
     }
 
     pub fn get_macro(&self, id: &str) -> Result<Macro, ProfileError> {
@@ -37,8 +75,12 @@ impl ProfileStore {
                 r.get(0)
             })
             .optional()?;
-        json.and_then(|j| serde_json::from_str(&j).ok())
-            .ok_or_else(|| ProfileError::MacroNotFound(id.to_owned()))
+        let mut m: Macro = json
+            .and_then(|j| serde_json::from_str(&j).ok())
+            .ok_or_else(|| ProfileError::MacroNotFound(id.to_owned()))?;
+        let profile = self.active_profile()?.id;
+        m.enabled = self.enabled_macro_ids(profile)?.contains(&m.id);
+        Ok(m)
     }
 
     /// Creates (empty `id`) or updates a macro after validating it against
@@ -100,6 +142,9 @@ impl ProfileStore {
                 )?;
             }
         }
+        // On/off belongs to the active profile.
+        let profile = self.active_profile()?.id;
+        self.set_enabled_in(profile, &m.id, m.enabled)?;
         Ok(m)
     }
 
@@ -288,6 +333,63 @@ mod tests {
         assert_eq!(s.get_macro(&id).unwrap().name, "Kept");
         drop(s);
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn macro_on_off_is_per_profile() {
+        let mut s = ProfileStore::open_in_memory().unwrap();
+        let racing = s.create_profile("Racing").unwrap();
+        let m = s
+            .save_macro(draft("Boost", Some(MacroButton::North)))
+            .unwrap();
+        assert!(
+            s.get_macro(&m.id).unwrap().enabled,
+            "on in the active (Default) profile"
+        );
+        assert!(
+            !s.list_macros_for(racing.id).unwrap()[0].enabled,
+            "off in Racing"
+        );
+        s.set_active_profile(racing.id).unwrap();
+        assert!(!s.list_macros().unwrap()[0].enabled);
+        // The same trigger can be used by another macro in this profile…
+        s.save_macro(draft("Other", Some(MacroButton::North)))
+            .unwrap();
+        // …but not twice within one profile.
+        assert!(matches!(
+            s.set_macro_enabled(&m.id, true),
+            Err(ProfileError::InvalidMacro(_))
+        ));
+    }
+
+    #[test]
+    fn deleting_macro_or_profile_cleans_up_assignments() {
+        let mut s = ProfileStore::open_in_memory().unwrap();
+        let m = s.save_macro(draft("Gone", None)).unwrap();
+        let p = s.duplicate_profile(s.active_profile().unwrap().id).unwrap();
+        assert!(
+            s.list_macros_for(p.id).unwrap()[0].enabled,
+            "duplicate keeps macros on"
+        );
+        s.delete_macro(&m.id).unwrap();
+        let rows: i64 = s
+            .conn
+            .query_row("SELECT COUNT(*) FROM profile_macros", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(rows, 0);
+        let m2 = s.save_macro(draft("Again", None)).unwrap();
+        s.set_active_profile(p.id).unwrap();
+        s.set_macro_enabled(&m2.id, true).unwrap();
+        s.delete_profile(p.id).unwrap();
+        let rows: i64 = s
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM profile_macros WHERE profile_id = ?1",
+                [p.id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(rows, 0, "foreign-key cascade");
     }
 
     #[test]
