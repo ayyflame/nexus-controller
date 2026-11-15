@@ -16,11 +16,13 @@
 
 #![forbid(unsafe_code)]
 
+pub mod button;
 pub mod device;
 pub mod driver;
 pub mod hid;
 pub mod state;
 
+pub use button::Button;
 pub use device::{
     ConnectedDevice, ConnectionType, ControllerModel, DeviceEvent, DeviceId, DeviceOrigin,
     DisconnectReason, VirtualOutputKind,

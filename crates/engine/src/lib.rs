@@ -46,6 +46,10 @@ pub struct EngineConfig {
     pub initial_output: VirtualOutputKind,
     pub log_capacity: usize,
     pub raw_report_capacity: usize,
+    /// Register for OS device arrival/removal notifications (Windows).
+    pub hotplug: bool,
+    /// Scan interval used as a safety net while notifications are active.
+    pub hotplug_fallback_interval: Duration,
 }
 
 impl Default for EngineConfig {
@@ -55,6 +59,8 @@ impl Default for EngineConfig {
             initial_output: VirtualOutputKind::Disabled,
             log_capacity: 500,
             raw_report_capacity: 256,
+            hotplug: true,
+            hotplug_fallback_interval: Duration::from_secs(5),
         }
     }
 }
@@ -87,6 +93,8 @@ pub struct EngineStatus {
     pub revision: u64,
     pub hid_backend: String,
     pub hid_available: bool,
+    /// OS device notifications are active (instant connect/disconnect).
+    pub hotplug_active: bool,
     pub enumeration_error: Option<String>,
     pub requested_output: VirtualOutputKind,
     pub output_backend: String,
@@ -231,6 +239,8 @@ pub enum EngineEvent {
 enum Control {
     Wake,
     Rescan,
+    /// A HID device arrived or was removed.
+    DeviceChange,
     Shutdown,
 }
 
@@ -247,6 +257,7 @@ struct Shared {
     recording: Mutex<Option<RecordingState>>,
     hid_backend: String,
     hid_available: bool,
+    hotplug_active: std::sync::atomic::AtomicBool,
     output_backend: String,
     output_backend_status: BackendStatus,
 }
@@ -280,6 +291,7 @@ impl Shared {
 pub struct Engine {
     shared: Arc<Shared>,
     control: Sender<Control>,
+    hotplug: Mutex<Option<nexus_device_manager::HotplugGuard>>,
     supervisor: Mutex<Option<JoinHandle<()>>>,
 }
 
@@ -315,6 +327,7 @@ impl Engine {
             recording: Mutex::new(None),
             hid_backend: hid.name().to_owned(),
             hid_available: hid.is_available(),
+            hotplug_active: std::sync::atomic::AtomicBool::new(false),
             output_backend: probe.name().to_owned(),
             output_backend_status: probe.status(),
         });
@@ -340,8 +353,40 @@ impl Engine {
             new_session_handler(&factory_shared, &output_factory, device)
         });
 
+        // Instant device detection where the OS supports it; polling becomes
+        // a slower safety net.
+        let mut device_config = config.devices.clone();
+        let hotplug = if config.hotplug {
+            let tx = Mutex::new(control.clone());
+            match nexus_device_manager::watch_hid_devices(Arc::new(move || {
+                let _ = lock(&tx).send(Control::DeviceChange);
+            })) {
+                Ok(guard) => {
+                    device_config.scan_interval = config.hotplug_fallback_interval;
+                    shared.log(
+                        LogLevel::Info,
+                        "device",
+                        "Watching for device connections (instant detection)",
+                    );
+                    Some(guard)
+                }
+                Err(e) => {
+                    shared.log(
+                        LogLevel::Info,
+                        "device",
+                        format!("Using periodic scanning: {e}"),
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        shared
+            .hotplug_active
+            .store(hotplug.is_some(), Ordering::Release);
+
         let sup_shared = shared.clone();
-        let device_config = config.devices.clone();
         let supervisor = std::thread::Builder::new()
             .name("nexus-supervisor".into())
             .spawn(move || {
@@ -353,6 +398,7 @@ impl Engine {
         Self {
             shared,
             control,
+            hotplug: Mutex::new(hotplug),
             supervisor: Mutex::new(Some(supervisor)),
         }
     }
@@ -372,6 +418,7 @@ impl Engine {
             revision: self.revision(),
             hid_backend: self.shared.hid_backend.clone(),
             hid_available: self.shared.hid_available,
+            hotplug_active: self.shared.hotplug_active.load(Ordering::Acquire),
             enumeration_error,
             requested_output,
             output_backend: self.shared.output_backend.clone(),
@@ -512,6 +559,12 @@ impl Engine {
         lock(&self.shared.hid_scan).clone()
     }
 
+    /// Tells the engine a device arrived or left (normally called by the OS
+    /// notification). Triggers an immediate scan.
+    pub fn notify_device_change(&self) {
+        let _ = self.control.send(Control::DeviceChange);
+    }
+
     pub fn rescan(&self) {
         let _ = self.control.send(Control::Rescan);
     }
@@ -527,6 +580,8 @@ impl Engine {
     /// Stops all controller sessions, releases virtual devices and joins the
     /// engine threads. Idempotent.
     pub fn shutdown(&self) {
+        // Stop OS notifications first so none arrive during shutdown.
+        drop(lock(&self.hotplug).take());
         let handle = lock(&self.supervisor).take();
         if let Some(handle) = handle {
             let _ = self.control.send(Control::Shutdown);
@@ -551,7 +606,7 @@ fn supervise(mut manager: DeviceManager, shared: Arc<Shared>, control: Receiver<
 
         match control.recv_timeout(manager.time_until_next_scan()) {
             Ok(Control::Shutdown) | Err(RecvTimeoutError::Disconnected) => break,
-            Ok(Control::Rescan) => manager.request_scan(),
+            Ok(Control::Rescan) | Ok(Control::DeviceChange) => manager.request_scan(),
             Ok(Control::Wake) | Err(RecvTimeoutError::Timeout) => {}
         }
     }

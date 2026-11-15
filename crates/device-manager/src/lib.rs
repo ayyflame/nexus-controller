@@ -10,6 +10,7 @@
 //!   reader thread hands raw and parsed reports to the engine.
 
 pub mod backend;
+pub mod hotplug;
 pub mod manager;
 pub mod session;
 pub mod tracker;
@@ -21,6 +22,7 @@ mod windows;
 pub mod mock;
 
 pub use backend::{platform_backend, HidBackend, UnsupportedBackend};
+pub use hotplug::{watch_hid_devices, HotplugCallback, HotplugGuard};
 pub use manager::{DeviceManager, DeviceManagerConfig, ScannedDevice};
 pub use session::{SessionHandler, SessionHandlerFactory};
 pub use tracker::{Candidate, ConnectionTracker, TrackerAction};

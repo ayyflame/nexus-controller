@@ -1,5 +1,5 @@
-use crate::buttons::MacroButton;
 use crate::model::{MacroStep, MAX_DELAY_MS, MAX_HOLD_MS, MIN_HOLD_MS};
+use crate::MacroButton;
 use nexus_controller_core::ControllerState;
 use serde::Serialize;
 use std::time::Instant;

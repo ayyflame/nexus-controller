@@ -449,3 +449,35 @@ fn cancel_recording_resumes_macros() {
         !s.devices[0].playing_macros.is_empty()
     });
 }
+
+// ---- Device notifications ------------------------------------------------
+
+#[test]
+fn device_change_notification_connects_without_waiting_for_poll() {
+    let backend = MockHidBackend::new();
+    let e = Engine::start(
+        Arc::new(backend.clone()),
+        vec![Arc::new(DualSenseDriver)],
+        Arc::new(|| Box::new(UnavailableBackend)),
+        EngineConfig {
+            devices: DeviceManagerConfig {
+                scan_interval: Duration::from_secs(60), // polling effectively off
+                read_timeout: Duration::from_millis(5),
+            },
+            hotplug: false,
+            ..Default::default()
+        },
+    );
+    std::thread::sleep(Duration::from_millis(30)); // first scan done, nothing found
+    backend.plug(usb_info());
+    std::thread::sleep(Duration::from_millis(50));
+    assert!(e.status().devices.is_empty(), "no poll for 60 s");
+    e.notify_device_change();
+    wait_status(&e, "connected via notification", |s| s.devices.len() == 1);
+    backend.unplug(PATH);
+    wait_status(&e, "removal noticed by the read", |s| s.devices.is_empty());
+    backend.plug(usb_info());
+    e.notify_device_change();
+    wait_status(&e, "reconnected via notification", |s| s.devices.len() == 1);
+    assert!(!e.status().hotplug_active);
+}

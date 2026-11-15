@@ -1,5 +1,5 @@
-use crate::buttons::MacroButton;
 use crate::model::{Macro, MacroStep, PlaybackMode};
+use crate::MacroButton;
 use nexus_controller_core::ControllerState;
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};

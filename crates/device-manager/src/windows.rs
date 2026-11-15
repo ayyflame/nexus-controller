@@ -21,6 +21,11 @@ use windows_sys::Win32::Devices::DeviceAndDriverInstallation::{
     CR_SUCCESS, DIGCF_DEVICEINTERFACE, DIGCF_PRESENT, SP_DEVICE_INTERFACE_DATA,
     SP_DEVICE_INTERFACE_DETAIL_DATA_W, SP_DEVINFO_DATA,
 };
+use windows_sys::Win32::Devices::DeviceAndDriverInstallation::{
+    CM_Register_Notification, CM_Unregister_Notification, CM_NOTIFY_ACTION,
+    CM_NOTIFY_ACTION_DEVICEINTERFACEARRIVAL, CM_NOTIFY_ACTION_DEVICEINTERFACEREMOVAL,
+    CM_NOTIFY_EVENT_DATA, CM_NOTIFY_FILTER, CM_NOTIFY_FILTER_TYPE_DEVICEINTERFACE, HCMNOTIFICATION,
+};
 use windows_sys::Win32::Devices::HumanInterfaceDevice::{
     HidD_FreePreparsedData, HidD_GetAttributes, HidD_GetHidGuid, HidD_GetManufacturerString,
     HidD_GetPreparsedData, HidD_GetProductString, HidD_GetSerialNumberString, HidP_GetCaps,
@@ -445,5 +450,77 @@ impl Drop for WindowsHidConnection {
     fn drop(&mut self) {
         // SAFETY: cancel any I/O still queued on this handle before closing.
         unsafe { CancelIoEx(self.handle.0, null()) };
+    }
+}
+
+// ---- Device arrival/removal notifications --------------------------------
+
+/// Registration for HID interface notifications. The callback context is a
+/// leaked `Box<HotplugCallback>` that is reclaimed after unregistering.
+pub(crate) struct NotificationHandle {
+    handle: HCMNOTIFICATION,
+    context: *mut crate::hotplug::HotplugCallback,
+}
+
+// SAFETY: the handle is only used to unregister, which may happen on any
+// thread; the context is only read by the OS callback.
+unsafe impl Send for NotificationHandle {}
+
+unsafe extern "system" fn on_notification(
+    _handle: HCMNOTIFICATION,
+    context: *const c_void,
+    action: CM_NOTIFY_ACTION,
+    _data: *const CM_NOTIFY_EVENT_DATA,
+    _size: u32,
+) -> u32 {
+    if action == CM_NOTIFY_ACTION_DEVICEINTERFACEARRIVAL
+        || action == CM_NOTIFY_ACTION_DEVICEINTERFACEREMOVAL
+    {
+        // SAFETY: `context` is the boxed callback, alive until unregistered.
+        let callback = unsafe { &*(context as *const crate::hotplug::HotplugCallback) };
+        // Never unwind into the OS.
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| callback()));
+    }
+    0 // ERROR_SUCCESS
+}
+
+impl NotificationHandle {
+    pub(crate) fn register(callback: crate::hotplug::HotplugCallback) -> Result<Self, String> {
+        // SAFETY: zeroed POD; fields set below as the API requires.
+        let mut filter: CM_NOTIFY_FILTER = unsafe { zeroed() };
+        filter.cbSize = size_of::<CM_NOTIFY_FILTER>() as u32;
+        filter.FilterType = CM_NOTIFY_FILTER_TYPE_DEVICEINTERFACE;
+        // SAFETY: writes the HID interface class GUID into the union.
+        unsafe { HidD_GetHidGuid(&mut filter.u.DeviceInterface.ClassGuid) };
+
+        let context = Box::into_raw(Box::new(callback));
+        let mut handle: HCMNOTIFICATION = unsafe { zeroed() };
+        // SAFETY: filter, context and out-handle are valid for the call; the
+        // context stays alive until `Drop`.
+        let cr = unsafe {
+            CM_Register_Notification(
+                &filter,
+                context as *const c_void,
+                Some(on_notification),
+                &mut handle,
+            )
+        };
+        if cr != CR_SUCCESS {
+            // SAFETY: registration failed, so the OS never saw the context.
+            drop(unsafe { Box::from_raw(context) });
+            return Err(format!("CM_Register_Notification failed (CONFIGRET {cr})"));
+        }
+        Ok(Self { handle, context })
+    }
+}
+
+impl Drop for NotificationHandle {
+    fn drop(&mut self) {
+        // SAFETY: unregistering waits for in-flight callbacks to finish, after
+        // which the context can be freed.
+        unsafe {
+            CM_Unregister_Notification(self.handle);
+            drop(Box::from_raw(self.context));
+        }
     }
 }

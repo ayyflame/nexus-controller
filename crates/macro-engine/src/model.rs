@@ -1,4 +1,4 @@
-use crate::buttons::MacroButton;
+use crate::MacroButton;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
