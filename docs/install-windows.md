@@ -5,9 +5,11 @@ For testers and users. **No developer tools are needed**: no Rust, Node.js, Visu
 
 ## Install
 
-1. Open the [Releases page](https://github.com/ayyflame/nexus-controller/releases) while signed in to GitHub (the repository is private).
-2. Under the newest release, click **`NEXUS_0.1.0_x64-setup.exe`** to download it.
-3. Double-click the downloaded file.
+1. Get the installer while signed in to GitHub (the repository is private), in one of two ways:
+   - **From a release:** open the [Releases page](https://github.com/ayyflame/nexus-controller/releases) and click **`NEXUS_0.1.0_x64-setup.exe`** under the newest release.
+   - **From a build:** open the [Actions tab](https://github.com/ayyflame/nexus-controller/actions/workflows/windows-release.yml), click the newest green run, and under **Artifacts** click **NEXUS-windows-x64**. This downloads a ZIP; right-click it, choose **Extract All…**, and open the extracted folder. Artifacts expire after 30 days.
+2. Find **`NEXUS_0.1.0_x64-setup.exe`** in your downloads (or the extracted folder).
+3. Double-click it.
 4. Windows SmartScreen may show **"Windows protected your PC"**, because the installer is not code-signed yet. Click **More info**, then **Run anyway**.
 5. Follow the setup wizard: **Next → Install → Finish**. No administrator password is needed, because NEXUS installs for your user account only.
 6. Start **NEXUS** from the Start menu or the desktop shortcut.
