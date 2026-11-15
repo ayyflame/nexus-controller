@@ -607,7 +607,7 @@ impl Engine {
     /// engine threads. Idempotent.
     pub fn shutdown(&self) {
         // Stop OS notifications first so none arrive during shutdown.
-        drop(lock(&self.hotplug).take());
+        *lock(&self.hotplug) = None;
         let handle = lock(&self.supervisor).take();
         if let Some(handle) = handle {
             let _ = self.control.send(Control::Shutdown);
