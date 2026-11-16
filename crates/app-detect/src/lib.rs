@@ -1,0 +1,293 @@
+//! Game detection for automatic profile switching.
+//!
+//! Uses only the standard Windows APIs that task managers use: the
+//! foreground window → its process ID → the process's executable path
+//! (`PROCESS_QUERY_LIMITED_INFORMATION`). NEXUS never reads or writes another
+//! process's memory and never injects anything.
+
+#![deny(unsafe_code)]
+
+use std::time::{Duration, Instant};
+
+/// What is in the foreground.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Foreground {
+    /// No window has focus (e.g. locked screen).
+    Nothing,
+    /// Executable file name, lower case (e.g. `eldenring.exe`).
+    Executable(String),
+    /// A window has focus but its program could not be identified (for
+    /// example an elevated process). Treated as "no change".
+    Unknown,
+}
+
+/// Returns the program owning the foreground window.
+pub fn foreground() -> Foreground {
+    #[cfg(windows)]
+    {
+        windows::foreground()
+    }
+    #[cfg(not(windows))]
+    {
+        Foreground::Unknown
+    }
+}
+
+pub fn supported() -> bool {
+    cfg!(windows)
+}
+
+#[cfg(windows)]
+#[allow(unsafe_code)]
+mod windows {
+    use super::Foreground;
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
+        PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetForegroundWindow, GetWindowThreadProcessId,
+    };
+
+    pub fn foreground() -> Foreground {
+        // SAFETY: plain Win32 queries with valid out-pointers; the process
+        // handle is closed before returning.
+        unsafe {
+            let hwnd = GetForegroundWindow();
+            if hwnd.is_null() {
+                return Foreground::Nothing;
+            }
+            let mut pid = 0u32;
+            GetWindowThreadProcessId(hwnd, &mut pid);
+            if pid == 0 {
+                return Foreground::Unknown;
+            }
+            let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+            if process.is_null() {
+                return Foreground::Unknown;
+            }
+            let mut buf = [0u16; 1024];
+            let mut len = buf.len() as u32;
+            let ok =
+                QueryFullProcessImageNameW(process, PROCESS_NAME_WIN32, buf.as_mut_ptr(), &mut len)
+                    != 0;
+            CloseHandle(process);
+            if !ok {
+                return Foreground::Unknown;
+            }
+            let path = String::from_utf16_lossy(&buf[..len as usize]);
+            match path.rsplit(['\\', '/']).next() {
+                Some(name) if !name.is_empty() => Foreground::Executable(name.to_lowercase()),
+                _ => Foreground::Unknown,
+            }
+        }
+    }
+}
+
+/// Decides when to switch profiles as the foreground program changes.
+///
+/// * A game must stay in the foreground for `settle` before switching
+///   (alt-tabbing past a game does nothing).
+/// * The profile active before the game ("home") is restored when the user
+///   leaves the game, unless they switched profile manually meanwhile.
+/// * NEXUS itself and unidentifiable programs never cause a switch.
+#[derive(Debug)]
+pub struct AutoSwitcher {
+    settle: Duration,
+    home: Option<i64>,
+    game_profile: Option<i64>,
+    candidate: Option<(Foreground, Instant)>,
+    ignore: Vec<String>,
+}
+
+impl AutoSwitcher {
+    pub fn new(settle: Duration, ignore: &[&str]) -> Self {
+        Self {
+            settle,
+            home: None,
+            game_profile: None,
+            candidate: None,
+            ignore: ignore.iter().map(|s| s.to_lowercase()).collect(),
+        }
+    }
+
+    /// Forget any game in progress (e.g. when switching is turned off).
+    pub fn reset(&mut self) {
+        self.home = None;
+        self.game_profile = None;
+        self.candidate = None;
+    }
+
+    /// Returns the profile to switch to, if any.
+    ///
+    /// `lookup` maps an executable to the profile configured for it.
+    pub fn update(
+        &mut self,
+        now: Instant,
+        foreground: Foreground,
+        active_profile: i64,
+        lookup: impl Fn(&str) -> Option<i64>,
+    ) -> Option<i64> {
+        let exe = match &foreground {
+            Foreground::Unknown => return None,
+            Foreground::Executable(e) if self.ignore.contains(e) => return None,
+            Foreground::Executable(e) => Some(e.clone()),
+            Foreground::Nothing => None,
+        };
+        match &self.candidate {
+            Some((f, since)) if *f == foreground => {
+                if now.saturating_duration_since(*since) < self.settle {
+                    return None;
+                }
+            }
+            _ => {
+                self.candidate = Some((foreground, now));
+                return None;
+            }
+        }
+        match exe.as_deref().and_then(&lookup) {
+            Some(target) => {
+                if self.game_profile == Some(target) {
+                    return None; // already handled; respect manual changes
+                }
+                if self.game_profile.is_none() {
+                    self.home = Some(active_profile);
+                }
+                self.game_profile = Some(target);
+                (active_profile != target).then_some(target)
+            }
+            None => {
+                let game = self.game_profile.take()?;
+                let home = self.home.take();
+                // Only restore if the user is still on the game's profile.
+                if active_profile == game {
+                    home.filter(|h| *h != active_profile)
+                } else {
+                    None
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const GAME: i64 = 2;
+    const HOME: i64 = 1;
+
+    fn lookup(exe: &str) -> Option<i64> {
+        match exe {
+            "game.exe" => Some(GAME),
+            "racer.exe" => Some(3),
+            _ => None,
+        }
+    }
+
+    fn exe(s: &str) -> Foreground {
+        Foreground::Executable(s.into())
+    }
+
+    struct Sim {
+        s: AutoSwitcher,
+        t: Instant,
+        active: i64,
+    }
+
+    impl Sim {
+        fn new() -> Self {
+            Self {
+                s: AutoSwitcher::new(Duration::from_millis(1000), &["nexus.exe"]),
+                t: Instant::now(),
+                active: HOME,
+            }
+        }
+        /// Keeps `f` in the foreground for `ms`, polling every 250 ms.
+        fn focus(&mut self, f: Foreground, ms: u64) -> Vec<i64> {
+            let mut switches = vec![];
+            for _ in 0..=(ms / 250) {
+                if let Some(p) = self.s.update(self.t, f.clone(), self.active, lookup) {
+                    self.active = p;
+                    switches.push(p);
+                }
+                self.t += Duration::from_millis(250);
+            }
+            switches
+        }
+    }
+
+    #[test]
+    fn switches_to_game_profile_and_back() {
+        let mut sim = Sim::new();
+        assert_eq!(sim.focus(exe("game.exe"), 1500), vec![GAME]);
+        assert_eq!(sim.focus(exe("explorer.exe"), 1500), vec![HOME]);
+    }
+
+    #[test]
+    fn brief_focus_does_not_switch() {
+        let mut sim = Sim::new();
+        assert!(
+            sim.focus(exe("game.exe"), 500).is_empty(),
+            "alt-tab past a game"
+        );
+        assert!(sim.focus(exe("explorer.exe"), 1500).is_empty());
+        assert_eq!(sim.active, HOME);
+    }
+
+    #[test]
+    fn nexus_window_and_unknown_programs_never_switch() {
+        let mut sim = Sim::new();
+        sim.focus(exe("game.exe"), 1500);
+        assert!(
+            sim.focus(exe("nexus.exe"), 3000).is_empty(),
+            "opening NEXUS mid-game keeps the game profile"
+        );
+        assert!(
+            sim.focus(Foreground::Unknown, 3000).is_empty(),
+            "elevated window: no change"
+        );
+        assert_eq!(sim.active, GAME);
+    }
+
+    #[test]
+    fn manual_choice_during_a_game_is_respected() {
+        let mut sim = Sim::new();
+        sim.focus(exe("game.exe"), 1500);
+        sim.active = 9; // user picks another profile while playing
+        assert!(
+            sim.focus(exe("game.exe"), 3000).is_empty(),
+            "not forced back"
+        );
+        assert!(
+            sim.focus(exe("explorer.exe"), 1500).is_empty(),
+            "leaving keeps the manual choice"
+        );
+        assert_eq!(sim.active, 9);
+    }
+
+    #[test]
+    fn game_to_game_returns_to_original_home() {
+        let mut sim = Sim::new();
+        sim.focus(exe("game.exe"), 1500);
+        assert_eq!(sim.focus(exe("racer.exe"), 1500), vec![3]);
+        assert_eq!(sim.focus(Foreground::Nothing, 1500), vec![HOME]);
+    }
+
+    #[test]
+    fn already_on_the_game_profile_and_reset() {
+        let mut sim = Sim::new();
+        sim.active = GAME;
+        assert!(
+            sim.focus(exe("game.exe"), 1500).is_empty(),
+            "no redundant switch"
+        );
+        assert!(
+            sim.focus(exe("explorer.exe"), 1500).is_empty(),
+            "home was the game profile"
+        );
+        sim.s.reset();
+        assert_eq!(sim.focus(exe("racer.exe"), 1500), vec![3]);
+    }
+}

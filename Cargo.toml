@@ -26,6 +26,7 @@ nexus-macro-engine = { path = "crates/macro-engine" }
 nexus-profile-manager = { path = "crates/profile-manager" }
 nexus-telemetry = { path = "crates/telemetry" }
 nexus-engine = { path = "crates/engine" }
+nexus-app-detect = { path = "crates/app-detect" }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

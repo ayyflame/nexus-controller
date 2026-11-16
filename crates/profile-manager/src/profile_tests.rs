@@ -143,7 +143,11 @@ fn v2_database_migrates_to_v3_preserving_macros_and_enabled_state() {
         .conn
         .pragma_query_value(None, "user_version", |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 3);
+    assert_eq!(
+        version,
+        crate::SCHEMA_VERSION,
+        "migrated to the current schema"
+    );
     assert_eq!(
         s.active_profile().unwrap().name,
         "Two",

@@ -120,7 +120,11 @@ pub fn get_active_profile(state: State<'_, AppState>) -> CmdResult<Profile> {
 
 /// Makes the engine match `profile` completely: output mode, processing
 /// settings and the macros switched on in that profile. Running macros stop.
-fn apply_profile(state: &AppState, store: &ProfileStore, profile: &Profile) -> CmdResult<()> {
+pub(crate) fn apply_profile(
+    state: &AppState,
+    store: &ProfileStore,
+    profile: &Profile,
+) -> CmdResult<()> {
     state.engine.set_output_mode(profile.virtual_output);
     state.engine.set_processing(profile.processing.clone());
     let macros = store.list_macros_for(profile.id).map_err(profile_error)?;
@@ -309,4 +313,199 @@ pub fn find_conflicts(
         .filter_map(|m| m.trigger)
         .collect();
     Ok(nexus_input_processing::find_conflicts(&config, &triggers))
+}
+
+// ---- Smart profiles and portability ---------------------------------------
+
+use nexus_profile_manager::{ImportMode, ImportPreview, ImportReport, ProfileTemplate, TEMPLATES};
+use std::sync::atomic::Ordering;
+use tauri::Manager;
+
+#[tauri::command]
+pub fn set_profile_games(
+    state: State<'_, AppState>,
+    id: i64,
+    games: Vec<String>,
+) -> CmdResult<Profile> {
+    let mut store = state.store.lock().map_err(|_| "profile store poisoned")?;
+    store.set_profile_games(id, &games).map_err(profile_error)
+}
+
+#[tauri::command]
+pub fn get_auto_switch(state: State<'_, AppState>) -> bool {
+    state.auto_switch.load(Ordering::Acquire)
+}
+
+#[tauri::command]
+pub fn set_auto_switch(state: State<'_, AppState>, enabled: bool) -> CmdResult<()> {
+    let mut store = state.store.lock().map_err(|_| "profile store poisoned")?;
+    store
+        .set_auto_switch_enabled(enabled)
+        .map_err(profile_error)?;
+    state.auto_switch.store(enabled, Ordering::Release);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn list_templates() -> &'static [ProfileTemplate] {
+    TEMPLATES
+}
+
+#[tauri::command]
+pub fn create_profile_from_template(
+    state: State<'_, AppState>,
+    name: String,
+    template: String,
+) -> CmdResult<Profile> {
+    let mut store = state.store.lock().map_err(|_| "profile store poisoned")?;
+    store
+        .create_profile_from_template(&name, &template)
+        .map_err(profile_error)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportResult {
+    pub path: Option<String>,
+    pub json: String,
+}
+
+/// "2026-11-16_14-05-09" in UTC, for file names.
+fn stamp() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
+    // Civil-from-days (Howard Hinnant).
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!(
+        "{y:04}-{m:02}-{d:02}_{:02}-{:02}-{:02}",
+        rem / 3600,
+        rem % 3600 / 60,
+        rem % 60
+    )
+}
+
+fn write_file(dir: Option<std::path::PathBuf>, name: &str, json: &str) -> Option<String> {
+    let dir = dir?;
+    std::fs::create_dir_all(&dir).ok()?;
+    let path = dir.join(name);
+    std::fs::write(&path, json).ok()?;
+    Some(path.display().to_string())
+}
+
+fn exports_dir(app: &tauri::AppHandle, sub: &str) -> Option<std::path::PathBuf> {
+    app.path()
+        .document_dir()
+        .ok()
+        .map(|d| d.join("NEXUS").join(sub))
+}
+
+/// Exports profiles (all if `profile_ids` is empty) to Documents\NEXUS.
+#[tauri::command]
+pub fn export_config(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    profile_ids: Vec<i64>,
+    include_all_macros: bool,
+) -> CmdResult<ExportResult> {
+    let store = state.store.lock().map_err(|_| "profile store poisoned")?;
+    let ids = (!profile_ids.is_empty()).then_some(profile_ids.as_slice());
+    let bundle = store
+        .export_bundle(ids, include_all_macros, env!("CARGO_PKG_VERSION"))
+        .map_err(profile_error)?;
+    let json = serde_json::to_string_pretty(&bundle)?;
+    let label = match bundle.profiles.as_slice() {
+        [one] => one
+            .name
+            .chars()
+            .filter(|c| c.is_alphanumeric() || *c == ' ')
+            .collect::<String>(),
+        _ => "all-profiles".into(),
+    };
+    let path = write_file(
+        exports_dir(&app, "Exports"),
+        &format!("{} {}.nexus.json", label.trim(), stamp()),
+        &json,
+    );
+    Ok(ExportResult { path, json })
+}
+
+#[tauri::command]
+pub fn preview_import(
+    state: State<'_, AppState>,
+    json: String,
+    mode: ImportMode,
+) -> CmdResult<ImportPreview> {
+    let store = state.store.lock().map_err(|_| "profile store poisoned")?;
+    store.preview_import(&json, mode).map_err(profile_error)
+}
+
+/// Imports a file. `Replace` first saves an automatic backup of the current
+/// configuration in the app data folder; if that fails nothing is replaced.
+#[tauri::command]
+pub fn import_config(
+    state: State<'_, AppState>,
+    json: String,
+    mode: ImportMode,
+) -> CmdResult<ImportReport> {
+    let mut store = state.store.lock().map_err(|_| "profile store poisoned")?;
+    if mode == ImportMode::Replace {
+        let backup = store
+            .export_bundle(None, true, env!("CARGO_PKG_VERSION"))
+            .map_err(profile_error)?;
+        let text = serde_json::to_string_pretty(&backup)?;
+        let dir = state.data_dir.as_ref().map(|d| d.join("backups"));
+        if write_file(dir, &format!("pre-restore {}.nexus.json", stamp()), &text).is_none() {
+            return Err("Couldn't save a safety backup first, so nothing was replaced.".into());
+        }
+    }
+    let report = store.import_bundle(&json, mode).map_err(profile_error)?;
+    let active = store.active_profile().map_err(profile_error)?;
+    apply_profile(&state, &store, &active)?;
+    Ok(report)
+}
+
+/// Saves a full backup (all profiles and macros) to Documents\NEXUS\Backups.
+#[tauri::command]
+pub fn create_backup(app: tauri::AppHandle, state: State<'_, AppState>) -> CmdResult<ExportResult> {
+    let store = state.store.lock().map_err(|_| "profile store poisoned")?;
+    let bundle = store
+        .export_bundle(None, true, env!("CARGO_PKG_VERSION"))
+        .map_err(profile_error)?;
+    let json = serde_json::to_string_pretty(&bundle)?;
+    let path = write_file(
+        exports_dir(&app, "Backups"),
+        &format!("nexus-backup {}.nexus.json", stamp()),
+        &json,
+    );
+    if path.is_none() {
+        return Err("Couldn't write the backup file to Documents\\NEXUS\\Backups.".into());
+    }
+    Ok(ExportResult { path, json })
+}
+
+/// Exports the whole macro library (no profiles) to Documents\\NEXUS\\Exports.
+#[tauri::command]
+pub fn export_macros(app: tauri::AppHandle, state: State<'_, AppState>) -> CmdResult<ExportResult> {
+    let store = state.store.lock().map_err(|_| "profile store poisoned")?;
+    let bundle = store
+        .export_bundle(Some(&[]), true, env!("CARGO_PKG_VERSION"))
+        .map_err(profile_error)?;
+    let json = serde_json::to_string_pretty(&bundle)?;
+    let path = write_file(
+        exports_dir(&app, "Exports"),
+        &format!("macros {}.nexus.json", stamp()),
+        &json,
+    );
+    Ok(ExportResult { path, json })
 }

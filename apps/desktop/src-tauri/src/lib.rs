@@ -4,6 +4,7 @@
 
 mod bridge;
 mod commands;
+mod game_watch;
 
 use nexus_engine::{Engine, EngineConfig};
 use nexus_profile_manager::ProfileStore;
@@ -19,6 +20,9 @@ pub struct AppState {
     /// store is in use (settings will not persist this session).
     pub storage_warning: Option<String>,
     pub bridge: bridge::Bridge,
+    /// Automatic per-game profile switching is on.
+    pub auto_switch: std::sync::atomic::AtomicBool,
+    pub game_watch: std::sync::OnceLock<game_watch::GameWatch>,
 }
 
 fn open_store(data_dir: Option<&PathBuf>) -> (ProfileStore, Option<String>) {
@@ -58,6 +62,7 @@ pub fn run() {
                 Err(e) => eprintln!("NEXUS: could not load macros: {e}"),
             }
             let bridge = bridge::Bridge::spawn(app.handle().clone(), engine.clone());
+            let auto_switch = store.auto_switch_enabled().unwrap_or(true);
 
             app.manage(AppState {
                 engine,
@@ -65,7 +70,13 @@ pub fn run() {
                 data_dir,
                 storage_warning,
                 bridge,
+                auto_switch: std::sync::atomic::AtomicBool::new(auto_switch),
+                game_watch: std::sync::OnceLock::new(),
             });
+            if nexus_app_detect::supported() {
+                let watch = game_watch::GameWatch::spawn(app.handle().clone());
+                let _ = app.state::<AppState>().game_watch.set(watch);
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -98,6 +109,16 @@ pub fn run() {
             commands::start_gyro_calibration,
             commands::finish_gyro_calibration,
             commands::find_conflicts,
+            commands::set_profile_games,
+            commands::get_auto_switch,
+            commands::set_auto_switch,
+            commands::list_templates,
+            commands::create_profile_from_template,
+            commands::export_config,
+            commands::preview_import,
+            commands::import_config,
+            commands::create_backup,
+            commands::export_macros,
         ])
         .build(tauri::generate_context!())
         .expect("failed to build the NEXUS application");
@@ -105,6 +126,9 @@ pub fn run() {
     app.run(|handle, event| {
         if let RunEvent::Exit = event {
             if let Some(state) = handle.try_state::<AppState>() {
+                if let Some(w) = state.game_watch.get() {
+                    w.stop();
+                }
                 state.bridge.stop();
                 // Releases controller handles and any virtual devices.
                 state.engine.shutdown();

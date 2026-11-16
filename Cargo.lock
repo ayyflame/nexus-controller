@@ -1916,6 +1916,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
+name = "nexus-app-detect"
+version = "0.1.0"
+dependencies = [
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "nexus-button-mapping"
 version = "0.1.0"
 dependencies = [
@@ -1935,6 +1942,7 @@ dependencies = [
 name = "nexus-desktop"
 version = "0.1.0"
 dependencies = [
+ "nexus-app-detect",
  "nexus-controller-core",
  "nexus-engine",
  "nexus-input-processing",

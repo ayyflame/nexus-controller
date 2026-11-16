@@ -19,14 +19,26 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
 pub const DEFAULT_PROFILE_NAME: &str = "Default";
-const SCHEMA_VERSION: i64 = 3;
+pub(crate) const SCHEMA_VERSION: i64 = 4;
+pub(crate) const KEY_AUTO_SWITCH: &str = "auto_switch_enabled";
+pub const MAX_GAMES_PER_PROFILE: usize = 20;
 pub const MAX_PROFILE_NAME_LEN: usize = 40;
 const KEY_LAST_PROFILE: &str = "last_profile_id";
 
 mod macros;
+mod portable;
+mod smart;
+
+pub use portable::{
+    ConfigBundle, ImportMode, ImportPreview, ImportReport, PortableProfile, BUNDLE_FORMAT,
+};
+pub use smart::{normalize_game, ProfileTemplate, TEMPLATES};
 
 #[cfg(test)]
 mod profile_tests;
+
+#[cfg(test)]
+mod smart_tests;
 
 #[derive(Debug, Error)]
 pub enum ProfileError {
@@ -44,6 +56,12 @@ pub enum ProfileError {
     NameTaken(String),
     #[error("You can't delete your only profile.")]
     LastProfile,
+    #[error("{0}")]
+    InvalidGame(String),
+    #[error("“{game}” already switches to the profile “{profile}”.")]
+    GameTaken { game: String, profile: String },
+    #[error("This file can't be imported: {0}")]
+    InvalidImport(String),
     #[error("database schema version {found} is newer than supported version {supported}")]
     SchemaTooNew { found: i64, supported: i64 },
 }
@@ -56,6 +74,8 @@ pub struct Profile {
     pub virtual_output: VirtualOutputKind,
     /// Sticks, triggers and button remapping.
     pub processing: ProcessingConfig,
+    /// Game executables (e.g. `eldenring.exe`) that switch to this profile.
+    pub games: Vec<String>,
     pub created_at_ms: i64,
     pub updated_at_ms: i64,
 }
@@ -205,6 +225,15 @@ impl ProfileStore {
             tx.execute_batch("PRAGMA user_version = 3;")?;
             tx.commit()?;
         }
+        if version < 4 {
+            // v4: per-game automatic switching.
+            let tx = self.conn.transaction()?;
+            tx.execute_batch(
+                "ALTER TABLE profiles ADD COLUMN games_json TEXT NOT NULL DEFAULT '[]';
+                 PRAGMA user_version = 4;",
+            )?;
+            tx.commit()?;
+        }
         Ok(())
     }
 
@@ -221,6 +250,7 @@ impl ProfileStore {
     fn row_to_profile(row: &rusqlite::Row<'_>) -> rusqlite::Result<Profile> {
         let output: String = row.get(2)?;
         let settings: String = row.get(5)?;
+        let games: String = row.get(6)?;
         Ok(Profile {
             id: row.get(0)?,
             name: row.get(1)?,
@@ -231,13 +261,14 @@ impl ProfileStore {
             processing: serde_json::from_str::<ProcessingConfig>(&settings)
                 .unwrap_or_default()
                 .sanitized(),
+            games: serde_json::from_str(&games).unwrap_or_default(),
             created_at_ms: row.get(3)?,
             updated_at_ms: row.get(4)?,
         })
     }
 
     const SELECT: &'static str =
-        "SELECT id, name, virtual_output, created_at_ms, updated_at_ms, settings_json FROM profiles";
+        "SELECT id, name, virtual_output, created_at_ms, updated_at_ms, settings_json, games_json FROM profiles";
 
     fn check_profile_name(&self, name: &str, except: Option<i64>) -> Result<String, ProfileError> {
         let name = name.trim();
