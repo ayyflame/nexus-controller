@@ -80,6 +80,7 @@ Output goes to `target\release\bundle\nsis\` and `target\release\bundle\msi\`. T
 - [Virtual driver evaluation and recommendation](docs/virtual-driver-evaluation.md)
 - [DualSense report format](docs/dualsense-protocol.md)
 - [Milestone 4 plan](docs/milestone-4-plan.md)
+- [Milestone 4 S1/S2 report](docs/milestone-4-s1-s2-report.md)
 - [Milestone 1 report](docs/milestone-1-report.md)
 - [Milestone 2 proposal](docs/milestone-2-proposal.md)
 - [Macro Studio](docs/macro-studio.md)
