@@ -20,7 +20,7 @@
 
 Every number in this report is labelled **measured** (with where), **estimated** (with the basis), or **pending hardware** (you measure it on Windows). This audit ran in a Linux container with a mock HID backend and a mock virtual controller. It contains **no Windows or USB measurements**.
 
-## 1. The input path today
+## 1. The input path as audited (build A, `b862b6a`)
 
 ```
 DualSense ──USB interrupt IN, ~4 ms (250 Hz)──► Windows HID stack ──► overlapped ReadFile completes
@@ -36,6 +36,14 @@ parse report → [raw history + rate/interval counters + rumble check] → proce
 - A macro is evaluated on **every report**: its output is recalculated from the physical state, so a release takes effect on the next report.
 - Between reports, a playing macro is advanced only on an idle tick (read timeout).
 - The UI never runs on the reader thread. A separate bridge thread copies a snapshot at 60 Hz.
+
+**Build B (`832de00`):**
+
+- **Order:** parse → processing → macros → virtual Xbox submit → bookkeeping (counters, raw history, vibration and lighting, UI snapshot).
+- **Allocations:** none per report.
+- **Priority:** the reader thread runs at above-normal priority.
+- **UI stream:** paused while minimised.
+- **Unchanged:** the output write (up to 1 s wait), because P3 isn't implemented.
 
 ## 2. Baseline measurements
 
@@ -75,11 +83,11 @@ parse report → [raw history + rate/interval counters + rumble check] → proce
 |---|---|---|---|
 | F1 | NEXUS's own processing is about 1 µs per report, under 0.05 % of the 4 ms report interval | Negligible today | — |
 | F2 | The dominant latencies are outside NEXUS: the controller's 4 ms report interval and the game's per-frame XInput read | Can't be reduced by NEXUS under the constraints (a higher USB poll rate needs a kernel filter driver, which is excluded) | Context |
-| F3 | The reader thread runs at **normal priority**. The measured 0.5 ms outliers appeared with no UI load, so they are scheduler preemption. On Windows with a game loading the CPU, wake-up delays can reach several ms | **Main jitter risk** (tails, not average) | High |
+| F3 | (Build A) The reader thread runs at **normal priority**; addressed by P2 in build B. The measured 0.5 ms outliers appeared with no UI load, so they are scheduler preemption. On Windows with a game loading the CPU, wake-up delays can reach several ms | **Main jitter risk** (tails, not average) | High |
 | F4 | The optional output write (lightbar or vibration) runs on the reader thread and may wait **up to 1 s**. It's normally about 1–2 ms and rare (only when lighting changes or a vibration starts or stops), but a stalled write would freeze input for up to 1 s | Rare worst-case stall | Medium |
-| F5 | Before the virtual report is sent, each report does: a lock plus 2 heap allocations for the raw-report history, a lock for the vibration request, and rate/interval counters | Adds a few hundred ns and lock interactions ahead of the output | Low |
+| F5 | (Build A; addressed by P4 and P5 in build B) Before the virtual report is sent, each report does: a lock plus 2 heap allocations for the raw-report history, a lock for the vibration request, and rate/interval counters | Adds a few hundred ns and lock interactions ahead of the output | Low |
 | F6 | After the send, the UI snapshot is updated under a lock that the 60 Hz UI bridge also takes. No contention was measurable even at 30× the real UI rate | None measured | Low |
-| F7 | The UI bridge serialises and emits status at 60 Hz even while the window is minimised | CPU use while gaming, not input latency | Low |
+| F7 | (Build A; addressed by P6 in build B) The UI bridge serialises and emits status at 60 Hz even while the window is minimised | CPU use while gaming, not input latency | Low |
 | F8 | Macro steps advance on reports, so step boundaries are quantised to the ~4 ms report interval. The first press is in the same report as the trigger | ≤ 4 ms timing granularity; below one game frame | Accept |
 | F9 | Every report is sent to ViGEmBus even when unchanged (250 updates/s) | Small CPU cost; also keeps the virtual pad fresh after driver hiccups | Accept |
 | F10 | User settings that **add** lag by design: gyro smoothing (exponential filter; default 0.3, only when gyro is on, estimated ≈ 3 ms time constant at 250 Hz). Deadzones, curves and remaps add no delay | Optional, user-controlled | Document |
@@ -90,7 +98,7 @@ parse report → [raw history + rate/interval counters + rumble check] → proce
 | Priority | Change | Expected effect | Risk to reliability / stuck buttons | Verification |
 |---|---|---|---|---|
 | **P1** | **Measure on Windows first** (no code): §6 steps L1–L6 | A real baseline to compare against | None | Your numbers recorded in the checklist |
-| **P2** | **Reader-thread scheduling:** raise each controller reader thread to `THREAD_PRIORITY_HIGHEST` and register it with Windows MMCSS ("Games" task, `AvSetMmThreadCharacteristicsW`; user-mode, no admin). Fall back silently if unavailable | Smaller wake-up delays under CPU load (lower p99/max, more consistent timing). No change to the average | Low: the thread always blocks in an event wait, so it can't spin. No change to input logic | New tests that the priority setup never fails startup. Compare L3/L5 before and after with a game running |
+| **P2** | **Reader-thread scheduling** (proposal). **As implemented in build B:** `THREAD_PRIORITY_ABOVE_NORMAL` only (one step up); MMCSS was measured but **not** adopted (§7) | Smaller wake-up delays under CPU load (lower p99/max, more consistent timing). No change to the average | Low: the thread always blocks in an event wait, so it can't spin. No change to input logic | New tests that the priority setup never fails startup. Compare L3/L5 before and after with a game running |
 | **P3** | **Bound the output write wait:** 1 s → about 25 ms on the reader thread. A cancelled write stays pending and is retried on the next iteration (vibration *stop* is always retried until sent) | Removes the rare up-to-1 s input stall | Medium if done wrong (a lost vibration-stop would leave rumble on), hence the retry rule and tests | Mock tests: slow write never delays the next report; vibration stop always delivered. Hardware: V-rows plus lightbar and vibration checks 46 and 48 |
 | **P4** | **Send first, bookkeep after:** move raw history, rate counters, the vibration check and the UI snapshot after the virtual submit | Output leaves a few hundred ns earlier; diagnostics unchanged | Very low: same work, different order | Existing macro and output tests unchanged; ordering test |
 | **P5** | **No per-report allocations or locks before output:** the raw history stores fixed-size arrays (no heap), and the vibration request uses an atomic generation check before taking its lock | Fewer allocator and lock interactions, so less jitter | Low | Allocation-free unit test; diagnostics output unchanged |
@@ -114,7 +122,7 @@ parse report → [raw history + rate/interval counters + rumble check] → proce
 - **Gyro smoothing:** adds intentional lag (default 0.3 ≈ 3 ms when gyro is on). Set it to 0 if responsiveness matters more than steadiness.
 - **Unaffected settings:** deadzones, curves, remaps, layers and macros add no measurable delay.
 - **USB connection:** plug the DualSense directly into a PC USB port (not a hub or front-panel extension) with a data cable.
-- **Windows:** keep NEXUS running at normal priority (no third-party "priority booster" tools). Close the Raw HID Reports auto-refresh while playing.
+- **Windows:** don't change NEXUS's priority with third-party "priority booster" tools; NEXUS sets its own input threads. Close the Raw HID Reports auto-refresh while playing.
 
 ## 6. Measuring on Windows (P1): before and after
 
@@ -135,12 +143,16 @@ Measure the **same steps on two builds**, on the same PC, with the same game and
   B's number covers slightly more, so a lower or equal B is a real improvement.
 - *Time between reports* (min / average / max) and *Late reports over 8 ms / over 50 ms*: how steady the controller's stream is.
 
+**Before each row:** unplug and re-plug the DualSense, then wait 10 s. The "late reports" and "time between reports" counters count from the moment the controller connects. The processing-time figures cover the most recent 256 reports.
+
+**Measuring CPU:** use Task Manager › **Processes** tab, the **NEXUS** app row. It includes NEXUS's WebView2 processes (`msedgewebview2.exe`), where the UI work (and the P6 saving) shows up. Watch it for about 30 s and write down the typical value, not a single spike.
+
 | Row | Steps (do on A, then on B) | Record |
 |---|---|---|
 | L1 | Connect, output on (Xbox 360), no game. Wait 2 min, open **Performance** | Rate; processing time p50/p99/max; time between reports min/avg/max; late > 8 ms and > 50 ms |
 | L2 | Hold a Repeat While Held macro for 30 s, then read **Performance** | Same values |
 | L3 | Start a demanding single-player game. Play 5 min using the macro. Alt+Tab to **Performance** | Same values (CPU under load: this is where P2 matters) |
-| L4 | Task Manager › Details › `nexus-desktop.exe`, CPU column. (a) NEXUS window visible on the Dashboard; (b) NEXUS **minimised**; both while the controller sends input | CPU % for (a) and (b). P6 should make (b) clearly lower on B |
+| L4 | Task Manager › Processes › **NEXUS** row (includes its WebView2 processes), CPU column. (a) NEXUS window visible on the Dashboard; (b) NEXUS **minimised**; both while the controller sends input | CPU % for (a) and (b). P6 should make (b) clearly lower on B |
 | L5 | During L3 | Late > 8 ms and > 50 ms since connect |
 | L6 | After L3: Settings › HID Devices › **Copy diagnostics report**; paste into a text file named A or B | Send both files |
 

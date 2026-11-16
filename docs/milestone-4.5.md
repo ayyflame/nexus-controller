@@ -2,7 +2,7 @@
 
 **Status:** implementation complete; hardware verification pending (see [`tests/m4.5-test-plan.md`](../tests/m4.5-test-plan.md)).
 
-**Build under test:** Windows build [43907861742](https://github.com/ayyflame/nexus-controller/actions/runs/43907861742), commit `b862b6a`. It contains every item below.
+**Build under test:** Windows build [43943310033](https://github.com/ayyflame/nexus-controller/actions/runs/43943310033), commit `832de00`. It contains every item below plus the latency changes P2, P4, P5 and P6 (`docs/latency-audit.md`).
 
 **Scope rules:**
 
@@ -38,7 +38,7 @@ Automated tests use a mock HID backend and a mock virtual controller. They prove
 
 | Verified by the owner (2026-11-16, build `711f0d4`) | Outstanding |
 |---|---|
-| DualSense USB input; Windows recognises the virtual Xbox 360 controller (V3, V4); Repeat While Held repeats and stops on release (V6, V7); macro output in an offline game (V14, title pending) | Everything in `tests/m4.5-test-plan.md`, including re-checks of V6 and V7 on `b862b6a` |
+| DualSense USB input; Windows recognises the virtual Xbox 360 controller (V3, V4); Repeat While Held repeats and stops on release (V6, V7); macro output in an offline game (V14, title pending) | Everything in `tests/m4.5-test-plan.md`, including re-checks of V6 and V7 on `832de00` |
 
 ## Known limitations
 

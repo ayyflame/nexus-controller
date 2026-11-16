@@ -2,7 +2,7 @@
 
 NEXUS supports the DualSense over **USB only**. Rows marked *Out of scope* concern Bluetooth and are no longer tested.
 
-NEXUS is developed in a Linux container without access to Windows or a controller. Only the owner can fill in these results. Known so far (owner reports): USB input works, with 73,835 reports, 0 parse errors and about 250 Hz. Rows marked **Pass (owner, date)** were reported by the owner. Every other row is unverified until recorded here.
+NEXUS is developed in a Linux container without access to Windows or a controller. Only the owner can fill in these results. Known so far (owner reports): USB input works, with 73,835 reports, 0 parse errors and about 250 Hz. Rows marked **Pass (owner, date)** were reported by the owner. Every other row is unverified until recorded here. Simulation and CI-machine results are never entered in this checklist.
 
 **Current pass:** follow [`m4.5-test-plan.md`](m4.5-test-plan.md) for the testing order, exact steps and PASS/FAIL criteria. Record results in the *Result* column below (Pass or Fail, date, build).
 
@@ -11,8 +11,9 @@ NEXUS is developed in a Linux container without access to Windows or a controlle
 | Status | Rows |
 |---|---|
 | Physically verified (owner) | V3, V4, V6, V7, V14 (build `711f0d4`; V14 game title pending); USB input in general |
-| Re-check on build `b862b6a` | V6, V7 |
-| Outstanding (M4.5 pass) | 22, 24–27, 35, 36, 53–62, V1–V2 (optional), V5, V8–V13, V15–V21, D1–D10, T1–T10 |
+| Re-check on build B `832de00` | V6, V7 |
+| Outstanding (M4.5 pass, build B) | 22, 24–27, 35, 36, 53–62, V1–V2 (optional), V5, V8–V13, V15–V21, D1–D10, T1–T10 |
+| Outstanding (latency A/B) | L1–L6, on build A `b862b6a` and build B `832de00` |
 | Outstanding (later) | 1–5, 10–21 (1–5 and 21 are covered by 53–55, 58 and 61 when those are run), 28–34, 38–52 |
 | Out of scope (Bluetooth) | 6–9, 23, 37 |
 
@@ -190,6 +191,8 @@ Virtual output must be on (Xbox 360). Run D1–D3 **before** installing HidHide.
 | D10 | Untick **Enable device hiding**, then uninstall HidHide | The DualSense is visible to games again; NEXUS keeps working | |
 
 ## Latency, before and after (no pass/fail; run each row on build A `b862b6a` and build B; see `docs/latency-audit.md` §6)
+
+**Only real Windows PC + DualSense results go in this table.** The Linux simulation and the Windows CI virtual-machine probe (no USB controller) are reported in `docs/latency-audit.md` §7 and are not hardware results. Write each result as "A: … / B: …".
 
 | # | Step | Record | Result |
 |---|---|---|---|
