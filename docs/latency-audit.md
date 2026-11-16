@@ -1,6 +1,10 @@
 # Latency Audit: Baseline, Findings and Optimization Plan
 
-**Status:** report only. No code has been changed. Every optimization below waits for approval.
+**Status:**
+
+- P2, P4, P5 and P6 are implemented (approved); results are in §7.
+- P1 measurement instructions are in §6.
+- P3 is **not implemented**: the investigation is in §8.
 
 **Scope:**
 
@@ -112,15 +116,112 @@ parse report → [raw history + rate/interval counters + rumble check] → proce
 - **USB connection:** plug the DualSense directly into a PC USB port (not a hub or front-panel extension) with a data cable.
 - **Windows:** keep NEXUS running at normal priority (no third-party "priority booster" tools). Close the Raw HID Reports auto-refresh while playing.
 
-## 6. Hardware measurement steps (P1)
+## 6. Measuring on Windows (P1): before and after
 
-Record these in [`tests/hardware-verification.md`](../tests/hardware-verification.md) under the latency rows. They aren't pass/fail; they form the baseline.
+Measure the **same steps on two builds**, on the same PC, with the same game and settings:
 
-| Row | Steps | Record |
+- **Build A (before):** run [43907861742](https://github.com/ayyflame/nexus-controller/actions/runs/43907861742), commit `b862b6a`, artifact NEXUS-windows-x64.
+- **Build B (after):** the build named in the final report of this phase (P2, P4, P5, P6).
+
+**Installing:** install a build with its `-setup.exe`. Installing A after B (or B after A) replaces the program and keeps your profiles and macros.
+
+**Reading the Performance page** (sidebar › Performance, with the DualSense connected):
+
+- *Input report rate*: about 250 Hz over USB.
+- *NEXUS processing time, median / 99th percentile / max*:
+  - in **B**, the time from receiving a report until the virtual Xbox controller has it;
+  - in **A**, processing, macros and the virtual submit only.
+
+  B's number covers slightly more, so a lower or equal B is a real improvement.
+- *Time between reports* (min / average / max) and *Late reports over 8 ms / over 50 ms*: how steady the controller's stream is.
+
+| Row | Steps (do on A, then on B) | Record |
 |---|---|---|
-| L1 | NEXUS running, controller connected, output on, no game. After 2 minutes open **Performance** | Report rate; time between reports min/avg/max; late over 8 ms and over 50 ms; NEXUS processing time p50/p99/max |
-| L2 | Same, while holding a Repeat While Held macro for 30 s | Same values |
-| L3 | Start a demanding single-player game, play 5 minutes with the macro in use, Alt+Tab to NEXUS **Performance** | Same values (shows behaviour under CPU load) |
-| L4 | Task Manager › Details › `nexus-desktop.exe` | CPU % with NEXUS minimised and idle, and during L3 |
-| L5 | During L3 | Late over 8 ms and over 50 ms since connect |
-| L6 | Settings › HID Devices › **Copy diagnostics report** after L3 | Send the file |
+| L1 | Connect, output on (Xbox 360), no game. Wait 2 min, open **Performance** | Rate; processing time p50/p99/max; time between reports min/avg/max; late > 8 ms and > 50 ms |
+| L2 | Hold a Repeat While Held macro for 30 s, then read **Performance** | Same values |
+| L3 | Start a demanding single-player game. Play 5 min using the macro. Alt+Tab to **Performance** | Same values (CPU under load: this is where P2 matters) |
+| L4 | Task Manager › Details › `nexus-desktop.exe`, CPU column. (a) NEXUS window visible on the Dashboard; (b) NEXUS **minimised**; both while the controller sends input | CPU % for (a) and (b). P6 should make (b) clearly lower on B |
+| L5 | During L3 | Late > 8 ms and > 50 ms since connect |
+| L6 | After L3: Settings › HID Devices › **Copy diagnostics report**; paste into a text file named A or B | Send both files |
+
+**Tips:**
+
+- Close the Raw HID Reports auto-refresh while measuring.
+- Use the same USB port for A and B.
+- Note the game title and its frame rate.
+- One run per build is enough. If the numbers look odd, repeat L3.
+
+## 7. Results of this phase (P2, P4, P5, P6)
+
+### Linux simulation (measured; not Windows, not USB)
+
+Same benchmark (`hotpath_benchmark`), release build, Repeat While Held macro playing, Xbox output. 6 interleaved runs per version, median of the per-run values:
+
+| Metric | Before (`b862b6a`) | After | Change |
+|---|---|---|---|
+| Report entry → virtual Xbox submit, p50 | 570 ns | 355 ns | −38 % |
+| … p99 | 955 ns | 729 ns | −24 % |
+| … p99.9 | 7.6 µs | 4.5 µs | −42 % |
+| Whole report handler, p50 / p99 | 759 / 1397 ns | 636 / 1354 ns | −16 % / ≈ same |
+| Heap allocations per report | 6 | **0** | — |
+
+Max values are dominated by OS interruptions in the container and are not compared.
+
+**P6 (UI paused while minimised)**, measured in headless Chromium (the engine behind WebView2) on the Dashboard with changing controller input, over 10 s windows:
+
+| | CPU task time | script | layout |
+|---|---|---|---|
+| No status stream (minimised, after P6) | 4–6 ms/s | ≈1.7 ms/s | 0.1 ms/s |
+| 60 Hz status stream (minimised, before P6) | 108–120 ms/s | 29–32 ms/s | 19–21 ms/s |
+
+The Rust side of each status frame (build plus JSON) measured 3.8 µs, which is 0.23 ms/s at 60 Hz. Most of the saving is in the WebView.
+
+### Windows (CI virtual machine; real Windows scheduler, no USB hardware)
+
+P2 scheduling probe, wake-up delay of a thread blocked on an event under full CPU load: see the final report of this phase (CI step "Scheduling latency probe").
+
+### Real hardware
+
+Pending: §6, rows L1–L6 on builds A and B.
+
+### Decisions
+
+| Item | Kept? | Evidence |
+|---|---|---|
+| P4 send first | Yes | −38 % p50 / −42 % p99.9 report → submit (simulation); ordering test |
+| P5 no allocations or locks | Yes | 6 → 0 allocations per report; tests |
+| P2 above-normal reader threads | See the final report | Windows CI probe |
+| MMCSS ("Games" scheduling) | Not used in production | Kept only as a probe variant; adopted only if the probe shows a clear benefit over above-normal |
+| P6 pause UI while minimised | Yes | ≈ 100+ ms/s renderer work and ≈ 30 ms/s script avoided while minimised (Chromium measurement) |
+
+## 8. P3 investigation (HID output write timeout); not implemented
+
+**Today's behaviour, from the code:**
+
+| # | Finding | Consequence |
+|---|---|---|
+| W1 | Lightbar, LED and vibration output reports are written on the reader thread and may wait up to **1 s** (`FEATURE_TIMEOUT_MS`) | A stalled write delays the next input report by up to 1 s (rare; normally 1–2 ms) |
+| W2 | On that timeout the write is cancelled (`CancelIoEx`) and reported as `Ok(0)`, which the reader loop treats as **sent** | A timed-out write is silently lost |
+| W3 | The pending output state is cleared **before** the write (`Feedback::take`) and is never re-queued | A lost **vibration stop** would leave the motors running until the next vibration command; a lost lightbar change leaves the old colour until the next change |
+| W4 | Nothing is sent to the controller at disconnect or shutdown (no vibration stop, no lightbar restore) | If NEXUS closes during a test vibration (≤ 3 s), whether the motors stop is up to the controller (to verify on hardware) |
+
+So simply shortening the timeout (the original P3) would make W2 and W3 **more** likely, because more writes would be cancelled. P3 must not be implemented as "shorter timeout" alone.
+
+**Proposed design (for later approval):**
+
+1. A write that times out or is cancelled returns an error, never success.
+2. The feedback state is "desired state". It is cleared only after a write succeeds; a failed write stays pending and is retried on the next loop iteration (one write per report, so no burst and no busy loop).
+3. Timeout about 25 ms, so the reader never waits longer than that for a write.
+4. On disconnect or shutdown, if vibration is or might be running, one final "motors off" write is attempted with the same short timeout (best effort; the handle closes right after).
+
+**Proof required before implementing (tests to write first):**
+
+- **Mock:** a connection whose writes block or fail on demand.
+- **Input keeps flowing:** with every write blocking, the gap between processed input reports never exceeds the write timeout plus one report interval.
+- **Vibration stop:** if the stop write fails N times then succeeds, the stop is eventually sent, and nothing later overrides it.
+- **Lightbar:** after failed writes and several colour changes, the last colour sent is the latest one.
+- **Shutdown:** with writes blocking, `Engine::shutdown` completes within the timeout plus thread join; a motors-off write is attempted once.
+- **Hardware:**
+  - vibration test at 100 % then close NEXUS mid-vibration (W4);
+  - lightbar changes during macro use;
+  - rows 46–48.

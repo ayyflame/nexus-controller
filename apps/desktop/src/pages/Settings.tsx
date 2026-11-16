@@ -6,6 +6,7 @@ import { engineApi, errorMessage } from "../lib/engine";
 import { hex, time } from "../lib/format";
 import { describeUpdate, formatLastCheck, isBusy, releaseOf } from "../lib/updates";
 import { useUpdates } from "../hooks/useUpdates";
+import { pageHidden } from "../lib/visibility";
 import { ReleaseNotes, UpdateActions } from "../components/UpdateBanner";
 import { Switch } from "../components/macro/common";
 import { ReportInspector } from "../components/ReportInspector";
@@ -81,7 +82,7 @@ function HidDevicesSection() {
   useEffect(() => {
     void refresh();
     if (!ready) return;
-    const t = setInterval(() => void refresh(), 2000);
+    const t = setInterval(() => { if (!pageHidden()) void refresh(); }, 2000);
     return () => clearInterval(t);
   }, [ready, refresh]);
 
@@ -158,7 +159,7 @@ function DiagnosticsSection() {
   useEffect(() => { void refresh(); }, [refresh]);
   useEffect(() => {
     if (!auto) return;
-    const t = setInterval(() => void refresh(), 250);
+    const t = setInterval(() => { if (!pageHidden()) void refresh(); }, 250);
     return () => clearInterval(t);
   }, [auto, refresh]);
 

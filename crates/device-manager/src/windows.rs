@@ -666,7 +666,7 @@ mod scheduling_tests {
     use std::sync::Arc;
     use std::time::Instant;
     use windows_sys::Win32::System::Threading::{
-        AvSetMmThreadCharacteristicsW, GetThreadPriority, SetEvent,
+        AvSetMmThreadCharacteristicsW, GetThreadPriority, SetEvent, THREAD_PRIORITY_TIME_CRITICAL,
     };
 
     #[test]
@@ -696,7 +696,10 @@ mod scheduling_tests {
 
     /// Wake-up delay of a thread blocked on an event (as a reader thread is
     /// on its overlapped read) while `load` threads keep every CPU busy.
-    fn wake_delays(mode: Mode, load: usize, n: usize) -> Vec<u64> {
+    /// The signalling thread stands in for the USB driver completing a read
+    /// (done in the kernel, not starved by user threads), so it runs at
+    /// time-critical priority. Returns (delays in ns, signals missed).
+    fn wake_delays(mode: Mode, load: usize, n: usize) -> (Vec<u64>, usize) {
         // SAFETY: auto-reset event; closed when the process exits (test only).
         let ev = Arc::new(Event(unsafe { CreateEventW(null(), 0, 0, null()) }));
         let stop = Arc::new(AtomicBool::new(false));
@@ -714,9 +717,14 @@ mod scheduling_tests {
             })
             .collect();
         let epoch = Instant::now();
-        let signaled = Arc::new(AtomicU64::new(0));
+        // Time is written before the sequence number; the waiter reads the
+        // sequence first, so a changed sequence always has its time.
+        let signaled_ns = Arc::new(AtomicU64::new(0));
+        let seq = Arc::new(AtomicU64::new(0));
+        let done = Arc::new(AtomicBool::new(false));
         let waiter = {
-            let (ev, signaled) = (ev.clone(), signaled.clone());
+            let (ev, signaled_ns, seq, done) =
+                (ev.clone(), signaled_ns.clone(), seq.clone(), done.clone());
             std::thread::spawn(move || {
                 match mode {
                     Mode::Normal => {}
@@ -730,25 +738,45 @@ mod scheduling_tests {
                     }
                 }
                 let mut out = Vec::with_capacity(n);
-                for _ in 0..n {
+                let mut last_seq = 0;
+                while !done.load(Ordering::Acquire) {
                     // SAFETY: valid event handle.
-                    unsafe { WaitForSingleObject(ev.0, 2000) };
+                    let r = unsafe { WaitForSingleObject(ev.0, 100) };
                     let now = epoch.elapsed().as_nanos() as u64;
-                    out.push(now.saturating_sub(signaled.load(Ordering::Acquire)));
+                    if r != WAIT_OBJECT_0 {
+                        continue;
+                    }
+                    let s = seq.load(Ordering::Acquire);
+                    if s != last_seq {
+                        last_seq = s;
+                        out.push(now.saturating_sub(signaled_ns.load(Ordering::Acquire)));
+                    }
                 }
                 out
             })
         };
-        for _ in 0..n {
-            std::thread::sleep(std::time::Duration::from_millis(4)); // ~250 Hz, like USB reports
-            signaled.store(epoch.elapsed().as_nanos() as u64, Ordering::Release);
-            // SAFETY: valid event handle.
-            unsafe { SetEvent(ev.0) };
-        }
+        let signaller = {
+            let (ev, signaled_ns, seq) = (ev.clone(), signaled_ns.clone(), seq.clone());
+            std::thread::spawn(move || {
+                // SAFETY: pseudo-handle of the current thread (test only).
+                unsafe { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL) };
+                for i in 1..=n as u64 {
+                    std::thread::sleep(std::time::Duration::from_millis(4)); // ~250 Hz, like USB reports
+                    signaled_ns.store(epoch.elapsed().as_nanos() as u64, Ordering::Release);
+                    seq.store(i, Ordering::Release);
+                    // SAFETY: valid event handle.
+                    unsafe { SetEvent(ev.0) };
+                }
+            })
+        };
+        signaller.join().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        done.store(true, Ordering::Release);
         let out = waiter.join().unwrap();
         stop.store(true, Ordering::Relaxed);
         busy.into_iter().for_each(|b| b.join().unwrap());
-        out
+        let missed = n.saturating_sub(out.len());
+        (out, missed)
     }
 
     /// Informational: run with `--ignored --nocapture` (the Windows CI build
@@ -757,12 +785,12 @@ mod scheduling_tests {
     #[ignore]
     fn scheduling_probe() {
         let cpus = std::thread::available_parallelism().map_or(2, |n| n.get());
-        let n = 1500;
-        let report = |label: &str, mut v: Vec<u64>| {
+        let n = 2500;
+        let report = |label: &str, (mut v, missed): (Vec<u64>, usize)| {
             v.sort_unstable();
             let at = |q: f64| v[((v.len() - 1) as f64 * q) as usize] as f64 / 1000.0;
             println!(
-                "SCHED {label:<34} p50 {:>8.1} us  p99 {:>8.1} us  p99.9 {:>8.1} us  max {:>8.1} us",
+                "SCHED {label:<34} p50 {:>8.1} us  p99 {:>8.1} us  p99.9 {:>8.1} us  max {:>8.1} us  coalesced {missed}/{n}",
                 at(0.5), at(0.99), at(0.999), *v.last().unwrap() as f64 / 1000.0
             );
         };

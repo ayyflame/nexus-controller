@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { pageHidden } from "../lib/visibility";
 import { useEngine } from "../hooks/useEngine";
 
 export type Tone = "ok" | "warn" | "error" | "idle";
@@ -17,7 +18,7 @@ const STALE_MS = 1500;
 function useNow(intervalMs: number) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), intervalMs);
+    const t = setInterval(() => { if (!pageHidden()) setNow(Date.now()); }, intervalMs);
     return () => clearInterval(t);
   }, [intervalMs]);
   return now;

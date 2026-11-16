@@ -189,14 +189,14 @@ Virtual output must be on (Xbox 360). Run D1–D3 **before** installing HidHide.
 | D9 | Plug the DualSense into a different USB port with hiding on | Record whether it stays hidden or needs ticking again | |
 | D10 | Untick **Enable device hiding**, then uninstall HidHide | The DualSense is visible to games again; NEXUS keeps working | |
 
-## Latency baseline (no pass/fail; see `docs/latency-audit.md` §6)
+## Latency, before and after (no pass/fail; run each row on build A `b862b6a` and build B; see `docs/latency-audit.md` §6)
 
 | # | Step | Record | Result |
 |---|---|---|---|
 | L1 | Controller connected, output on, no game; after 2 min open **Performance** | Report rate; time between reports min/avg/max; late > 8 ms and > 50 ms; NEXUS processing time p50/p99/max | |
 | L2 | Same while holding a Repeat While Held macro for 30 s | Same values | |
 | L3 | Play a demanding single-player game 5 min using the macro; Alt+Tab to **Performance** | Same values (under CPU load) | |
-| L4 | Task Manager › Details › `nexus-desktop.exe` | CPU % minimised and idle, and during L3 | |
+| L4 | Task Manager › Details › `nexus-desktop.exe`, controller sending input: (a) window visible on Dashboard, (b) window minimised | CPU % for (a) and (b) on A and on B | |
 | L5 | During L3 | Late > 8 ms and > 50 ms since connect | |
 | L6 | **Copy diagnostics report** after L3 | Send the file | |
 
