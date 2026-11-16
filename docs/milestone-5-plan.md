@@ -1,6 +1,17 @@
 # Milestone 5: Production Readiness and Release Candidate: Plan (for approval)
 
-**Status:** plan only. No Milestone 5 implementation has started.
+**Status:** plan only. No Milestone 5 implementation has started, and none will start until Milestone 4 is complete, its hardware evidence has been delivered, and you approve it.
+
+## Decision log (owner, 2026-11-16)
+
+| # | Decision |
+|---|---|
+| D1 | ViGEmBus approved for **experimental testing only**; it is not the permanent production driver. Request written commercial, redistribution, pricing and technical terms from Nefarius (VirtualPad) and LizardByte (Virtual HID Driver), using the drafts in [`vendor-inquiries.md`](vendor-inquiries.md). Keep the backend replaceable. No production driver commitment until the actual terms have been compared. |
+| D2 | Per-controller architecture approved, with independent profiles and settings. Database migration approved **in principle only**: it is not implemented until M4 is complete and the migration plan has been reviewed. Hardware identification stays local and privacy-conscious (salted hashes), and raw identifiers are never transmitted. |
+| D3 | Code signing deferred. An unsigned **private beta** is acceptable with a clear SmartScreen warning. Revisit signing before public commercial distribution. |
+| D4 | Milestone 4 first. Independent M5 investigation is allowed, but no major changes that interfere with M4, no unnecessary migrations and no integration conflicts. |
+| D5 | You will provide the games for compatibility testing. |
+
 
 ---
 
