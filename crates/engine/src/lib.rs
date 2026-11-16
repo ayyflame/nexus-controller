@@ -970,6 +970,12 @@ fn handle_device_event(shared: &Shared, event: DeviceEvent) {
     shared.broadcast(EngineEvent::Device(event));
 }
 
+/// Unreadable reports in a row before the output is made safe (macros
+/// stopped, neutral frame). About 32 ms at the DualSense's 250 Hz USB rate:
+/// short enough that nothing stays held, long enough that an isolated bad
+/// report never interrupts output.
+pub const UNREADABLE_REPORT_LIMIT: u32 = 8;
+
 struct EngineSessionHandler {
     shared: Arc<Shared>,
     id: DeviceId,
@@ -981,6 +987,10 @@ struct EngineSessionHandler {
     reports_since_latency_publish: u32,
     macros: MacroRunner,
     last_physical: Option<ControllerState>,
+    /// Unreadable reports received in a row (reset by every valid report).
+    unreadable_run: u32,
+    /// True while the output is held safe because of unreadable reports.
+    unreadable_failsafe: bool,
     output: VirtualOutputManager,
     output_generation: u64,
     rate: RateCounter,
@@ -1131,6 +1141,8 @@ fn new_session_handler(
         reports_since_latency_publish: 0,
         macros: MacroRunner::new(shared.macros.clone()),
         last_physical: None,
+        unreadable_run: 0,
+        unreadable_failsafe: false,
         output,
         output_generation: generation,
         rate: RateCounter::new(Duration::from_secs(1)),
@@ -1184,6 +1196,52 @@ impl EngineSessionHandler {
             self.pipeline = build_pipeline(&config);
             self.feedback.config = config.feedback.clone();
         }
+    }
+
+    /// Fail-safe for a controller that keeps sending unreadable reports.
+    ///
+    /// An unreadable report cannot be processed, so the virtual controller
+    /// would keep its last frame, including any button a macro was pressing.
+    /// After [`UNREADABLE_REPORT_LIMIT`] such reports in a row, every macro is
+    /// stopped and one neutral frame is sent; the virtual controller stays
+    /// connected. The first valid report resumes normal processing (it has
+    /// already run when this is called); macros need a fresh trigger press.
+    /// Each transition is logged once. Returns true when the fail-safe has
+    /// just started.
+    fn track_unreadable(&mut self, valid: bool) -> bool {
+        if valid {
+            self.unreadable_run = 0;
+            if self.unreadable_failsafe {
+                self.unreadable_failsafe = false;
+                self.shared.log(
+                    LogLevel::Info,
+                    "device",
+                    "Controller reports are readable again; input resumed. \
+                     Press a macro's trigger again to restart it.",
+                );
+            }
+            return false;
+        }
+        self.unreadable_run = self.unreadable_run.saturating_add(1);
+        if self.unreadable_failsafe || self.unreadable_run < UNREADABLE_REPORT_LIMIT {
+            return false;
+        }
+        self.unreadable_failsafe = true;
+        self.macros.stop_all();
+        self.output.submit_neutral();
+        if let Some(event) = self.output.take_event() {
+            self.on_output_event(event);
+        }
+        self.shared.log(
+            LogLevel::Warn,
+            "device",
+            format!(
+                "The controller sent {UNREADABLE_REPORT_LIMIT} unreadable reports in a row. \
+                 Macros were stopped and the virtual controller was set to neutral \
+                 until readable reports return."
+            ),
+        );
+        true
     }
 
     fn feed_gyro_calibration(&self, physical: &ControllerState) {
@@ -1277,6 +1335,7 @@ impl SessionHandler for EngineSessionHandler {
             self.last_physical = Some(state);
             self.run_pipeline(&state, Some(now))
         });
+        let failsafe_started = self.track_unreadable(physical.is_some());
 
         self.rate.record(now, parsed.is_ok());
         self.intervals.record(now);
@@ -1330,7 +1389,13 @@ impl SessionHandler for EngineSessionHandler {
                     }
                 }
                 // Keep the last valid state; record why this report failed.
-                _ => s.last_parse_error = error,
+                _ => {
+                    s.last_parse_error = error;
+                    if failsafe_started {
+                        s.processed = Some(ControllerState::default());
+                        s.playing_macros.clear();
+                    }
+                }
             }
         });
     }

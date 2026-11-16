@@ -1712,3 +1712,358 @@ fn idle_ticks_are_not_counted_as_processing_time_samples() {
     // The stall itself stays visible in the report-interval statistics.
     assert!(s.devices[0].report_intervals.over_50ms >= 1);
 }
+
+// ---- Fail-safe for repeated unreadable reports ------------------------------
+
+fn unreadable() -> Vec<u8> {
+    vec![0x77; 64] // unknown report id
+}
+
+fn push_unreadable(backend: &MockHidBackend, n: usize) {
+    for _ in 0..n {
+        backend.push_report(PATH, unreadable());
+    }
+}
+
+fn wait_errors(e: &Engine, n: u64) -> EngineStatus {
+    wait_status(e, "unreadable reports counted", |s| {
+        s.devices.first().is_some_and(|d| d.parse_errors == n)
+    })
+}
+
+fn log_count(e: &Engine, text: &str) -> usize {
+    e.recent_log(500)
+        .iter()
+        .filter(|l| l.message.contains(text))
+        .count()
+}
+
+const FAILSAFE_WARNING: &str = "unreadable reports in a row";
+const FAILSAFE_RECOVERY: &str = "readable again";
+
+/// Holds R3 so the 2 s jump macro is pressing A on the virtual controller.
+fn holding_macro(backend: &MockHidBackend, e: &Engine, log: &PadLog) {
+    stall_mid_macro(backend, e);
+    log.wait("A held", |_| {
+        last_report(log, 1).is_some_and(|r| has(&r, xusb::A))
+    });
+}
+
+/// Last report sent after position `from` in the log, on any virtual pad.
+/// (Each new session's mock driver numbers its pads from 1 again.)
+fn last_report_since(log: &PadLog, from: usize) -> Option<XusbReport> {
+    log.all()[from..].iter().rev().find_map(|p| match p {
+        Pad::Report(_, r) => Some(*r),
+        _ => None,
+    })
+}
+
+fn connects(p: &[Pad]) -> usize {
+    p.iter().filter(|x| matches!(x, Pad::Connect(_))).count()
+}
+
+#[test]
+fn seven_unreadable_reports_do_not_trigger_the_fail_safe() {
+    assert_eq!(crate::UNREADABLE_REPORT_LIMIT, 8);
+    let (backend, e, log) = xbox_engine();
+    holding_macro(&backend, &e, &log);
+    push_unreadable(&backend, 7);
+    let s = wait_errors(&e, 7);
+    assert_eq!(s.devices[0].playing_macros, vec!["jump".to_owned()]);
+    assert!(log.reports().iter().skip(1).all(|r| has(r, xusb::A)));
+    assert!(last_report(&log, 1).is_some_and(|r| has(&r, xusb::A)));
+    assert_eq!(log_count(&e, FAILSAFE_WARNING), 0);
+    // A valid report carries on as if nothing happened: no restart needed.
+    backend.push_report(PATH, report(&[R3]));
+    let s = wait_status(&e, "valid report", |s| s.devices[0].total_reports == 10);
+    assert_eq!(s.devices[0].playing_macros, vec!["jump".to_owned()]);
+    assert!(last_report(&log, 1).is_some_and(|r| has(&r, xusb::A)));
+    assert_eq!(log_count(&e, FAILSAFE_RECOVERY), 0);
+}
+
+#[test]
+fn eight_unreadable_reports_stop_macros_and_send_one_neutral_frame() {
+    let (backend, e, log) = xbox_engine();
+    holding_macro(&backend, &e, &log);
+    push_unreadable(&backend, 8);
+    let s = wait_errors(&e, 8);
+    let s = if s.devices[0].playing_macros.is_empty() {
+        s
+    } else {
+        wait_status(&e, "macros stopped", |s| {
+            s.devices[0].playing_macros.is_empty()
+        })
+    };
+    assert_eq!(s.devices[0].processed, Some(ControllerState::default()));
+    assert_eq!(last_report(&log, 1), Some(XusbReport::default()));
+    assert_eq!(log_count(&e, FAILSAFE_WARNING), 1);
+
+    // More unreadable reports: no further output, no repeated warning, and
+    // the virtual controller stays connected.
+    let events = log.all().len();
+    push_unreadable(&backend, 40);
+    wait_errors(&e, 48);
+    std::thread::sleep(Duration::from_millis(40)); // idle ticks too
+    assert_eq!(log.all().len(), events, "exactly one neutral frame");
+    assert_eq!(log_count(&e, FAILSAFE_WARNING), 1);
+    assert_eq!(log.live(), 1);
+    assert!(!log.all().iter().any(|p| matches!(p, Pad::Disconnect(_))));
+    assert_eq!(e.status().devices.len(), 1, "still connected");
+}
+
+#[test]
+fn a_valid_report_between_errors_resets_the_count() {
+    let (backend, e, log) = xbox_engine();
+    holding_macro(&backend, &e, &log);
+    push_unreadable(&backend, 7);
+    backend.push_report(PATH, report(&[R3]));
+    push_unreadable(&backend, 7);
+    let s = wait_errors(&e, 14);
+    assert_eq!(s.devices[0].playing_macros, vec!["jump".to_owned()]);
+    assert!(last_report(&log, 1).is_some_and(|r| has(&r, xusb::A)));
+    assert_eq!(log_count(&e, FAILSAFE_WARNING), 0);
+    // The eighth in a row after the reset does trigger it.
+    push_unreadable(&backend, 1);
+    wait_status(&e, "fail-safe", |s| s.devices[0].playing_macros.is_empty());
+    assert_eq!(last_report(&log, 1), Some(XusbReport::default()));
+}
+
+#[test]
+fn alternating_valid_and_unreadable_reports_never_trigger_the_fail_safe() {
+    let (backend, e, log) = xbox_engine();
+    holding_macro(&backend, &e, &log);
+    for _ in 0..40 {
+        backend.push_report(PATH, unreadable());
+        backend.push_report(PATH, report(&[R3]));
+    }
+    let s = wait_status(&e, "all reports", |s| s.devices[0].total_reports == 82);
+    assert_eq!(s.devices[0].parse_errors, 40);
+    assert_eq!(s.devices[0].playing_macros, vec!["jump".to_owned()]);
+    assert!(log.reports().iter().skip(1).all(|r| has(r, xusb::A)));
+    assert_eq!(log_count(&e, FAILSAFE_WARNING), 0);
+}
+
+#[test]
+fn recovery_restores_physical_input_and_macros_need_a_fresh_press() {
+    let (backend, e, log) = xbox_engine();
+    holding_macro(&backend, &e, &log);
+    push_unreadable(&backend, 12);
+    wait_errors(&e, 12);
+    wait_status(&e, "fail-safe", |s| s.devices[0].playing_macros.is_empty());
+    let before = log.reports().len();
+
+    // First valid report: Circle, left stick fully right, R2 fully pulled,
+    // and the macro trigger R3 still held.
+    let mut p = Payload::neutral();
+    p.buttons[0] |= CIRCLE.1;
+    p.buttons[1] |= R3.1;
+    p.lx = 255;
+    p.r2 = 255;
+    backend.push_report(PATH, p.usb_report());
+    log.wait("first valid report", |_| log.reports().len() > before);
+    let first = log.reports()[before];
+    assert!(has(&first, xusb::B), "physical button on the first report");
+    assert_eq!(first.thumb_lx, i16::MAX, "stick");
+    assert_eq!(first.right_trigger, 255, "trigger");
+    assert!(!has(&first, xusb::A), "macro not restarted");
+    assert!(
+        !has(&first, xusb::RIGHT_THUMB),
+        "macro trigger still hidden"
+    );
+
+    // Still held: the macro stays stopped. Recovery is logged once.
+    for _ in 0..20 {
+        backend.push_report(PATH, p.usb_report());
+    }
+    let s = wait_status(&e, "more reports", |s| s.devices[0].total_reports == 35);
+    assert!(s.devices[0].playing_macros.is_empty());
+    assert!(log.reports()[before..].iter().all(|r| !has(r, xusb::A)));
+    assert_eq!(log_count(&e, FAILSAFE_RECOVERY), 1);
+    assert_eq!(log_count(&e, FAILSAFE_WARNING), 1);
+
+    // Release, then press again: the macro plays.
+    pump_at_250hz(&backend, &[], 2);
+    let before = log.reports().len();
+    pump_at_250hz(&backend, &[R3], 10);
+    log.wait("fresh press plays", |_| {
+        log.reports()[before..].iter().any(|r| has(r, xusb::A))
+    });
+
+    // A second episode warns again (once), and recovers again (once).
+    push_unreadable(&backend, 8);
+    wait_status(&e, "second fail-safe", |s| {
+        s.devices[0].playing_macros.is_empty()
+    });
+    backend.push_report(PATH, report(&[]));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while log_count(&e, FAILSAFE_RECOVERY) < 2 {
+        assert!(Instant::now() < deadline, "second recovery not logged");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    assert_eq!(log_count(&e, FAILSAFE_WARNING), 2);
+}
+
+#[test]
+fn fail_safe_with_output_disabled_sends_no_virtual_report() {
+    let (backend, e, log) = xbox_engine();
+    e.set_output_mode(VirtualOutputKind::Disabled);
+    log.wait("removed", |p| p.contains(&Pad::Disconnect(1)));
+    let events = log.all().len();
+    stall_mid_macro(&backend, &e);
+    push_unreadable(&backend, 8);
+    wait_errors(&e, 8);
+    let s = wait_status(&e, "macros stopped", |s| {
+        s.devices[0].playing_macros.is_empty()
+    });
+    assert_eq!(s.devices[0].processed, Some(ControllerState::default()));
+    assert_eq!(log_count(&e, FAILSAFE_WARNING), 1);
+    std::thread::sleep(Duration::from_millis(30));
+    assert_eq!(log.all().len(), events, "no virtual controller activity");
+    assert_eq!(log.live(), 0);
+}
+
+#[test]
+fn the_unreadable_count_starts_again_after_a_reconnect() {
+    let (backend, e, log) = xbox_engine();
+    holding_macro(&backend, &e, &log);
+    push_unreadable(&backend, 7);
+    wait_errors(&e, 7);
+
+    // Normal disconnect handling is unchanged: neutral, then removal.
+    backend.unplug(PATH);
+    log.wait("removed", |p| p.contains(&Pad::Disconnect(1)));
+    let all = log.all();
+    let n = all.len();
+    assert_eq!(
+        all[n - 2..],
+        [Pad::Report(1, XusbReport::default()), Pad::Disconnect(1)]
+    );
+    wait_status(&e, "disconnected", |s| s.devices.is_empty());
+
+    // New session: seven more unreadable reports are 7 in a row, not 14.
+    let base = log.all().len();
+    backend.plug(usb_info());
+    log.wait("new virtual controller", |p| connects(p) == 2);
+    wait_status(&e, "reconnected", |s| s.devices.len() == 1);
+    backend.push_report(PATH, report(&[]));
+    backend.push_report(PATH, report(&[R3]));
+    log.wait("A held again", |_| {
+        last_report_since(&log, base).is_some_and(|r| has(&r, xusb::A))
+    });
+    push_unreadable(&backend, 7);
+    let s = wait_errors(&e, 7);
+    assert_eq!(s.devices[0].playing_macros, vec!["jump".to_owned()]);
+    assert!(last_report_since(&log, base).is_some_and(|r| has(&r, xusb::A)));
+    assert_eq!(log.live(), 1);
+    assert_eq!(log_count(&e, FAILSAFE_WARNING), 0);
+}
+
+#[test]
+fn disconnect_during_the_fail_safe_removes_the_virtual_controller_normally() {
+    let (backend, e, log) = xbox_engine();
+    holding_macro(&backend, &e, &log);
+    push_unreadable(&backend, 8);
+    wait_status(&e, "fail-safe", |s| s.devices[0].playing_macros.is_empty());
+    assert_eq!(log.live(), 1, "fail-safe keeps the virtual controller");
+
+    backend.unplug(PATH);
+    log.wait("removed", |p| p.contains(&Pad::Disconnect(1)));
+    let all = log.all();
+    let n = all.len();
+    assert_eq!(
+        all[n - 2..],
+        [Pad::Report(1, XusbReport::default()), Pad::Disconnect(1)]
+    );
+    assert_eq!(log.live(), 0);
+
+    // Reconnecting gives a clean session with working input.
+    wait_status(&e, "disconnected", |s| s.devices.is_empty());
+    let base = log.all().len();
+    backend.plug(usb_info());
+    log.wait("new virtual controller", |p| connects(p) == 2);
+    wait_status(&e, "reconnected", |s| s.devices.len() == 1);
+    backend.push_report(PATH, report(&[CROSS]));
+    log.wait("physical input", |_| {
+        last_report_since(&log, base).is_some_and(|r| has(&r, xusb::A))
+    });
+    assert_eq!(log_count(&e, FAILSAFE_WARNING), 1);
+    assert_eq!(
+        log_count(&e, FAILSAFE_RECOVERY),
+        0,
+        "new session, no episode"
+    );
+}
+
+#[test]
+fn shutdown_during_the_fail_safe_is_safe() {
+    let (backend, e, log) = xbox_engine();
+    holding_macro(&backend, &e, &log);
+    push_unreadable(&backend, 20);
+    wait_errors(&e, 20);
+    wait_status(&e, "fail-safe", |s| s.devices[0].playing_macros.is_empty());
+    e.shutdown();
+    let all = log.all();
+    let n = all.len();
+    assert_eq!(
+        all[n - 2..],
+        [Pad::Report(1, XusbReport::default()), Pad::Disconnect(1)]
+    );
+    assert_eq!(log.live(), 0);
+    e.shutdown(); // idempotent
+}
+
+#[test]
+fn the_fail_safe_stops_every_active_macro() {
+    let (backend, e, log) = xbox_engine();
+    let long = |id: &str, trigger, out, mode| {
+        let mut m = macro_on(id, trigger, out, mode);
+        m.steps[0].hold_ms = 2000;
+        m
+    };
+    e.set_macros(vec![
+        long(
+            "held",
+            MacroButton::RightStick,
+            MacroButton::South,
+            PlaybackMode::RepeatWhileHeld,
+        ),
+        long(
+            "toggled",
+            MacroButton::LeftStick,
+            MacroButton::East,
+            PlaybackMode::Toggle,
+        ),
+    ]);
+    backend.push_report(PATH, report(&[]));
+    backend.push_report(PATH, report(&[R3, L3]));
+    wait_status(&e, "both playing", |s| {
+        s.devices[0].playing_macros.len() == 2
+    });
+    log.wait("A and B held", |_| {
+        last_report(&log, 1).is_some_and(|r| has(&r, xusb::A) && has(&r, xusb::B))
+    });
+
+    push_unreadable(&backend, 8);
+    wait_status(&e, "all stopped", |s| {
+        s.devices[0].playing_macros.is_empty()
+    });
+    assert_eq!(last_report(&log, 1), Some(XusbReport::default()));
+
+    // Valid reports with both triggers still held: neither macro restarts,
+    // including the toggled one.
+    let before = log.reports().len();
+    for _ in 0..20 {
+        backend.push_report(PATH, report(&[R3, L3, TRIANGLE_MARK]));
+    }
+    log.wait("valid reports", |_| {
+        log.reports()[before..]
+            .iter()
+            .filter(|r| has(r, xusb::Y))
+            .count()
+            == 20
+    });
+    assert!(log.reports()[before..]
+        .iter()
+        .all(|r| !has(r, xusb::A) && !has(r, xusb::B)));
+    assert!(e.status().devices[0].playing_macros.is_empty());
+}
