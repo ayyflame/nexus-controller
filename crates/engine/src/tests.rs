@@ -34,6 +34,10 @@ fn config() -> EngineConfig {
             scan_interval: Duration::from_millis(10),
             read_timeout: Duration::from_millis(5),
         },
+        // Mock devices never produce OS device notifications. With
+        // notifications on (real Windows), polling would relax to the 5 s
+        // safety net and simulated re-plugs would only be seen after 5 s.
+        hotplug: false,
         ..Default::default()
     }
 }
