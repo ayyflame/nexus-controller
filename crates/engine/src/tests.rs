@@ -762,3 +762,232 @@ fn report_intervals_are_published_for_usb_stability_checks() {
     assert!(i.min_us <= i.mean_us && i.mean_us <= i.max_us, "{i:?}");
     // Simulated timing only: real 250 Hz behaviour must be checked on hardware.
 }
+
+// ---- Report Inspector (synthetic reports; real controllers need hardware) ----
+
+use crate::inspector::{analyse, InspectorSession, RawCapture, Verdict};
+
+/// Resting reports with the noise a real controller has: counter, timestamp,
+/// gyro and a little stick jitter.
+fn resting(n: usize, tweak: impl Fn(&mut Vec<u8>)) -> Vec<Vec<u8>> {
+    (0..n)
+        .map(|i| {
+            let mut p = Payload::neutral();
+            p.seq = i as u8;
+            p.sensor_timestamp = 1000 + i as u32 * 333;
+            p.gyro = [(i % 5) as i16 - 2, 3 - (i % 7) as i16, (i % 3) as i16];
+            p.lx = 128 + (i % 3) as u8;
+            let mut r = p.usb_report();
+            tweak(&mut r);
+            r
+        })
+        .collect()
+}
+
+fn with_bits(n: usize, byte: usize, mask: u8) -> Vec<Vec<u8>> {
+    resting(n, |r| r[byte] |= mask)
+}
+
+#[test]
+fn inspector_reports_nothing_when_nothing_is_pressed() {
+    let a = analyse(&resting(200, |_| {}), &resting(200, |_| {}));
+    assert_eq!(a.verdict, Verdict::NoChange);
+    assert!(a.changes.is_empty(), "noise is ignored: {:?}", a.changes);
+    for b in [7, 16, 28, 1] {
+        assert!(a.noisy_bytes.contains(&b), "byte {b} should be noisy");
+    }
+}
+
+#[test]
+fn inspector_identifies_a_paddle_mapped_to_cross_as_cross() {
+    let a = analyse(&resting(200, |_| {}), &with_bits(200, 8, 0x20));
+    assert_eq!(
+        a.verdict,
+        Verdict::DecodedButtons {
+            buttons: vec!["Cross"]
+        }
+    );
+    assert!(a.summary.contains("cannot tell it apart"), "{}", a.summary);
+}
+
+#[test]
+fn inspector_flags_undecoded_button_bits_as_candidates() {
+    let a = analyse(&resting(200, |_| {}), &with_bits(200, 10, 0x40));
+    assert_eq!(
+        a.verdict,
+        Verdict::UndecodedBits {
+            locations: vec!["byte 10 mask 0x40".into()]
+        }
+    );
+    let c = &a.changes[0];
+    assert_eq!(
+        (c.index, c.set_bits, c.cleared_bits, c.undecoded_bits),
+        (10, 0x40, 0, 0x40)
+    );
+    assert!(c.hints[0].contains("unconfirmed"));
+    assert_eq!(c.reports_changed, 200);
+}
+
+#[test]
+fn inspector_flags_changes_in_reserved_bytes() {
+    let a = analyse(&resting(200, |_| {}), &resting(200, |r| r[12] = 0x03));
+    assert!(
+        matches!(&a.verdict, Verdict::UndecodedBits { locations } if locations == &["byte 12 mask 0x03"])
+    );
+    assert_eq!(a.changes[0].field_kind, "unknown");
+}
+
+#[test]
+fn inspector_separates_mixed_and_analog_changes() {
+    // Paddle sends Cross *and* an undecoded bit: the undecoded bit wins.
+    let mixed = analyse(
+        &resting(100, |_| {}),
+        &resting(100, |r| {
+            r[8] |= 0x20;
+            r[11] |= 0x01;
+        }),
+    );
+    assert!(matches!(mixed.verdict, Verdict::UndecodedBits { .. }));
+    assert!(mixed.changes.iter().any(|c| c.decoded == vec!["Cross"]));
+    // Right stick pushed fully: analog only.
+    let analog = analyse(&resting(100, |_| {}), &resting(100, |r| r[3] = 255));
+    assert_eq!(analog.verdict, Verdict::AnalogOnly);
+}
+
+#[test]
+fn inspector_notes_brief_presses_and_odd_reports() {
+    let mut action = resting(100, |_| {});
+    action[0][10] |= 0x80;
+    let a = analyse(&resting(100, |_| {}), &action);
+    assert!(
+        a.notes.iter().any(|n| n.contains("Hold the input")),
+        "{:?}",
+        a.notes
+    );
+    let odd = analyse(&[vec![0x31; 78]], &[vec![0x31; 78]]);
+    assert!(odd.notes.iter().any(|n| n.contains("Report IDs")));
+}
+
+fn raw(device: &str, reports: Vec<Vec<u8>>) -> RawCapture {
+    RawCapture {
+        device_id: device.into(),
+        vendor_id: 0x054C,
+        product_id: 0x0CE6,
+        duration_ms: 2000,
+        reports,
+    }
+}
+
+#[test]
+fn inspector_session_requires_a_baseline_from_the_same_controller() {
+    let mut s = InspectorSession::default();
+    assert!(s
+        .add_action("Left paddle", raw("a", with_bits(10, 10, 0x40)))
+        .is_err());
+    s.set_baseline(raw("a", resting(100, |_| {})));
+    assert!(s
+        .add_action("Other pad", raw("b", resting(10, |_| {})))
+        .is_err());
+    let c = s
+        .add_action("  Left paddle ", raw("a", with_bits(100, 10, 0x40)))
+        .unwrap();
+    assert_eq!(c.label, "Left paddle");
+    let v = s.view();
+    assert_eq!(v.captures.len(), 1);
+    assert_eq!(v.baseline.as_ref().unwrap().reports, 100);
+    assert!(v.baseline.unwrap().reference_hex.starts_with("01 "));
+    let e = s.export();
+    assert_eq!(e.baseline.unwrap().reports_hex.len(), 100);
+    assert_eq!(e.captures[0].reports_hex.len(), 100);
+    assert_eq!(e.captures[0].reports_hex[0].split(' ').count(), 64);
+    s.set_baseline(raw("a", resting(100, |_| {})));
+    assert!(s.view().captures.is_empty(), "a new baseline starts over");
+}
+
+#[test]
+fn capture_records_raw_reports_of_the_connected_controller() {
+    let (backend, e) = connected_engine();
+    let e = Arc::new(e);
+    let feeder = {
+        let backend = backend.clone();
+        std::thread::spawn(move || {
+            for seq in 0..40u8 {
+                let mut p = Payload::neutral();
+                p.seq = seq;
+                p.buttons[2] |= 0x40;
+                backend.push_report(PATH, p.usb_report());
+                std::thread::sleep(Duration::from_millis(4));
+            }
+        })
+    };
+    let busy = {
+        let e = e.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(50));
+            e.capture_reports(None, Duration::from_millis(10))
+        })
+    };
+    let c = e.capture_reports(None, Duration::from_millis(250)).unwrap();
+    feeder.join().unwrap();
+    assert!(busy
+        .join()
+        .unwrap()
+        .unwrap_err()
+        .contains("already running"));
+    assert!(!c.reports.is_empty());
+    assert!(c.reports.iter().all(|r| r.len() == 64 && r[10] & 0x40 != 0));
+    assert_eq!(c.device_id, PATH);
+}
+
+#[test]
+fn capture_and_interfaces_need_a_connected_controller() {
+    let backend = MockHidBackend::new();
+    let e = engine(&backend);
+    assert!(e
+        .capture_reports(None, Duration::from_millis(1))
+        .unwrap_err()
+        .contains("Connect"));
+    assert!(e.related_interfaces(None).is_err());
+}
+
+#[test]
+fn related_interfaces_lists_only_the_same_physical_device() {
+    let backend = MockHidBackend::new();
+    backend.plug(usb_info());
+    // A second interface of the same USB device (e.g. a paddle board).
+    backend.plug(HidDeviceInfo {
+        path: "sibling".into(),
+        usage_page: 0xFF00,
+        usage: 1,
+        ancestor_instance_ids: vec![
+            r"USB\VID_054C&PID_0CE6&MI_04\q".into(),
+            r"USB\VID_054C&PID_0CE6\y".into(),
+        ],
+        ..usb_info()
+    });
+    // Another Sony device on a different USB port.
+    backend.plug(HidDeviceInfo {
+        path: "other".into(),
+        ancestor_instance_ids: vec![
+            r"USB\VID_054C&PID_0CE6&MI_03\x2".into(),
+            r"USB\VID_054C&PID_0CE6\other".into(),
+        ],
+        ..usb_info()
+    });
+    let e = engine(&backend);
+    wait_status(&e, "connect", |s| !s.devices.is_empty());
+    let dev = e
+        .status()
+        .devices
+        .iter()
+        .find(|d| d.device.id.0 == PATH)
+        .map(|d| d.device.id.0.clone())
+        .unwrap();
+    let list = e.related_interfaces(Some(&dev)).unwrap();
+    let mut paths: Vec<_> = list.iter().map(|d| d.path.as_str()).collect();
+    paths.sort();
+    let mut expected = vec![PATH, "sibling"];
+    expected.sort();
+    assert_eq!(paths, expected);
+    assert!(list.iter().any(|d| d.usage_page == 0xFF00));
+}

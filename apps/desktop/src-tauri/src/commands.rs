@@ -559,3 +559,136 @@ pub fn dismiss_update_outcome(app: tauri::AppHandle) -> UpdateStatus {
     updates::dismiss_outcome(&app);
     app.state::<UpdateService>().status()
 }
+
+// ---- Report Inspector (diagnostics) -------------------------------------------
+
+use nexus_controller_core::HidInterfaceDetails;
+use nexus_engine::inspector::InspectorView;
+
+const MIN_CAPTURE_MS: u32 = 500;
+const MAX_CAPTURE_MS: u32 = 10_000;
+
+/// Records raw reports for `duration_ms`. `baseline = true` records the
+/// hands-off reference; otherwise the capture is analysed against it under
+/// `label`. Runs off the UI thread and never touches the input path.
+#[tauri::command]
+pub async fn inspector_record(
+    app: tauri::AppHandle,
+    baseline: bool,
+    label: Option<String>,
+    duration_ms: u32,
+    device_id: Option<String>,
+) -> CmdResult<InspectorView> {
+    let duration = std::time::Duration::from_millis(u64::from(
+        duration_ms.clamp(MIN_CAPTURE_MS, MAX_CAPTURE_MS),
+    ));
+    let handle = app.clone();
+    let capture = tauri::async_runtime::spawn_blocking(move || {
+        let state = handle.state::<AppState>();
+        state.engine.capture_reports(device_id.as_deref(), duration)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    let state = app.state::<AppState>();
+    let mut session = state.inspector.lock().map_err(|_| "inspector poisoned")?;
+    if baseline {
+        session.set_baseline(capture);
+    } else {
+        session.add_action(label.as_deref().unwrap_or(""), capture)?;
+    }
+    Ok(session.view())
+}
+
+#[tauri::command]
+pub fn inspector_view(state: State<'_, AppState>) -> CmdResult<InspectorView> {
+    Ok(state
+        .inspector
+        .lock()
+        .map_err(|_| "inspector poisoned")?
+        .view())
+}
+
+#[tauri::command]
+pub fn inspector_clear(state: State<'_, AppState>) -> CmdResult<InspectorView> {
+    let mut s = state.inspector.lock().map_err(|_| "inspector poisoned")?;
+    s.clear();
+    Ok(s.view())
+}
+
+/// Every HID interface of the controller's USB device (read-only query).
+#[tauri::command]
+pub async fn inspector_interfaces(
+    app: tauri::AppHandle,
+    device_id: Option<String>,
+) -> CmdResult<Vec<HidInterfaceDetails>> {
+    let handle = app.clone();
+    Ok(tauri::async_runtime::spawn_blocking(move || {
+        handle
+            .state::<AppState>()
+            .engine
+            .related_interfaces(device_id.as_deref())
+    })
+    .await
+    .map_err(|e| e.to_string())??)
+}
+
+/// Saves all captures (raw reports as hex, analyses, interfaces, controller
+/// identity without serial numbers) to Documents\NEXUS\Captures.
+#[tauri::command]
+pub async fn inspector_export(app: tauri::AppHandle) -> CmdResult<ExportResult> {
+    let handle = app.clone();
+    let device_id = app
+        .state::<AppState>()
+        .inspector
+        .lock()
+        .map_err(|_| "inspector poisoned")?
+        .view()
+        .device_id;
+    let interfaces = tauri::async_runtime::spawn_blocking(move || {
+        handle
+            .state::<AppState>()
+            .engine
+            .related_interfaces(device_id.as_deref())
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    let state = app.state::<AppState>();
+    let status = state.engine.status();
+    let session = state.inspector.lock().map_err(|_| "inspector poisoned")?;
+    let view = session.view();
+    if view.baseline.is_none() {
+        return Err("Record a baseline and at least one input first.".into());
+    }
+    let device = status
+        .devices
+        .iter()
+        .find(|d| Some(&d.device.id.0) == view.device_id.as_ref())
+        .map(|d| {
+            serde_json::json!({
+                "model": d.device.model,
+                "connection": d.device.connection,
+                "vendorId": d.device.vendor_id,
+                "productId": d.device.product_id,
+                "productName": d.device.product_name,
+                "reportRateHz": d.report_rate_hz,
+                "reportIntervals": d.report_intervals,
+            })
+        });
+    let doc = serde_json::json!({
+        "format": "nexus-report-capture",
+        "version": 1,
+        "appVersion": env!("CARGO_PKG_VERSION"),
+        "createdAt": stamp(),
+        "note": "Raw DualSense USB input reports recorded by the NEXUS Report Inspector. Serial numbers are not included.",
+        "device": device,
+        "interfaces": interfaces.unwrap_or_default(),
+        "data": session.export(),
+    });
+    let json = serde_json::to_string_pretty(&doc)?;
+    let path = write_file(
+        exports_dir(&app, "Captures"),
+        &format!("report-capture {}.json", stamp()),
+        &json,
+    );
+    Ok(ExportResult { path, json })
+}

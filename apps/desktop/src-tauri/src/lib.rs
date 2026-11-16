@@ -24,6 +24,8 @@ pub struct AppState {
     /// Automatic per-game profile switching is on.
     pub auto_switch: std::sync::atomic::AtomicBool,
     pub game_watch: std::sync::OnceLock<game_watch::GameWatch>,
+    /// Report Inspector captures (diagnostics; kept in memory only).
+    pub inspector: Mutex<nexus_engine::inspector::InspectorSession>,
 }
 
 fn open_store(data_dir: Option<&PathBuf>) -> (ProfileStore, Option<String>) {
@@ -75,6 +77,7 @@ pub fn run() {
                 bridge,
                 auto_switch: std::sync::atomic::AtomicBool::new(auto_switch),
                 game_watch: std::sync::OnceLock::new(),
+                inspector: Mutex::new(Default::default()),
             });
             if nexus_app_detect::supported() {
                 let watch = game_watch::GameWatch::spawn(app.handle().clone());
@@ -132,6 +135,11 @@ pub fn run() {
             commands::postpone_update,
             commands::set_auto_update_check,
             commands::dismiss_update_outcome,
+            commands::inspector_record,
+            commands::inspector_view,
+            commands::inspector_clear,
+            commands::inspector_interfaces,
+            commands::inspector_export,
         ])
         .build(tauri::generate_context!())
         .expect("failed to build the NEXUS application");

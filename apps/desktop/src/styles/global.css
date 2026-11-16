@@ -660,3 +660,13 @@ input[type="color"]:disabled { opacity: 0.4; cursor: not-allowed; }
 .update-status.tone-ok { color: var(--ok); }
 .update-status.tone-warn { color: #f0cf96; }
 .update-status.tone-error { color: #f1a5a5; }
+
+/* ---- Report Inspector ---------------------------------------------------- */
+.inspector-steps { display: flex; flex-direction: column; gap: 10px; margin: 12px 0; }
+.inspector-capture { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 12px; }
+.inspector-table { margin-top: 8px; font-size: 12.5px; }
+.inspector-table th { text-align: left; font-weight: 500; color: var(--text-dim); }
+.inspector-candidate td { background: rgba(227, 170, 74, 0.08); }
+.badge.tone-warn { background: rgba(227, 170, 74, 0.12); color: #f0cf96; border-color: rgba(227, 170, 74, 0.4); }
+.badge.tone-neutral { background: var(--panel-3); color: var(--text-dim); border-color: var(--border-strong); }
+.badge.tone-ok { background: rgba(98, 196, 131, 0.12); color: #b5e6c6; border-color: rgba(98, 196, 131, 0.4); margin-left: 6px; }

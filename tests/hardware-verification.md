@@ -1,6 +1,8 @@
-# Hardware Verification Checklist (Milestone 1)
+# Hardware Verification Checklist
 
-None of these have been performed yet. Milestone 1 was built in a Linux container without access to Windows or a DualSense. Run them on Windows 11 x64 with a real DualSense and record the results.
+NEXUS supports the DualSense over **USB only**. Rows marked *Out of scope* concern Bluetooth and are no longer tested.
+
+NEXUS is developed in a Linux container without access to Windows or a controller. Only the owner can fill in these results. Known so far (owner report): USB input works, with 73,835 reports, 0 parse errors and about 250 Hz. Every other row is unverified until recorded here.
 
 Setup steps: `docs/windows-setup.md`. Useful tools: **Settings → HID Devices (Sony)** (what Windows reports and how NEXUS classified it; **Copy diagnostics report**), **Raw HID Reports** (enable auto-refresh) and **Engine Log**.
 
@@ -13,14 +15,14 @@ Setup steps: `docs/windows-setup.md`. Useful tools: **Settings → HID Devices (
 | 3 | Quit NEXUS, keep USB plugged, start NEXUS | Detected at launch | |
 | 4 | Unplug USB | *Controller disconnected*; dashboard returns to "No controller" | |
 | 5 | Re-plug USB 10× quickly | Each time exactly one connect; never two devices listed | |
-| 6 | Pair via Bluetooth, connect | *connected (Bluetooth)*; report format shows **Bluetooth report 0x31** (not "basic") within a second | |
-| 7 | Turn the controller off (hold PS 10 s) while on Bluetooth | Disconnect detected (record how long it takes) | |
-| 8 | Turn back on | Automatic reconnect | |
-| 9 | Plug USB while connected over Bluetooth | Record behaviour: one controller listed, which transport? | |
+| 6 | Pair via Bluetooth, connect | *connected (Bluetooth)*; report format shows **Bluetooth report 0x31** (not "basic") within a second | *Out of scope (Bluetooth)* |
+| 7 | Turn the controller off (hold PS 10 s) while on Bluetooth | Disconnect detected (record how long it takes) | *Out of scope (Bluetooth)* |
+| 8 | Turn back on | Automatic reconnect | *Out of scope (Bluetooth)* |
+| 9 | Plug USB while connected over Bluetooth | Record behaviour: one controller listed, which transport? | *Out of scope (Bluetooth)* |
 | 10 | With DS4Windows / Steam running | Note whether NEXUS can still open the device (exclusive access) | |
 | 11 | With ViGEmBus + DS4Windows emulating a DS4 | Virtual DS4 is not listed; if a virtual DualSense exists, the log says "Ignored virtual" | |
 
-## Input parsing (USB, then repeat over Bluetooth)
+## Input parsing (USB)
 
 | # | Step | Expected | Result |
 |---|---|---|---|
@@ -45,7 +47,7 @@ Setup steps: `docs/windows-setup.md`. Useful tools: **Settings → HID Devices (
 | # | Step | Expected | Result |
 |---|---|---|---|
 | 22 | Create Macro → Record → press Square, Triangle → Stop | Two actions with roughly your timing | |
-| 23 | Repeat over Bluetooth | Same result | |
+| 23 | Repeat over Bluetooth | Same result | *Out of scope (Bluetooth)* |
 | 24 | Assign R3, Play Once, save; press R3 | "Test with your controller" shows Square then Triangle; *Playing* badge | |
 | 25 | Repeat While Held / Toggle | Repeats while held / until pressed again | |
 | 26 | Unplug the controller while a Toggle macro plays | Macro stops; nothing stays pressed after reconnect | |
@@ -62,11 +64,11 @@ Setup steps: `docs/windows-setup.md`. Useful tools: **Settings → HID Devices (
 | 32 | Buttons: Cross → Circle, Touchpad → Disabled | Live "Sent to the game" shows Circle; touchpad does nothing | |
 | 33 | Profiles: create, rename, duplicate, switch, delete | Settings follow the profile; nothing from the old profile stays active | |
 | 34 | Quit and reopen NEXUS | Last-used profile and its settings load | |
-| 35 | Plug/unplug USB and pair/unpair Bluetooth | Connect/disconnect appears instantly (Settings shows "Instant (Windows device notifications)") | |
+| 35 | Plug/unplug USB | Connect/disconnect appears instantly (Settings shows "Instant (Windows device notifications)") | |
 | 36 | Macro Studio: start a Toggle macro, press **Stop all macros** | Playing stops immediately; holding the trigger does not restart it | |
-| 37 | Repeat 28–32 and 36 over Bluetooth | Same results | |
+| 37 | Repeat 28–32 and 36 over Bluetooth | Same results | *Out of scope (Bluetooth)* |
 
-## Milestone 3 (USB and Bluetooth)
+## Milestone 3 (USB)
 
 | # | Step | Expected | Result |
 |---|---|---|---|
@@ -85,3 +87,39 @@ Setup steps: `docs/windows-setup.md`. Useful tools: **Settings → HID Devices (
 | 50 | Export a profile, Import on another PC (or after deleting it) | Same settings restored | |
 | 51 | Create backup, change things, Restore backup | Everything restored; safety backup in the data folder | |
 | 52 | Two controllers (USB + BT) | Both listed; selector switches the view | |
+
+## Milestone 4: USB reliability (Performance page and Settings → Copy diagnostics report)
+
+The automated tests for these run against a simulated HID backend. They prove the logic, not the behaviour of Windows or the controller.
+
+| # | Step | Expected | Result |
+|---|---|---|---|
+| 53 | Start NEXUS with the controller already plugged in | Connected within ~1 s | |
+| 54 | Start NEXUS with nothing plugged in, then plug in | "No controller" first, then connected within ~1 s | |
+| 55 | Unplug | Disconnected within ~1 s (note the time) | |
+| 56 | Re-plug into the **same** port | One controller, input works | |
+| 57 | Re-plug into a **different** USB port (Windows assigns a new device path) | One controller, input works, no duplicate in Settings → HID Devices | |
+| 58 | Re-plug 20 times quickly (about 1 s apart) | Each time exactly one controller; engine log shows matching connect/disconnect counts; no errors | |
+| 59 | 10-minute soak: leave connected, move sticks occasionally; open **Performance** | Rate 245–255 Hz; input errors 0; dropped reports 0; time between reports average ≈ 4.0 ms; late over 50 ms = 0. Record min/avg/max and late counts. | |
+| 60 | During the soak, open and close other apps (browser, a game launcher) | Late-report counters stay low; record values | |
+| 61 | Close NEXUS while connected, reopen | Exits within 1 s; reconnects on start; no "access denied" | |
+| 62 | Copy diagnostics report after 59 | Attach it (includes report intervals and connection stats) | |
+
+## Milestone 4: ModdedZone MZ Titan back paddles (Settings → Report Inspector)
+
+Do every capture with the controller lying still, pressing only what the step says. Export after each configuration (**Export captures** saves to `Documents\NEXUS\Captures`) and send the files.
+
+| # | MZ Titan configuration | Steps in NEXUS | Record |
+|---|---|---|---|
+| T1 | Any | **List interfaces** | Number of interfaces, their type (Gamepad / Vendor-defined / Keyboard…), VID:PID, declared buttons. Screenshot. |
+| T2 | Paddles **mapped** to Cross / Circle | Record baseline. Choose *Left paddle* → Record while holding. Then *Right paddle*. Then *Cross (reference)*. | Expected: left paddle shows "Reported as Cross", identical to the Cross capture. Export. |
+| T3 | Paddles set to **independent / native** mode (MZ Titan app) | Unplug, re-plug, **List interfaces** again | Did the interfaces, PID or declared buttons change? |
+| T4 | Native mode | Record baseline, then *Left paddle* | Verdict and changed bytes, or "No change" |
+| T5 | Native mode | *Right paddle* | Same |
+| T6 | Native mode | *Both paddles* | Same; are the bits independent (left + right combined)? |
+| T7 | Native mode | Repeat T4 twice more | Same byte and bit every time? |
+| T8 | Native mode | Custom label "Cross while paddle held": hold left paddle **and** press Cross | Cross still reported normally |
+| T9 | Native mode | Windows *Set up USB game controllers* (`joy.cpl`) → Properties; press paddles | Do extra button numbers light up? |
+| T10 | — | **Export captures** for T2 and T4–T8 | Send the JSON files |
+
+**Interpretation.** NEXUS will add Paddle Left and Paddle Right as inputs only if T4–T7 show consistent bits that NEXUS does not decode yet, or an extra interface from T1/T3 carries them. "Reported as Cross" means mapped mode, which already works as Cross. "No change" with no extra interface means the paddles are not visible to Windows in that mode. That would be documented, not worked around.

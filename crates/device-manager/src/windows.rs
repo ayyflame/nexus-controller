@@ -8,7 +8,9 @@
 //! * No administrator rights are required.
 
 use crate::backend::HidBackend;
-use nexus_controller_core::{HidConnection, HidDeviceInfo, HidError};
+use nexus_controller_core::{
+    HidConnection, HidDeviceInfo, HidError, HidInterfaceDetails, HidUsageRange,
+};
 use std::ffi::c_void;
 use std::mem::{offset_of, size_of, zeroed};
 use std::ptr::{null, null_mut};
@@ -28,8 +30,9 @@ use windows_sys::Win32::Devices::DeviceAndDriverInstallation::{
 };
 use windows_sys::Win32::Devices::HumanInterfaceDevice::{
     HidD_FreePreparsedData, HidD_GetAttributes, HidD_GetHidGuid, HidD_GetManufacturerString,
-    HidD_GetPreparsedData, HidD_GetProductString, HidD_GetSerialNumberString, HidP_GetCaps,
-    HIDD_ATTRIBUTES, HIDP_CAPS, HIDP_STATUS_SUCCESS, PHIDP_PREPARSED_DATA,
+    HidD_GetPreparsedData, HidD_GetProductString, HidD_GetSerialNumberString, HidP_GetButtonCaps,
+    HidP_GetCaps, HidP_GetValueCaps, HidP_Input, HIDD_ATTRIBUTES, HIDP_BUTTON_CAPS, HIDP_CAPS,
+    HIDP_STATUS_SUCCESS, HIDP_VALUE_CAPS, PHIDP_PREPARSED_DATA,
 };
 use windows_sys::Win32::Foundation::{
     CloseHandle, GetLastError, ERROR_ACCESS_DENIED, ERROR_BAD_COMMAND, ERROR_DEVICE_NOT_CONNECTED,
@@ -162,7 +165,7 @@ fn ancestors_of(devinst: u32) -> Vec<String> {
 /// Queries attributes, capabilities and strings through a query-only handle.
 fn query_device(
     path: &str,
-    vendor_ids: &[u16],
+    vendor_ids: Option<&[u16]>,
     instance_id: Option<String>,
     ancestors: impl FnOnce() -> Vec<String>,
 ) -> Option<HidDeviceInfo> {
@@ -176,7 +179,7 @@ fn query_device(
     if !unsafe { HidD_GetAttributes(handle.0, &mut attrs) } {
         return None;
     }
-    if !vendor_ids.contains(&attrs.VendorID) {
+    if vendor_ids.is_some_and(|v| !v.contains(&attrs.VendorID)) {
         return None;
     }
 
@@ -213,116 +216,212 @@ fn query_device(
     Some(info)
 }
 
+/// Every present HID interface: (path, instance ID, device instance). No
+/// device is opened here.
+fn hid_interfaces() -> Result<Vec<(String, Option<String>, u32)>, HidError> {
+    // SAFETY: zeroed GUID is a valid out-param.
+    let mut guid: GUID = unsafe { zeroed() };
+    // SAFETY: out-pointer to a local.
+    unsafe { HidD_GetHidGuid(&mut guid) };
+
+    // SAFETY: standard call; the set is destroyed below.
+    let set = unsafe {
+        SetupDiGetClassDevsW(
+            &guid,
+            null(),
+            null_mut(),
+            DIGCF_PRESENT | DIGCF_DEVICEINTERFACE,
+        )
+    };
+    if set as isize == INVALID_HANDLE_VALUE as isize {
+        return Err(HidError::Io(format!(
+            "SetupDiGetClassDevs failed (Win32 error {})",
+            last_error()
+        )));
+    }
+
+    let mut devices = Vec::new();
+    for index in 0.. {
+        // SAFETY: zeroed POD with cbSize set.
+        let mut iface: SP_DEVICE_INTERFACE_DATA = unsafe { zeroed() };
+        iface.cbSize = size_of::<SP_DEVICE_INTERFACE_DATA>() as u32;
+        // SAFETY: valid set and out-struct.
+        if unsafe { SetupDiEnumDeviceInterfaces(set, null(), &guid, index, &mut iface) } == 0 {
+            break; // ERROR_NO_MORE_ITEMS
+        }
+
+        let mut required = 0u32;
+        // SAFETY: size query; failure with ERROR_INSUFFICIENT_BUFFER is expected.
+        unsafe {
+            SetupDiGetDeviceInterfaceDetailW(set, &iface, null_mut(), 0, &mut required, null_mut())
+        };
+        if required == 0 {
+            continue;
+        }
+        // u64 storage guarantees the struct's alignment.
+        let mut storage = vec![0u64; (required as usize).div_ceil(8)];
+        let detail = storage
+            .as_mut_ptr()
+            .cast::<SP_DEVICE_INTERFACE_DETAIL_DATA_W>();
+        // SAFETY: `storage` is large enough and suitably aligned.
+        unsafe { (*detail).cbSize = size_of::<SP_DEVICE_INTERFACE_DETAIL_DATA_W>() as u32 };
+        // SAFETY: zeroed POD with cbSize set.
+        let mut devinfo: SP_DEVINFO_DATA = unsafe { zeroed() };
+        devinfo.cbSize = size_of::<SP_DEVINFO_DATA>() as u32;
+        // SAFETY: buffer of `required` bytes.
+        let ok = unsafe {
+            SetupDiGetDeviceInterfaceDetailW(
+                set,
+                &iface,
+                detail,
+                required,
+                null_mut(),
+                &mut devinfo,
+            )
+        } != 0;
+        if !ok {
+            continue;
+        }
+        let path_offset = offset_of!(SP_DEVICE_INTERFACE_DETAIL_DATA_W, DevicePath);
+        let path_chars = (required as usize).saturating_sub(path_offset) / 2;
+        // SAFETY: DevicePath is a NUL-terminated string inside `storage`.
+        let path = from_wide(unsafe {
+            std::slice::from_raw_parts(
+                storage.as_ptr().cast::<u8>().add(path_offset).cast::<u16>(),
+                path_chars,
+            )
+        });
+
+        let mut id_buf = [0u16; 512];
+        // SAFETY: buffer size in characters.
+        let instance_id = (unsafe {
+            SetupDiGetDeviceInstanceIdW(
+                set,
+                &devinfo,
+                id_buf.as_mut_ptr(),
+                id_buf.len() as u32,
+                null_mut(),
+            )
+        } != 0)
+            .then(|| from_wide(&id_buf));
+
+        devices.push((path, instance_id, devinfo.DevInst));
+    }
+
+    // SAFETY: destroying the set created above.
+    unsafe { SetupDiDestroyDeviceInfoList(set) };
+    Ok(devices)
+}
+
+/// Reads the input usages declared by an interface's report descriptor
+/// through a query-only handle.
+fn interface_details(info: &HidDeviceInfo) -> HidInterfaceDetails {
+    let mut d = HidInterfaceDetails::from_info(info);
+    let Ok(handle) = OwnedHandle::open(&wide(&info.path), 0, 0) else {
+        return d;
+    };
+    let mut pp: PHIDP_PREPARSED_DATA = 0;
+    // SAFETY: valid handle and out-pointer; data is freed below.
+    if !unsafe { HidD_GetPreparsedData(handle.0, &mut pp) } {
+        return d;
+    }
+    // SAFETY: zeroed POD out-struct.
+    let mut caps: HIDP_CAPS = unsafe { zeroed() };
+    // SAFETY: `pp` is valid until freed.
+    if unsafe { HidP_GetCaps(pp, &mut caps) } == HIDP_STATUS_SUCCESS {
+        let mut n = caps.NumberInputButtonCaps;
+        let mut buttons = vec![HIDP_BUTTON_CAPS::default(); usize::from(n)];
+        // SAFETY: buffer of `n` elements; `n` is updated to the count written.
+        if n > 0
+            && unsafe { HidP_GetButtonCaps(HidP_Input, buttons.as_mut_ptr(), &mut n, pp) }
+                == HIDP_STATUS_SUCCESS
+        {
+            for b in &buttons[..usize::from(n)] {
+                // SAFETY: the union member is selected by IsRange.
+                let (min, max) = unsafe {
+                    if b.IsRange {
+                        (b.Anonymous.Range.UsageMin, b.Anonymous.Range.UsageMax)
+                    } else {
+                        (b.Anonymous.NotRange.Usage, b.Anonymous.NotRange.Usage)
+                    }
+                };
+                d.input_buttons.push(HidUsageRange {
+                    usage_page: b.UsagePage,
+                    usage_min: min,
+                    usage_max: max,
+                    report_id: b.ReportID,
+                    bit_size: 1,
+                    report_count: b.ReportCount,
+                });
+            }
+        }
+        let mut n = caps.NumberInputValueCaps;
+        let mut values = vec![HIDP_VALUE_CAPS::default(); usize::from(n)];
+        // SAFETY: as above.
+        if n > 0
+            && unsafe { HidP_GetValueCaps(HidP_Input, values.as_mut_ptr(), &mut n, pp) }
+                == HIDP_STATUS_SUCCESS
+        {
+            for v in &values[..usize::from(n)] {
+                // SAFETY: the union member is selected by IsRange.
+                let (min, max) = unsafe {
+                    if v.IsRange {
+                        (v.Anonymous.Range.UsageMin, v.Anonymous.Range.UsageMax)
+                    } else {
+                        (v.Anonymous.NotRange.Usage, v.Anonymous.NotRange.Usage)
+                    }
+                };
+                d.input_values.push(HidUsageRange {
+                    usage_page: v.UsagePage,
+                    usage_min: min,
+                    usage_max: max,
+                    report_id: v.ReportID,
+                    bit_size: v.BitSize,
+                    report_count: v.ReportCount,
+                });
+            }
+        }
+        d.caps_unavailable = false;
+    }
+    // SAFETY: frees what HidD_GetPreparsedData allocated.
+    unsafe { HidD_FreePreparsedData(pp) };
+    d
+}
+
 impl HidBackend for WindowsHidBackend {
     fn name(&self) -> &'static str {
         "windows-hid"
     }
 
     fn enumerate(&self, vendor_ids: &[u16]) -> Result<Vec<HidDeviceInfo>, HidError> {
-        // SAFETY: zeroed GUID is a valid out-param.
-        let mut guid: GUID = unsafe { zeroed() };
-        // SAFETY: out-pointer to a local.
-        unsafe { HidD_GetHidGuid(&mut guid) };
+        Ok(hid_interfaces()?
+            .into_iter()
+            .filter_map(|(path, instance_id, devinst)| {
+                query_device(&path, Some(vendor_ids), instance_id, || {
+                    ancestors_of(devinst)
+                })
+            })
+            .collect())
+    }
 
-        // SAFETY: standard call; the set is destroyed below.
-        let set = unsafe {
-            SetupDiGetClassDevsW(
-                &guid,
-                null(),
-                null_mut(),
-                DIGCF_PRESENT | DIGCF_DEVICEINTERFACE,
-            )
-        };
-        if set as isize == INVALID_HANDLE_VALUE as isize {
-            return Err(HidError::Io(format!(
-                "SetupDiGetClassDevs failed (Win32 error {})",
-                last_error()
-            )));
-        }
-
-        let mut devices = Vec::new();
-        for index in 0.. {
-            // SAFETY: zeroed POD with cbSize set.
-            let mut iface: SP_DEVICE_INTERFACE_DATA = unsafe { zeroed() };
-            iface.cbSize = size_of::<SP_DEVICE_INTERFACE_DATA>() as u32;
-            // SAFETY: valid set and out-struct.
-            if unsafe { SetupDiEnumDeviceInterfaces(set, null(), &guid, index, &mut iface) } == 0 {
-                break; // ERROR_NO_MORE_ITEMS
-            }
-
-            let mut required = 0u32;
-            // SAFETY: size query; failure with ERROR_INSUFFICIENT_BUFFER is expected.
-            unsafe {
-                SetupDiGetDeviceInterfaceDetailW(
-                    set,
-                    &iface,
-                    null_mut(),
-                    0,
-                    &mut required,
-                    null_mut(),
-                )
-            };
-            if required == 0 {
+    fn related_interfaces(&self, of: &HidDeviceInfo) -> Result<Vec<HidInterfaceDetails>, HidError> {
+        let parent = crate::backend::composite_parent(&of.ancestor_instance_ids).map(str::to_owned);
+        let mut out = Vec::new();
+        for (path, instance_id, devinst) in hid_interfaces()? {
+            // Ancestry comes from the PnP tree; nothing is opened unless the
+            // interface belongs to the same physical USB device.
+            let ancestors = ancestors_of(devinst);
+            let same = path == of.path
+                || (parent.is_some()
+                    && crate::backend::composite_parent(&ancestors) == parent.as_deref());
+            if !same {
                 continue;
             }
-            // u64 storage guarantees the struct's alignment.
-            let mut storage = vec![0u64; (required as usize).div_ceil(8)];
-            let detail = storage
-                .as_mut_ptr()
-                .cast::<SP_DEVICE_INTERFACE_DETAIL_DATA_W>();
-            // SAFETY: `storage` is large enough and suitably aligned.
-            unsafe { (*detail).cbSize = size_of::<SP_DEVICE_INTERFACE_DETAIL_DATA_W>() as u32 };
-            // SAFETY: zeroed POD with cbSize set.
-            let mut devinfo: SP_DEVINFO_DATA = unsafe { zeroed() };
-            devinfo.cbSize = size_of::<SP_DEVINFO_DATA>() as u32;
-            // SAFETY: buffer of `required` bytes.
-            let ok = unsafe {
-                SetupDiGetDeviceInterfaceDetailW(
-                    set,
-                    &iface,
-                    detail,
-                    required,
-                    null_mut(),
-                    &mut devinfo,
-                )
-            } != 0;
-            if !ok {
-                continue;
-            }
-            let path_offset = offset_of!(SP_DEVICE_INTERFACE_DETAIL_DATA_W, DevicePath);
-            let path_chars = (required as usize).saturating_sub(path_offset) / 2;
-            // SAFETY: DevicePath is a NUL-terminated string inside `storage`.
-            let path = from_wide(unsafe {
-                std::slice::from_raw_parts(
-                    storage.as_ptr().cast::<u8>().add(path_offset).cast::<u16>(),
-                    path_chars,
-                )
-            });
-
-            let mut id_buf = [0u16; 512];
-            // SAFETY: buffer size in characters.
-            let instance_id = (unsafe {
-                SetupDiGetDeviceInstanceIdW(
-                    set,
-                    &devinfo,
-                    id_buf.as_mut_ptr(),
-                    id_buf.len() as u32,
-                    null_mut(),
-                )
-            } != 0)
-                .then(|| from_wide(&id_buf));
-
-            let devinst = devinfo.DevInst;
-            if let Some(info) =
-                query_device(&path, vendor_ids, instance_id, || ancestors_of(devinst))
-            {
-                devices.push(info);
+            if let Some(info) = query_device(&path, None, instance_id, || ancestors) {
+                out.push(interface_details(&info));
             }
         }
-
-        // SAFETY: destroying the set created above.
-        unsafe { SetupDiDestroyDeviceInfoList(set) };
-        Ok(devices)
+        Ok(out)
     }
 
     fn open(&self, device: &HidDeviceInfo) -> Result<Box<dyn HidConnection>, HidError> {

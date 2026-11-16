@@ -12,6 +12,7 @@
 mod crc;
 mod driver;
 mod identify;
+pub mod layout;
 pub mod output;
 mod report;
 

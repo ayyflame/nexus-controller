@@ -305,6 +305,11 @@ struct Shared {
     subscribers: Mutex<Vec<Sender<EngineEvent>>>,
     enumeration_error: Mutex<Option<String>>,
     hid_scan: Mutex<Vec<HidDiagnostic>>,
+    /// Unmasked scan results, used only inside the engine (Report Inspector).
+    scan_infos: Mutex<Vec<nexus_controller_core::HidDeviceInfo>>,
+    /// Report Inspector capture: checked on every report without locking.
+    capturing: std::sync::atomic::AtomicBool,
+    capture: Mutex<Option<(DeviceId, Vec<Vec<u8>>)>>,
     drivers: Mutex<DriverStatus>,
     macros: Arc<MacroLibrary>,
     recording: Mutex<Option<RecordingState>>,
@@ -348,6 +353,7 @@ impl Shared {
 
 pub struct Engine {
     shared: Arc<Shared>,
+    hid: Arc<dyn HidBackend>,
     control: Sender<Control>,
     hotplug: Mutex<Option<nexus_device_manager::HotplugGuard>>,
     supervisor: Mutex<Option<JoinHandle<()>>>,
@@ -381,6 +387,9 @@ impl Engine {
             subscribers: Mutex::new(Vec::new()),
             enumeration_error: Mutex::new(None),
             hid_scan: Mutex::new(Vec::new()),
+            scan_infos: Mutex::new(Vec::new()),
+            capturing: std::sync::atomic::AtomicBool::new(false),
+            capture: Mutex::new(None),
             drivers: Mutex::new(probe_drivers()),
             macros: Arc::new(MacroLibrary::new()),
             recording: Mutex::new(None),
@@ -451,6 +460,7 @@ impl Engine {
             .store(hotplug.is_some(), Ordering::Release);
 
         let sup_shared = shared.clone();
+        let hid_for_engine = hid.clone();
         let supervisor = std::thread::Builder::new()
             .name("nexus-supervisor".into())
             .spawn(move || {
@@ -461,6 +471,7 @@ impl Engine {
 
         Self {
             shared,
+            hid: hid_for_engine,
             control,
             hotplug: Mutex::new(hotplug),
             supervisor: Mutex::new(Some(supervisor)),
@@ -697,6 +708,76 @@ impl Engine {
     }
 
     /// HID collections seen in the most recent scan (vendor-filtered).
+    /// The connected controller to inspect: `device_id`, or the first one.
+    fn inspect_target(&self, device_id: Option<&str>) -> Result<ConnectedDevice, String> {
+        let devices = lock(&self.shared.devices);
+        let found = match device_id {
+            Some(id) => devices.values().find(|d| d.device.id.0 == id),
+            None => devices.values().next(),
+        };
+        found
+            .map(|d| d.device.clone())
+            .ok_or_else(|| "Connect your controller with a USB cable first.".to_owned())
+    }
+
+    /// Records the raw input reports of one controller for `duration`
+    /// (Report Inspector). Blocks the calling thread; never the input path.
+    pub fn capture_reports(
+        &self,
+        device_id: Option<&str>,
+        duration: Duration,
+    ) -> Result<inspector::RawCapture, String> {
+        let device = self.inspect_target(device_id)?;
+        if self.shared.capturing.swap(true, Ordering::AcqRel) {
+            return Err("A recording is already running.".into());
+        }
+        *lock(&self.shared.capture) = Some((device.id.clone(), Vec::new()));
+        std::thread::sleep(duration);
+        self.shared.capturing.store(false, Ordering::Release);
+        let reports = lock(&self.shared.capture)
+            .take()
+            .map(|(_, r)| r)
+            .unwrap_or_default();
+        if !lock(&self.shared.devices).contains_key(&device.id) {
+            return Err("The controller disconnected during the recording. Try again.".into());
+        }
+        if reports.is_empty() {
+            return Err(
+                "No reports arrived during the recording. Is the controller still connected?"
+                    .into(),
+            );
+        }
+        Ok(inspector::RawCapture {
+            device_id: device.id.0,
+            vendor_id: device.vendor_id,
+            product_id: device.product_id,
+            duration_ms: duration.as_millis().min(u128::from(u32::MAX)) as u32,
+            reports,
+        })
+    }
+
+    /// Every HID interface of the connected controller's physical USB device,
+    /// including ones NEXUS does not open (read-only query).
+    pub fn related_interfaces(
+        &self,
+        device_id: Option<&str>,
+    ) -> Result<Vec<nexus_controller_core::HidInterfaceDetails>, String> {
+        let device = self.inspect_target(device_id)?;
+        let info = lock(&self.shared.scan_infos)
+            .iter()
+            .find(|i| i.path == device.id.0)
+            .cloned()
+            .ok_or("The controller is not in the latest device scan yet. Try again in a second.")?;
+        let mut list = self
+            .hid
+            .related_interfaces(&info)
+            .map_err(|e| e.to_string())?;
+        for d in &mut list {
+            d.instance_id = d.instance_id.as_deref().map(mask_mac_like);
+        }
+        Ok(list)
+    }
+
     pub fn hid_diagnostics(&self) -> Vec<HidDiagnostic> {
         lock(&self.shared.hid_scan).clone()
     }
@@ -767,6 +848,7 @@ fn supervise(mut manager: DeviceManager, shared: Arc<Shared>, control: Receiver<
 }
 
 fn sync_scan(shared: &Shared, scan: &[ScannedDevice]) {
+    *lock(&shared.scan_infos) = scan.iter().map(|d| d.info.clone()).collect();
     let fresh: Vec<HidDiagnostic> = scan.iter().map(HidDiagnostic::from).collect();
     let mut stored = lock(&shared.hid_scan);
     if *stored != fresh {
@@ -1138,6 +1220,13 @@ impl SessionHandler for EngineSessionHandler {
         self.shared
             .telemetry
             .record_raw(&self.id.0, raw, error.clone());
+        if self.shared.capturing.load(Ordering::Relaxed) {
+            if let Some((device, reports)) = lock(&self.shared.capture).as_mut() {
+                if *device == self.id && reports.len() < inspector::MAX_CAPTURE_REPORTS {
+                    reports.push(raw.to_vec());
+                }
+            }
+        }
 
         let physical = parsed.ok();
         if let Some(state) = &physical {
@@ -1241,6 +1330,8 @@ impl SessionHandler for EngineSessionHandler {
         }
     }
 }
+
+pub mod inspector;
 
 #[cfg(test)]
 mod tests;

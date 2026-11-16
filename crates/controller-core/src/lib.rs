@@ -28,7 +28,7 @@ pub use device::{
     DisconnectReason, VirtualOutputKind,
 };
 pub use driver::{ControllerDriver, Identification, ReportError, ReportParser};
-pub use hid::{HidConnection, HidDeviceInfo, HidError};
+pub use hid::{HidConnection, HidDeviceInfo, HidError, HidInterfaceDetails, HidUsageRange};
 pub use state::{
     BatteryState, BatteryStatus, Buttons, ControllerState, DpadDirection, MotionState,
     ReportFormat, StickState, TouchPoint, TouchpadState, TriggerState,

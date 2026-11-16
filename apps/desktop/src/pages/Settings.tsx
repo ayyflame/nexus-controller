@@ -8,6 +8,7 @@ import { describeUpdate, formatLastCheck, isBusy, releaseOf } from "../lib/updat
 import { useUpdates } from "../hooks/useUpdates";
 import { ReleaseNotes, UpdateActions } from "../components/UpdateBanner";
 import { Switch } from "../components/macro/common";
+import { ReportInspector } from "../components/ReportInspector";
 import type { HidDiagnostic, LogEntry, RawReport } from "../types/engine";
 
 function UpdatesCard() {
@@ -244,6 +245,7 @@ export function Settings() {
 
       <div className="notice dev">Virtual controller type and driver status are under <strong>Controller › Virtual Output</strong>.</div>
       <HidDevicesSection />
+      <ReportInspector />
       <DiagnosticsSection />
     </div>
   );
