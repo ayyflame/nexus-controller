@@ -49,6 +49,15 @@ pub(crate) struct SessionContext {
 pub(crate) fn run(mut ctx: SessionContext) {
     let id = DeviceId(ctx.info.path.clone());
 
+    // Modest priority raise (Windows: one step above normal) so a ready
+    // report is processed promptly when the CPU is busy. No-op elsewhere.
+    if !raise_reader_priority() {
+        #[cfg(windows)]
+        ctx.handler.on_warning(
+            "Could not raise the input thread priority; continuing at normal priority".into(),
+        );
+    }
+
     if let Err(e) = ctx
         .driver
         .initialize(ctx.connection.as_mut(), &ctx.info, &ctx.identification)
@@ -105,4 +114,16 @@ pub(crate) fn run(mut ctx: SessionContext) {
     drop(ctx.connection);
     let _ = ctx.ended.send((id, reason));
     (ctx.notify)();
+}
+
+/// Raises the reader thread's priority where supported.
+fn raise_reader_priority() -> bool {
+    #[cfg(windows)]
+    {
+        crate::windows::raise_current_thread_priority()
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
 }

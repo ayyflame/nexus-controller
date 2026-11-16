@@ -2083,6 +2083,7 @@ dependencies = [
  "nexus-input-processing",
  "nexus-macro-engine",
  "nexus-telemetry",
+ "nexus-test-alloc-counter",
  "nexus-virtual-controller",
  "serde",
 ]
@@ -2124,6 +2125,10 @@ version = "0.1.0"
 dependencies = [
  "serde",
 ]
+
+[[package]]
+name = "nexus-test-alloc-counter"
+version = "0.1.0"
 
 [[package]]
 name = "nexus-updates"

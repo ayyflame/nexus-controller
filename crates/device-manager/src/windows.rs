@@ -44,7 +44,10 @@ use windows_sys::Win32::Storage::FileSystem::{
     CreateFileW, ReadFile, WriteFile, FILE_FLAG_OVERLAPPED, FILE_SHARE_READ, FILE_SHARE_WRITE,
     OPEN_EXISTING,
 };
-use windows_sys::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
+use windows_sys::Win32::System::Threading::{
+    CreateEventW, GetCurrentThread, SetThreadPriority, WaitForSingleObject,
+    THREAD_PRIORITY_ABOVE_NORMAL,
+};
 use windows_sys::Win32::System::IO::{
     CancelIoEx, DeviceIoControl, GetOverlappedResult, OVERLAPPED,
 };
@@ -642,6 +645,134 @@ impl Drop for NotificationHandle {
         unsafe {
             CM_Unregister_Notification(self.handle);
             drop(Box::from_raw(self.context));
+        }
+    }
+}
+
+/// Raises the calling thread one step above normal priority (not "highest",
+/// not "time critical"). Used for controller reader threads, which spend
+/// almost all their time blocked waiting for the next report, so a waiting
+/// game is never starved; it only shortens how long a ready report waits for
+/// the CPU when the system is busy. Returns false if Windows refused.
+pub(crate) fn raise_current_thread_priority() -> bool {
+    // SAFETY: GetCurrentThread returns a pseudo-handle valid for this thread.
+    unsafe { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL) != 0 }
+}
+
+#[cfg(test)]
+mod scheduling_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    use std::sync::Arc;
+    use std::time::Instant;
+    use windows_sys::Win32::System::Threading::{
+        AvSetMmThreadCharacteristicsW, GetThreadPriority, SetEvent,
+    };
+
+    #[test]
+    fn reader_thread_priority_is_raised_exactly_one_step() {
+        std::thread::spawn(|| {
+            assert!(raise_current_thread_priority());
+            // SAFETY: pseudo-handle of the current thread.
+            let p = unsafe { GetThreadPriority(GetCurrentThread()) };
+            assert_eq!(p, THREAD_PRIORITY_ABOVE_NORMAL);
+        })
+        .join()
+        .unwrap();
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    enum Mode {
+        Normal,
+        AboveNormal,
+        Mmcss,
+    }
+
+    struct Event(HANDLE);
+    // SAFETY: event handles may be used from any thread.
+    unsafe impl Send for Event {}
+    // SAFETY: as above.
+    unsafe impl Sync for Event {}
+
+    /// Wake-up delay of a thread blocked on an event (as a reader thread is
+    /// on its overlapped read) while `load` threads keep every CPU busy.
+    fn wake_delays(mode: Mode, load: usize, n: usize) -> Vec<u64> {
+        // SAFETY: auto-reset event; closed when the process exits (test only).
+        let ev = Arc::new(Event(unsafe { CreateEventW(null(), 0, 0, null()) }));
+        let stop = Arc::new(AtomicBool::new(false));
+        let busy: Vec<_> = (0..load)
+            .map(|_| {
+                let stop = stop.clone();
+                std::thread::spawn(move || {
+                    let mut x = 0u64;
+                    while !stop.load(Ordering::Relaxed) {
+                        x = std::hint::black_box(
+                            x.wrapping_mul(6364136223846793005).wrapping_add(1),
+                        );
+                    }
+                })
+            })
+            .collect();
+        let epoch = Instant::now();
+        let signaled = Arc::new(AtomicU64::new(0));
+        let waiter = {
+            let (ev, signaled) = (ev.clone(), signaled.clone());
+            std::thread::spawn(move || {
+                match mode {
+                    Mode::Normal => {}
+                    Mode::AboveNormal => assert!(raise_current_thread_priority()),
+                    Mode::Mmcss => {
+                        let mut idx = 0u32;
+                        let name = wide("Games");
+                        // SAFETY: valid NUL-terminated task name and out-pointer.
+                        let h = unsafe { AvSetMmThreadCharacteristicsW(name.as_ptr(), &mut idx) };
+                        assert!(!h.is_null(), "MMCSS registration failed");
+                    }
+                }
+                let mut out = Vec::with_capacity(n);
+                for _ in 0..n {
+                    // SAFETY: valid event handle.
+                    unsafe { WaitForSingleObject(ev.0, 2000) };
+                    let now = epoch.elapsed().as_nanos() as u64;
+                    out.push(now.saturating_sub(signaled.load(Ordering::Acquire)));
+                }
+                out
+            })
+        };
+        for _ in 0..n {
+            std::thread::sleep(std::time::Duration::from_millis(4)); // ~250 Hz, like USB reports
+            signaled.store(epoch.elapsed().as_nanos() as u64, Ordering::Release);
+            // SAFETY: valid event handle.
+            unsafe { SetEvent(ev.0) };
+        }
+        let out = waiter.join().unwrap();
+        stop.store(true, Ordering::Relaxed);
+        busy.into_iter().for_each(|b| b.join().unwrap());
+        out
+    }
+
+    /// Informational: run with `--ignored --nocapture` (the Windows CI build
+    /// does). Prints wake-up delays in microseconds.
+    #[test]
+    #[ignore]
+    fn scheduling_probe() {
+        let cpus = std::thread::available_parallelism().map_or(2, |n| n.get());
+        let n = 1500;
+        let report = |label: &str, mut v: Vec<u64>| {
+            v.sort_unstable();
+            let at = |q: f64| v[((v.len() - 1) as f64 * q) as usize] as f64 / 1000.0;
+            println!(
+                "SCHED {label:<34} p50 {:>8.1} us  p99 {:>8.1} us  p99.9 {:>8.1} us  max {:>8.1} us",
+                at(0.5), at(0.99), at(0.999), *v.last().unwrap() as f64 / 1000.0
+            );
+        };
+        println!("SCHED cpus={cpus}, busy threads under load={}", cpus * 2);
+        report("idle, normal priority", wake_delays(Mode::Normal, 0, n));
+        for mode in [Mode::Normal, Mode::AboveNormal, Mode::Mmcss] {
+            report(
+                &format!("CPU load, {mode:?}"),
+                wake_delays(mode, cpus * 2, n),
+            );
         }
     }
 }

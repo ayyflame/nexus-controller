@@ -6,7 +6,7 @@
 
 use serde::Serialize;
 use std::collections::VecDeque;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 pub fn unix_millis() -> u64 {
@@ -79,6 +79,31 @@ pub struct RawReport {
     pub bytes: Vec<u8>,
     /// `None` if the report parsed; otherwise the parse error.
     pub parse_error: Option<String>,
+}
+
+/// Bytes kept per raw report (DualSense USB reports are 64 bytes; longer
+/// reports are truncated in the history only, never in processing).
+pub const RAW_SLOT_BYTES: usize = 128;
+
+/// Fixed-size storage for one raw report, so recording never allocates.
+#[derive(Clone, Debug)]
+struct RawSlot {
+    timestamp_ms: u64,
+    device_id: Arc<str>,
+    len: u16,
+    bytes: [u8; RAW_SLOT_BYTES],
+    parse_error: Option<String>,
+}
+
+impl RawSlot {
+    fn into_report(self) -> RawReport {
+        RawReport {
+            timestamp_ms: self.timestamp_ms,
+            device_id: self.device_id.to_string(),
+            bytes: self.bytes[..self.len as usize].to_vec(),
+            parse_error: self.parse_error,
+        }
+    }
 }
 
 /// Report-rate statistics for one input stream.
@@ -253,7 +278,7 @@ impl LatencyWindow {
 /// Shared telemetry sink used by the engine.
 pub struct Telemetry {
     log: Mutex<Ring<LogEntry>>,
-    raw: Mutex<Ring<RawReport>>,
+    raw: Mutex<Ring<RawSlot>>,
 }
 
 impl Telemetry {
@@ -275,13 +300,19 @@ impl Telemetry {
         entry
     }
 
-    pub fn record_raw(&self, device_id: &str, bytes: &[u8], parse_error: Option<String>) {
-        lock(&self.raw).push(RawReport {
+    /// Records one raw report. Allocation-free on the per-report path: the
+    /// bytes are copied into a fixed slot and the device ID is shared. Only a
+    /// parse error (rare) allocates its message.
+    pub fn record_raw(&self, device_id: &Arc<str>, bytes: &[u8], parse_error: Option<String>) {
+        let mut slot = RawSlot {
             timestamp_ms: unix_millis(),
-            device_id: device_id.to_owned(),
-            bytes: bytes.to_vec(),
+            device_id: device_id.clone(),
+            len: bytes.len().min(RAW_SLOT_BYTES) as u16,
+            bytes: [0; RAW_SLOT_BYTES],
             parse_error,
-        });
+        };
+        slot.bytes[..slot.len as usize].copy_from_slice(&bytes[..slot.len as usize]);
+        lock(&self.raw).push(slot);
     }
 
     pub fn recent_log(&self, limit: usize) -> Vec<LogEntry> {
@@ -289,7 +320,11 @@ impl Telemetry {
     }
 
     pub fn recent_raw(&self, limit: usize) -> Vec<RawReport> {
-        lock(&self.raw).latest(limit)
+        lock(&self.raw)
+            .latest(limit)
+            .into_iter()
+            .map(RawSlot::into_report)
+            .collect()
     }
 }
 
@@ -351,14 +386,29 @@ mod tests {
     #[test]
     fn telemetry_is_bounded() {
         let t = Telemetry::new(2, 2);
+        let dev: Arc<str> = Arc::from("dev");
         for i in 0..10 {
             t.log(LogLevel::Info, "test", format!("m{i}"));
-            t.record_raw("dev", &[i], None);
+            t.record_raw(&dev, &[i], None);
         }
         let log = t.recent_log(10);
         assert_eq!(log.len(), 2);
         assert_eq!(log[1].message, "m9");
         assert_eq!(t.recent_raw(10)[1].bytes, vec![9]);
+        assert_eq!(t.recent_raw(10)[1].device_id, "dev");
+    }
+
+    #[test]
+    fn raw_history_keeps_exact_bytes_and_truncates_only_beyond_the_slot() {
+        let t = Telemetry::new(1, 4);
+        let dev: Arc<str> = Arc::from("d");
+        let usb: Vec<u8> = (0..64).collect();
+        t.record_raw(&dev, &usb, None);
+        t.record_raw(&dev, &[7; 200], Some("bad".into()));
+        let r = t.recent_raw(2);
+        assert_eq!(r[0].bytes, usb, "a full 64-byte USB report is kept exactly");
+        assert_eq!(r[1].bytes.len(), RAW_SLOT_BYTES);
+        assert_eq!(r[1].parse_error.as_deref(), Some("bad"));
     }
 
     #[test]

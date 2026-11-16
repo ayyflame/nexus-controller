@@ -135,6 +135,11 @@ pub struct MacroRunner {
     stops_seen: u64,
     macros: Arc<Vec<Macro>>,
     slots: Vec<Slot>,
+    /// Which slots were playing when [`MacroRunner::take_playing_changed`]
+    /// last ran; reused so the per-report check never allocates.
+    playing_seen: Vec<bool>,
+    /// Set when a reload discarded slots that were playing.
+    playing_dirty: bool,
 }
 
 impl MacroRunner {
@@ -145,7 +150,27 @@ impl MacroRunner {
             generation: None,
             macros: Arc::new(Vec::new()),
             slots: Vec::new(),
+            playing_seen: Vec::new(),
+            playing_dirty: false,
         }
+    }
+
+    /// True if the set of playing macros changed since the previous call.
+    /// Allocation-free, for the per-report path; call [`MacroRunner::playing`]
+    /// only when this returns true.
+    pub fn take_playing_changed(&mut self) -> bool {
+        let mut changed = std::mem::take(&mut self.playing_dirty);
+        if self.playing_seen.len() != self.slots.len() {
+            self.playing_seen.resize(self.slots.len(), false);
+        }
+        for (seen, slot) in self.playing_seen.iter_mut().zip(&self.slots) {
+            let now = slot.started.is_some();
+            if *seen != now {
+                *seen = now;
+                changed = true;
+            }
+        }
+        changed
     }
 
     /// Reads triggers from `physical` and writes macro presses into `output`.
@@ -254,6 +279,10 @@ impl MacroRunner {
             return;
         }
         self.generation = Some(generation);
+        if self.playing_seen.iter().any(|p| *p) {
+            self.playing_dirty = true;
+        }
+        self.playing_seen.iter_mut().for_each(|p| *p = false);
         self.macros = self.library.get();
         // Start from the current physical state so a trigger already held
         // during an edit or profile switch does not fire the macro by itself.
@@ -608,6 +637,36 @@ mod tests {
         assert!(frame(&mut r, &trig, at(t0, 86)).buttons.south);
         assert!(!frame(&mut r, &trig, at(t0, 87)).buttons.south);
         assert!(frame(&mut r, &trig, at(t0, 230)).buttons.east);
+    }
+
+    #[test]
+    fn playing_changes_are_reported_once_and_match_playing() {
+        let t0 = Instant::now();
+        let (lib, mut r) = runner(vec![two_step(PlaybackMode::RepeatWhileHeld)]);
+        assert!(!r.take_playing_changed(), "idle: nothing to report");
+        let trig = pressed(MacroButton::RightStick);
+        frame(&mut r, &trig, t0);
+        assert!(r.take_playing_changed(), "started");
+        assert_eq!(r.playing(), vec!["m".to_string()]);
+        for ms in [10, 120, 270, 310] {
+            frame(&mut r, &trig, at(t0, ms));
+            assert!(
+                !r.take_playing_changed(),
+                "still playing at {ms} ms (incl. repeat pause)"
+            );
+        }
+        frame(&mut r, &ControllerState::default(), at(t0, 320));
+        assert!(r.take_playing_changed(), "stopped on release");
+        assert!(r.playing().is_empty());
+        // A reload that discards a playing macro is reported too.
+        frame(&mut r, &ControllerState::default(), at(t0, 330));
+        frame(&mut r, &trig, at(t0, 340));
+        assert!(r.take_playing_changed());
+        lib.set(vec![two_step(PlaybackMode::RepeatWhileHeld)]);
+        frame(&mut r, &trig, at(t0, 350));
+        assert!(r.take_playing_changed(), "reload stopped it");
+        assert!(r.playing().is_empty());
+        assert!(!r.take_playing_changed());
     }
 
     #[test]

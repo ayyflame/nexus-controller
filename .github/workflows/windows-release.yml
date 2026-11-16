@@ -135,6 +135,12 @@ jobs:
       - name: Run Rust tests
         run: cargo test --workspace --locked
 
+      - name: Scheduling latency probe (informational)
+        # Wake-up delay of a blocked thread under full CPU load, at normal
+        # priority, above-normal priority (what reader threads use) and MMCSS.
+        # Real Windows scheduler on the CI machine; not USB hardware.
+        run: cargo test --release --locked -p nexus-device-manager scheduling_probe -- --ignored --nocapture
+
       - name: Type-check frontend
         working-directory: apps/desktop
         run: npm run typecheck

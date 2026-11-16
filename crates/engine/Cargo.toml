@@ -22,3 +22,4 @@ serde.workspace = true
 [dev-dependencies]
 nexus-device-manager = { workspace = true, features = ["test-support"] }
 nexus-dualsense = { workspace = true, features = ["test-support"] }
+nexus-test-alloc-counter = { path = "../test-alloc-counter" }

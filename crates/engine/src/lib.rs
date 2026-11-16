@@ -316,8 +316,12 @@ struct Shared {
     processing: Mutex<Arc<ProcessingConfig>>,
     processing_generation: AtomicU64,
     rumble_request: Mutex<(u64, f32, u32)>,
+    /// Generation of `rumble_request`, read lock-free on every report.
+    rumble_generation: AtomicU64,
     stats: Mutex<EngineStats>,
     gyro_cal: Mutex<Option<GyroCalState>>,
+    /// True while a gyro calibration collects samples (lock-free check per report).
+    gyro_calibrating: std::sync::atomic::AtomicBool,
     hid_backend: String,
     hid_available: bool,
     hotplug_active: std::sync::atomic::AtomicBool,
@@ -397,8 +401,10 @@ impl Engine {
             processing: Mutex::new(Arc::new(config.processing.sanitized())),
             processing_generation: AtomicU64::new(0),
             rumble_request: Mutex::new((0, 0.0, 0)),
+            rumble_generation: AtomicU64::new(0),
             stats: Mutex::new(EngineStats::default()),
             gyro_cal: Mutex::new(None),
+            gyro_calibrating: std::sync::atomic::AtomicBool::new(false),
             hid_backend: hid.name().to_owned(),
             hid_available: hid.is_available(),
             hotplug_active: std::sync::atomic::AtomicBool::new(false),
@@ -589,6 +595,7 @@ impl Engine {
             strength.clamp(0.0, 1.0),
             duration_ms.clamp(50, 3000),
         );
+        self.shared.rumble_generation.store(r.0, Ordering::Release);
         Ok(())
     }
 
@@ -608,11 +615,13 @@ impl Engine {
             max: [i16::MIN; 3],
             ..GyroCalState::default()
         });
+        self.shared.gyro_calibrating.store(true, Ordering::Release);
         self.shared.bump();
         Ok(())
     }
 
     pub fn finish_gyro_calibration(&self) -> Result<GyroCalibration, String> {
+        self.shared.gyro_calibrating.store(false, Ordering::Release);
         let state = lock(&self.shared.gyro_cal).take();
         self.shared.bump();
         let s = state.ok_or_else(|| "Gyro calibration was not started.".to_owned())?;
@@ -964,6 +973,8 @@ fn handle_device_event(shared: &Shared, event: DeviceEvent) {
 struct EngineSessionHandler {
     shared: Arc<Shared>,
     id: DeviceId,
+    /// Shared copy of the device ID for the raw history (no per-report allocation).
+    raw_id: Arc<str>,
     pipeline: ProcessingPipeline,
     processing_generation: u64,
     latency: LatencyWindow,
@@ -1038,8 +1049,10 @@ impl Feedback {
             self.light_released |= light.is_some();
             self.sent_lighting = wanted;
         }
-        let (generation, strength, ms) = *lock(&shared.rumble_request);
-        if generation != self.rumble_generation {
+        // Lock-free check: the request lock is taken only when a new vibration
+        // was requested. The stop below runs either way.
+        if shared.rumble_generation.load(Ordering::Acquire) != self.rumble_generation {
+            let (generation, strength, ms) = *lock(&shared.rumble_request);
             self.rumble_generation = generation;
             let level = (strength * self.config.rumble_intensity * 255.0).round() as u8;
             self.pending().rumble = Some((level, level));
@@ -1104,6 +1117,7 @@ fn new_session_handler(
     Box::new(EngineSessionHandler {
         shared: shared.clone(),
         id: device.id.clone(),
+        raw_id: Arc::from(device.id.0.as_str()),
         feedback: {
             let mut f = Feedback::new(device, lock(&shared.rumble_request).0);
             f.config = lock(&shared.processing).feedback.clone();
@@ -1133,22 +1147,28 @@ fn build_pipeline(config: &ProcessingConfig) -> ProcessingPipeline {
 
 impl EngineSessionHandler {
     /// physical → processing (sticks, triggers, remap) → macros → virtual output.
+    ///
+    /// `received` is when the report reached the handler; the recorded
+    /// latency is from then until the virtual controller has the result.
     fn run_pipeline(
         &mut self,
         physical: &ControllerState,
+        received: Instant,
     ) -> (ControllerState, Option<Vec<String>>) {
-        let started = Instant::now();
         self.sync_processing();
         let mut out = self.pipeline.run(physical);
-        let was_playing = self.macros.playing();
         self.macros.process(physical, &mut out, Instant::now());
         self.output.submit(&out);
-        self.latency.record(started.elapsed());
+        self.latency.record(received.elapsed());
         if let Some(event) = self.output.take_event() {
             self.on_output_event(event);
         }
-        let playing = self.macros.playing();
-        (out, (playing != was_playing).then_some(playing))
+        // The list (which allocates) is built only when it changed.
+        let playing = self
+            .macros
+            .take_playing_changed()
+            .then(|| self.macros.playing());
+        (out, playing)
     }
 
     /// Picks up new settings (pipeline and feedback) before anything uses them.
@@ -1163,6 +1183,9 @@ impl EngineSessionHandler {
     }
 
     fn feed_gyro_calibration(&self, physical: &ControllerState) {
+        if !self.shared.gyro_calibrating.load(Ordering::Acquire) {
+            return;
+        }
         let Some(m) = physical.motion else { return };
         if let Some(cal) = lock(&self.shared.gyro_cal).as_mut() {
             for i in 0..3 {
@@ -1238,14 +1261,25 @@ impl EngineSessionHandler {
 
 impl SessionHandler for EngineSessionHandler {
     fn on_report(&mut self, raw: &[u8], parsed: Result<ControllerState, ReportError>) {
-        self.sync_output_mode();
         let now = Instant::now();
+        self.sync_output_mode();
+        self.sync_processing();
+
+        // Input path first: processing, macros and the virtual controller.
+        // Everything below is bookkeeping and runs after the game already has
+        // this report. Every report is processed; none is dropped or merged.
+        let physical = parsed.as_ref().ok().copied();
+        let processed = physical.map(|state| {
+            self.last_physical = Some(state);
+            self.run_pipeline(&state, now)
+        });
+
         self.rate.record(now, parsed.is_ok());
         self.intervals.record(now);
         let error = parsed.as_ref().err().map(ToString::to_string);
         self.shared
             .telemetry
-            .record_raw(&self.id.0, raw, error.clone());
+            .record_raw(&self.raw_id, raw, error.clone());
         if self.shared.capturing.load(Ordering::Relaxed) {
             if let Some((device, reports)) = lock(&self.shared.capture).as_mut() {
                 if *device == self.id && reports.len() < inspector::MAX_CAPTURE_REPORTS {
@@ -1253,20 +1287,13 @@ impl SessionHandler for EngineSessionHandler {
                 }
             }
         }
-
-        let physical = parsed.ok();
         if let Some(state) = &physical {
             self.track_sequence(state);
             self.feed_gyro_calibration(state);
+            self.feed_recording(state);
         }
-        self.sync_processing();
         self.feedback.update(&self.shared, Instant::now());
         let (gaps, sent) = (self.sequence_gaps, self.feedback.sent);
-        let processed = physical.map(|state| {
-            self.feed_recording(&state);
-            self.last_physical = Some(state);
-            self.run_pipeline(&state)
-        });
 
         let (rate, total, errors) = (
             self.rate.rate_hz(),
@@ -1310,17 +1337,16 @@ impl SessionHandler for EngineSessionHandler {
         self.feedback.update(&self.shared, Instant::now());
         // Keep macro timing moving even if reports pause briefly.
         if let Some(physical) = self.last_physical {
-            let was_playing = self.macros.playing();
             self.macros.refresh(&physical);
-            let playing = self.macros.playing();
-            if playing != was_playing {
+            if self.macros.take_playing_changed() {
                 // A reload (e.g. profile switch) stopped a macro: publish it,
                 // otherwise the UI would keep showing it as playing.
+                let playing = self.macros.playing();
                 self.shared
                     .update_device(&self.id, |s| s.playing_macros = playing);
             }
             if !self.macros.playing().is_empty() {
-                let (out, playing) = self.run_pipeline(&physical);
+                let (out, playing) = self.run_pipeline(&physical, Instant::now());
                 self.shared.update_device(&self.id, |s| {
                     s.processed = Some(out);
                     if let Some(p) = playing {
@@ -1369,3 +1395,6 @@ pub mod inspector;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod hotpath_tests;
