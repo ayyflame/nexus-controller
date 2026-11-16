@@ -4,6 +4,18 @@ NEXUS supports the DualSense over **USB only**. Rows marked *Out of scope* conce
 
 NEXUS is developed in a Linux container without access to Windows or a controller. Only the owner can fill in these results. Known so far (owner reports): USB input works, with 73,835 reports, 0 parse errors and about 250 Hz. Rows marked **Pass (owner, date)** were reported by the owner. Every other row is unverified until recorded here.
 
+**Current pass:** follow [`m4.5-test-plan.md`](m4.5-test-plan.md) for the testing order, exact steps and PASS/FAIL criteria. Record results in the *Result* column below (Pass or Fail, date, build).
+
+### Status summary
+
+| Status | Rows |
+|---|---|
+| Physically verified (owner) | V3, V4, V6, V7, V14 (build `711f0d4`; V14 game title pending); USB input in general |
+| Re-check on build `31c6ec3` | V6, V7 |
+| Outstanding (M4.5 pass) | 22, 24–27, 35, 36, 53–62, V1–V2 (optional), V5, V8–V13, V15–V19, D1–D10, T1–T10 |
+| Outstanding (later) | 1–5, 10–21 (1–5 and 21 are covered by 53–55, 58 and 61 when those are run), 28–34, 38–52 |
+| Out of scope (Bluetooth) | 6–9, 23, 37 |
+
 Setup steps: `docs/windows-setup.md`. Useful tools: **Settings → HID Devices (Sony)** (what Windows reports and how NEXUS classified it; **Copy diagnostics report**), **Raw HID Reports** (enable auto-refresh) and **Engine Log**.
 
 ## Discovery and connection
@@ -33,8 +45,8 @@ Setup steps: `docs/windows-setup.md`. Useful tools: **Settings → HID Devices (
 | 16 | D-pad, all 8 directions | Correct direction, including diagonals | |
 | 17 | One and two fingers on the touchpad | Points track the finger positions | |
 | 18 | Battery while charging and unplugged | Plausible percentage and status | |
-| 19 | Performance page | Record the report rate (USB and BT) and the parse-error count (should stay 0) | |
-| 20 | Save 5 raw reports per transport | Attach to the repository as `tests/fixtures/` for regression tests | |
+| 19 | Performance page | Record the report rate and the parse-error count (should stay 0) | |
+| 20 | Save 5 raw USB reports (Settings › Raw HID Reports) | Attach to the repository as `tests/fixtures/` for regression tests | |
 
 ## Shutdown
 
@@ -80,13 +92,13 @@ Setup steps: `docs/windows-setup.md`. Useful tools: **Settings → HID Devices (
 | 43 | Touchpad › Four zones; click each corner | Assigned button for each zone | |
 | 44 | Touchpad swipes in each direction | Assigned button pulses once | |
 | 45 | Buttons: layer on L1 (hold) mapping Square → D-pad Up | Holding L1 changes Square; L1 hidden | |
-| 46 | Lighting: enable lightbar, change colour | Controller lightbar follows (USB and BT) | |
+| 46 | Lighting: enable lightbar, change colour | Controller lightbar follows | |
 | 47 | Player lights pattern | LEDs match | |
 | 48 | Test vibration at 100% and 30% | Vibrates ~0.6 s, then stops; strength differs | |
 | 49 | Profiles: add your game's .exe, enable auto-switch, launch the game | Profile switches within ~1 s; returns when you leave | |
 | 50 | Export a profile, Import on another PC (or after deleting it) | Same settings restored | |
 | 51 | Create backup, change things, Restore backup | Everything restored; safety backup in the data folder | |
-| 52 | Two controllers (USB + BT) | Both listed; selector switches the view | |
+| 52 | Two controllers, both by USB | Both listed; selector switches the view | |
 
 ## Milestone 4: USB reliability (Performance page and Settings → Copy diagnostics report)
 
@@ -138,8 +150,8 @@ Re-test V6–V12 on each new build that changes macro or output code. M4.5 chang
 
 | # | Step | Expected | Result |
 |---|---|---|---|
-| V1 | Virtual Output tab before installing ViGEmBus | "Not installed" with install steps; Xbox 360 cannot be selected while the switch is off | |
-| V2 | Install ViGEmBus, click **Check again** | "Installed and ready" | |
+| V1 | *(Optional: only after reinstalling ViGEmBus)* Virtual Output tab before installing ViGEmBus | "Not installed" with install steps; Xbox 360 cannot be selected while the switch is off | |
+| V2 | *(Optional)* Install ViGEmBus, click **Check again** | "Installed and ready" | |
 | V3 | Switch on, choose Xbox 360 | "Xbox 360 connected" | **Pass** (owner, 2026-11-16, build 711f0d4, CI run 43817242201) |
 | V4 | `joy.cpl` (Win+R) | **Controller (XBOX 360 For Windows)** listed. Properties: buttons, sticks and triggers follow the DualSense (Cross = button 1 / A) | **Pass**: Windows recognises the virtual Xbox 360 controller (owner, 2026-11-16, build 711f0d4, CI run 43817242201) |
 | V5 | Browser gamepad tester (e.g. a "gamepad tester" site) | An Xbox 360 controller shows input. Note whether the physical DualSense also appears (duplicate input) | |
@@ -154,7 +166,7 @@ Re-test V6–V12 on each new build that changes macro or output code. M4.5 chang
 | V14 | One offline or single-player game you choose | Record the title, whether the game uses the Xbox controller, macro behaviour, and any double input | **Pass**: macro output works in an offline/single-player game; title to be recorded (owner, 2026-11-16, build 711f0d4, CI run 43817242201) |
 | V15 | Two profiles with the same Repeat While Held macro. Hold the trigger, switch profile (Profiles page or game auto-switch) | Macro stops and does **not** restart while still held; releasing and pressing again starts it | |
 | V16 | Two macros on different triggers (e.g. R3 and L3), hold both, then release one | Both repeat; releasing one stops only that one; nothing stays lit | |
-| V17 | Close NEXUS, install ViGEmBus (or start with it stopped), reopen with output on; then click **Check again** | Virtual controller appears without toggling or re-plugging | |
+| V17 | NEXUS running, output on: Device Manager › System devices › **Nefarius Virtual Gamepad Emulation Bus** › Disable device; watch Virtual Output; then Enable device and click **Check again** | While disabled: virtual controller shown as not connected, with a message (no crash or freeze). After Enable + **Check again**: **Xbox 360 connected** again, without re-plugging or restarting NEXUS | |
 | V18 | Record a macro, then edit one action's press time and wait (Exact timing), save; hold its trigger with `joy.cpl` Properties open | Timing visibly follows the edit (e.g. 2× slower is clearly slower); no re-recording needed | |
 | V19 | Select all actions, **2× faster**, save, test again; then Ctrl+Z | Faster playback; undo restores the recorded timing | |
 
