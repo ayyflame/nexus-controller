@@ -53,12 +53,9 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         // Pause the 60 Hz UI status stream while the window is minimised (P6).
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::Resized(size) = event {
-                let minimised =
-                    window.is_minimized().unwrap_or(false) || (size.width == 0 && size.height == 0);
-                if let Some(state) = window.try_state::<AppState>() {
-                    state.bridge.set_visible(!minimised);
-                }
+            let visible = bridge::visibility_after(event, || window.is_minimized().ok());
+            if let (Some(visible), Some(state)) = (visible, window.try_state::<AppState>()) {
+                state.bridge.set_visible(visible);
             }
         })
         .setup(|app| {

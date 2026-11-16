@@ -421,6 +421,65 @@ mod tests {
         }
     }
 
+    /// The real reader thread (spawned by the manager, running
+    /// `session::run`) must be the one whose priority is raised, for reports
+    /// and for idle ticks, without touching the thread that started it.
+    #[cfg(windows)]
+    #[test]
+    fn the_reader_session_thread_runs_one_step_above_normal() {
+        use crate::windows::current_thread_priority;
+        #[derive(Default)]
+        struct Seen {
+            report: Option<i32>,
+            idle: Option<i32>,
+            warnings: Vec<String>,
+        }
+        struct PriorityHandler(Arc<Mutex<Seen>>);
+        impl SessionHandler for PriorityHandler {
+            fn on_report(&mut self, _: &[u8], _: Result<ControllerState, ReportError>) {
+                self.0.lock().unwrap().report = Some(current_thread_priority());
+            }
+            fn on_idle(&mut self) {
+                self.0.lock().unwrap().idle = Some(current_thread_priority());
+            }
+            fn on_warning(&mut self, message: String) {
+                self.0.lock().unwrap().warnings.push(message);
+            }
+        }
+
+        let before = current_thread_priority();
+        let backend = MockHidBackend::new();
+        backend.plug(info("pad"));
+        let seen = Arc::new(Mutex::new(Seen::default()));
+        let handler_seen = seen.clone();
+        let mut m = DeviceManager::new(
+            Arc::new(backend.clone()),
+            vec![Arc::new(TestDriver)],
+            DeviceManagerConfig {
+                scan_interval: Duration::from_millis(10),
+                read_timeout: Duration::from_millis(5),
+            },
+            Box::new(move |_| Box::new(PriorityHandler(handler_seen.clone()))),
+            Arc::new(|| {}),
+        );
+        m.poll();
+        backend.push_report("pad", vec![0x01, 1]);
+        wait_for(|| {
+            let s = seen.lock().unwrap();
+            s.report.is_some() && s.idle.is_some()
+        });
+        let s = seen.lock().unwrap();
+        const ABOVE_NORMAL: i32 = 1; // THREAD_PRIORITY_ABOVE_NORMAL
+        assert_eq!(s.report, Some(ABOVE_NORMAL), "while handling a report");
+        assert_eq!(s.idle, Some(ABOVE_NORMAL), "while idle");
+        assert!(s.warnings.is_empty(), "{:?}", s.warnings);
+        assert_eq!(
+            current_thread_priority(),
+            before,
+            "the thread that starts sessions is left alone"
+        );
+    }
+
     #[test]
     fn no_device_means_no_connection() {
         let backend = MockHidBackend::new();

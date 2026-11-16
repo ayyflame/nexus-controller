@@ -659,6 +659,13 @@ pub(crate) fn raise_current_thread_priority() -> bool {
     unsafe { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL) != 0 }
 }
 
+/// Priority of the calling thread (0 = normal, 1 = above normal).
+#[cfg(test)]
+pub(crate) fn current_thread_priority() -> i32 {
+    // SAFETY: GetCurrentThread returns a pseudo-handle valid for this thread.
+    unsafe { windows_sys::Win32::System::Threading::GetThreadPriority(GetCurrentThread()) }
+}
+
 #[cfg(test)]
 mod scheduling_tests {
     use super::*;

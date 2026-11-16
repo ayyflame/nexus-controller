@@ -163,6 +163,8 @@ export interface Profile {
 
 export interface AppInfo {
   version: string;
+  /** Short source commit of this build, when built by CI. */
+  build: string | null;
   os: string;
   arch: string;
   dataDir: string | null;

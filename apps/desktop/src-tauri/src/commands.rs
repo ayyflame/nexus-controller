@@ -49,6 +49,9 @@ const MAX_LIMIT: usize = 1000;
 #[serde(rename_all = "camelCase")]
 pub struct AppInfo {
     pub version: &'static str,
+    /// Short source commit this program was built from (set by CI builds).
+    /// Distinguishes builds that share a version number in diagnostics.
+    pub build: Option<&'static str>,
     pub os: &'static str,
     pub arch: &'static str,
     pub data_dir: Option<String>,
@@ -59,10 +62,18 @@ pub struct AppInfo {
     pub exe_path: Option<String>,
 }
 
+/// First seven characters of a commit hash; `None` for local builds or
+/// anything that is not a hash.
+fn build_commit(sha: Option<&'static str>) -> Option<&'static str> {
+    let sha = sha?;
+    (sha.len() >= 7 && sha.bytes().all(|b| b.is_ascii_hexdigit())).then(|| &sha[..7])
+}
+
 #[tauri::command]
 pub fn get_app_info(state: State<'_, AppState>) -> AppInfo {
     AppInfo {
         version: env!("CARGO_PKG_VERSION"),
+        build: build_commit(option_env!("GITHUB_SHA")),
         os: std::env::consts::OS,
         arch: std::env::consts::ARCH,
         data_dir: state.data_dir.as_ref().map(|p| p.display().to_string()),
@@ -763,6 +774,21 @@ pub async fn inspector_export(app: tauri::AppHandle) -> CmdResult<ExportResult> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn build_commit_is_a_short_hash_or_nothing() {
+        assert_eq!(
+            build_commit(Some("832de00f5a1b2c3d4e5f60718293a4b5c6d7e8f9")),
+            Some("832de00")
+        );
+        assert_eq!(build_commit(None), None, "local build");
+        assert_eq!(build_commit(Some("")), None);
+        assert_eq!(
+            build_commit(Some("C:\\Users\\someone")),
+            None,
+            "never a path"
+        );
+    }
 
     #[test]
     fn virtual_output_stays_off_without_consent() {

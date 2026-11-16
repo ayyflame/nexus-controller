@@ -88,9 +88,83 @@ impl Bridge {
     }
 }
 
+/// What a window event means for the UI status stream: `Some(false)` when
+/// the window was minimised, `Some(true)` when it is shown at a real size
+/// again, `None` for events that say nothing about it (moving, losing focus,
+/// being covered by another window).
+///
+/// Windows reports minimising as a resize, usually to 0 x 0. `is_minimized`
+/// asks the window itself and is only called for resize events.
+pub fn visibility_after(
+    event: &tauri::WindowEvent,
+    is_minimized: impl FnOnce() -> Option<bool>,
+) -> Option<bool> {
+    let tauri::WindowEvent::Resized(size) = event else {
+        return None;
+    };
+    let minimised = is_minimized().unwrap_or(false) || (size.width == 0 && size.height == 0);
+    Some(!minimised)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::StatusGate;
+    use super::{visibility_after, StatusGate};
+    use tauri::{PhysicalPosition, PhysicalSize, WindowEvent};
+
+    fn resized(w: u32, h: u32) -> WindowEvent {
+        WindowEvent::Resized(PhysicalSize::new(w, h))
+    }
+
+    #[test]
+    fn minimising_hides_and_restoring_shows() {
+        // Minimise: Windows resizes to 0 x 0 and the window says "minimised".
+        assert_eq!(visibility_after(&resized(0, 0), || Some(true)), Some(false));
+        // Either signal alone is enough.
+        assert_eq!(
+            visibility_after(&resized(1280, 800), || Some(true)),
+            Some(false)
+        );
+        assert_eq!(
+            visibility_after(&resized(0, 0), || Some(false)),
+            Some(false)
+        );
+        assert_eq!(visibility_after(&resized(0, 0), || None), Some(false));
+        // Restore, maximise or a normal resize: visible.
+        assert_eq!(
+            visibility_after(&resized(1280, 800), || Some(false)),
+            Some(true)
+        );
+        assert_eq!(visibility_after(&resized(1280, 800), || None), Some(true));
+    }
+
+    #[test]
+    fn other_window_events_do_not_change_visibility() {
+        // A window that merely lost focus or sits behind a game keeps its
+        // status stream: only minimising pauses it.
+        let asked = std::cell::Cell::new(false);
+        let ask = || {
+            asked.set(true);
+            Some(true)
+        };
+        assert_eq!(visibility_after(&WindowEvent::Focused(false), ask), None);
+        assert_eq!(
+            visibility_after(&WindowEvent::Moved(PhysicalPosition::new(0, 0)), || Some(
+                true
+            )),
+            None
+        );
+        assert!(!asked.get(), "the window is only queried on resize");
+    }
+
+    #[test]
+    fn minimise_then_restore_pauses_and_resends_status() {
+        let mut gate = StatusGate::default();
+        assert!(gate.should_send(true, 1));
+        let hidden = visibility_after(&resized(0, 0), || Some(true)).unwrap();
+        assert!(!gate.should_send(hidden, 2), "paused while minimised");
+        let shown = visibility_after(&resized(1280, 800), || Some(false)).unwrap();
+        assert!(gate.should_send(shown, 2), "latest status sent on restore");
+    }
 
     #[test]
     fn status_is_paused_while_minimised_and_resent_on_restore() {

@@ -199,3 +199,99 @@ fn edited_macro_timing_survives_save_duplicate_export_and_import() {
         .iter()
         .all(|m| timing(m) == want && m.repeat_delay_ms == 20));
 }
+
+fn timed_macro(name: &str, block_trigger: bool) -> Macro {
+    Macro {
+        id: String::new(),
+        name: name.into(),
+        description: String::new(),
+        enabled: true,
+        steps: vec![
+            MacroStep {
+                id: String::new(),
+                buttons: vec![MacroButton::South],
+                hold_ms: 87,
+                delay_after_ms: 143,
+            },
+            MacroStep {
+                id: String::new(),
+                buttons: vec![MacroButton::East, MacroButton::North],
+                hold_ms: 112,
+                delay_after_ms: 0,
+            },
+        ],
+        trigger: Some(MacroButton::RightStick),
+        mode: PlaybackMode::RepeatWhileHeld,
+        repeat_delay_ms: 50,
+        block_trigger,
+        created_at_ms: 0,
+        updated_at_ms: 0,
+    }
+}
+
+#[test]
+fn edited_macro_timing_survives_closing_and_reopening_the_database_file() {
+    let d = dir("timing-reopen");
+    let path = d.join("nexus.db");
+    let id = {
+        let mut s = ProfileStore::open(&path).unwrap();
+        let recorded = s.save_macro(timed_macro("Recorded", false)).unwrap();
+        // Edited after recording, then the app is closed.
+        let mut edited = recorded.clone();
+        edited.steps[0].hold_ms = 40;
+        edited.steps[0].delay_after_ms = 60;
+        edited.steps[1].hold_ms = 30;
+        edited.repeat_delay_ms = 20;
+        s.save_macro(edited).unwrap();
+        recorded.id
+    };
+
+    // The app starts again and opens the same file.
+    let s = ProfileStore::open(&path).unwrap();
+    let m = s
+        .list_macros()
+        .unwrap()
+        .into_iter()
+        .find(|m| m.id == id)
+        .expect("macro still there after reopening");
+    let timing: Vec<(u32, u32)> = m
+        .steps
+        .iter()
+        .map(|x| (x.hold_ms, x.delay_after_ms))
+        .collect();
+    assert_eq!(timing, vec![(40, 60), (30, 0)]);
+    assert_eq!(m.repeat_delay_ms, 20);
+    assert_eq!(m.mode, PlaybackMode::RepeatWhileHeld);
+    assert_eq!(m.trigger, Some(MacroButton::RightStick));
+    assert!(!m.block_trigger);
+    assert_eq!(
+        m.steps[1].buttons,
+        vec![MacroButton::East, MacroButton::North]
+    );
+    drop(s);
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[test]
+fn block_trigger_survives_duplicate_export_and_import_in_both_states() {
+    let mut s = ProfileStore::open_in_memory().unwrap();
+    let hidden = s.save_macro(timed_macro("Trigger hidden", true)).unwrap();
+    let passed = s
+        .save_macro(Macro {
+            trigger: Some(MacroButton::LeftStick),
+            ..timed_macro("Trigger passed", false)
+        })
+        .unwrap();
+    assert!(s.duplicate_macro(&hidden.id).unwrap().block_trigger);
+    assert!(!s.duplicate_macro(&passed.id).unwrap().block_trigger);
+
+    let json = serde_json::to_string(&s.export_bundle(None, true, "test").unwrap()).unwrap();
+    let mut other = ProfileStore::open_in_memory().unwrap();
+    other.import_bundle(&json, ImportMode::Add).unwrap();
+    let imported = other.list_macros().unwrap();
+    assert_eq!(imported.len(), 4);
+    for m in &imported {
+        let want = m.name.starts_with("Trigger hidden");
+        assert_eq!(m.block_trigger, want, "{}", m.name);
+    }
+}

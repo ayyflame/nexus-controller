@@ -1148,18 +1148,22 @@ fn build_pipeline(config: &ProcessingConfig) -> ProcessingPipeline {
 impl EngineSessionHandler {
     /// physical → processing (sticks, triggers, remap) → macros → virtual output.
     ///
-    /// `received` is when the report reached the handler; the recorded
-    /// latency is from then until the virtual controller has the result.
+    /// `received` is when a controller report reached the handler; the
+    /// recorded processing time is from then until the virtual controller has
+    /// the result. Idle ticks pass `None`: they are not controller reports,
+    /// so they are kept out of the processing-time statistics.
     fn run_pipeline(
         &mut self,
         physical: &ControllerState,
-        received: Instant,
+        received: Option<Instant>,
     ) -> (ControllerState, Option<Vec<String>>) {
         self.sync_processing();
         let mut out = self.pipeline.run(physical);
         self.macros.process(physical, &mut out, Instant::now());
         self.output.submit(&out);
-        self.latency.record(received.elapsed());
+        if let Some(received) = received {
+            self.latency.record(received.elapsed());
+        }
         if let Some(event) = self.output.take_event() {
             self.on_output_event(event);
         }
@@ -1271,7 +1275,7 @@ impl SessionHandler for EngineSessionHandler {
         let physical = parsed.as_ref().ok().copied();
         let processed = physical.map(|state| {
             self.last_physical = Some(state);
-            self.run_pipeline(&state, now)
+            self.run_pipeline(&state, Some(now))
         });
 
         self.rate.record(now, parsed.is_ok());
@@ -1339,14 +1343,25 @@ impl SessionHandler for EngineSessionHandler {
         if let Some(physical) = self.last_physical {
             self.macros.refresh(&physical);
             if self.macros.take_playing_changed() {
-                // A reload (e.g. profile switch) stopped a macro: publish it,
-                // otherwise the UI would keep showing it as playing.
+                // A reload (e.g. profile switch) stopped a macro while no
+                // reports arrive. The virtual controller still holds the
+                // macro's last frame and the physical state is stale, so
+                // send a neutral frame: nothing may stay pressed. The next
+                // valid report restores normal physical input.
+                self.output.submit_neutral();
+                if let Some(event) = self.output.take_event() {
+                    self.on_output_event(event);
+                }
+                // Publish it too, otherwise the UI would keep showing the
+                // macro as playing.
                 let playing = self.macros.playing();
-                self.shared
-                    .update_device(&self.id, |s| s.playing_macros = playing);
+                self.shared.update_device(&self.id, |s| {
+                    s.processed = Some(ControllerState::default());
+                    s.playing_macros = playing;
+                });
             }
             if !self.macros.playing().is_empty() {
-                let (out, playing) = self.run_pipeline(&physical, Instant::now());
+                let (out, playing) = self.run_pipeline(&physical, None);
                 self.shared.update_device(&self.id, |s| {
                     s.processed = Some(out);
                     if let Some(p) = playing {

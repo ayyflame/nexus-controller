@@ -289,6 +289,13 @@ impl VirtualOutputManager {
         }
     }
 
+    /// Sends a neutral report (nothing pressed, sticks centred) to the active
+    /// virtual device, if any. Used when the last submitted state can no
+    /// longer be trusted, e.g. a macro was stopped while no input arrives.
+    pub fn submit_neutral(&mut self) {
+        self.submit(&neutral());
+    }
+
     /// Removes the virtual device (on physical disconnect or shutdown).
     pub fn release(&mut self) -> Result<(), OutputError> {
         if let Some((_, handle)) = self.active.take() {

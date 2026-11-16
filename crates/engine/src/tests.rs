@@ -1549,3 +1549,166 @@ fn switching_to_a_profile_with_output_off_mid_macro_releases_cleanly() {
     assert_eq!(all[i - 1], Pad::Report(1, XusbReport::default()));
     assert_eq!(log.live(), 0);
 }
+
+// ---- Profile reload during an input stall (no reports arriving) -----------
+// The test read timeout is 5 ms, so "no reports pushed" is a stall: the
+// reader thread only gets idle ticks, exactly as in production after 100 ms
+// of silence.
+
+/// Holds R3 so the 2 s jump macro presses A, then stops sending reports.
+fn stall_mid_macro(backend: &MockHidBackend, e: &Engine) {
+    e.set_macros(vec![jump_macro(PlaybackMode::RepeatWhileHeld)]);
+    backend.push_report(PATH, report(&[]));
+    backend.push_report(PATH, report(&[R3]));
+    wait_status(e, "macro playing", |s| {
+        s.devices[0].playing_macros == vec!["jump".to_owned()]
+    });
+}
+
+fn last_report(log: &PadLog, pad: u64) -> Option<XusbReport> {
+    log.all().into_iter().rev().find_map(|p| match p {
+        Pad::Report(h, r) if h == pad => Some(r),
+        _ => None,
+    })
+}
+
+#[test]
+fn profile_reload_during_a_stall_sends_neutral_and_reports_restore_input() {
+    let (backend, e, log) = xbox_engine();
+    stall_mid_macro(&backend, &e);
+    log.wait("A held", |_| {
+        last_report(&log, 1).is_some_and(|r| has(&r, xusb::A))
+    });
+
+    // Profile switch (output stays on) while no reports arrive.
+    e.set_macros(vec![jump_macro(PlaybackMode::RepeatWhileHeld)]);
+    let s = wait_status(&e, "macro stopped", |s| {
+        s.devices[0].playing_macros.is_empty()
+    });
+    log.wait("neutral frame", |_| {
+        last_report(&log, 1) == Some(XusbReport::default())
+    });
+    assert_eq!(s.devices[0].processed, Some(ControllerState::default()));
+
+    // The stall continues: nothing presses anything again.
+    let before = log.all().len();
+    std::thread::sleep(Duration::from_millis(60));
+    assert!(log.all()[before..]
+        .iter()
+        .all(|p| matches!(p, Pad::Report(1, r) if *r == XusbReport::default())));
+    assert_eq!(log.live(), 1, "the virtual controller stays connected");
+
+    // Reports resume with the trigger still held and Cross pressed: physical
+    // input passes through, the macro does not restart, the trigger is hidden.
+    let before = log.reports().len();
+    pump_at_250hz(&backend, &[R3, TRIANGLE_MARK], 10);
+    log.wait("physical input again", |_| {
+        log.reports()[before..].iter().any(|r| has(r, xusb::Y))
+    });
+    let after = log.reports()[before..].to_vec();
+    assert!(after.iter().all(|r| !has(r, xusb::A)), "no restart");
+    assert!(after.iter().all(|r| !has(r, xusb::RIGHT_THUMB)));
+
+    // Release and press again: the macro works normally.
+    pump_at_250hz(&backend, &[], 2);
+    let before = log.reports().len();
+    pump_at_250hz(&backend, &[R3], 10);
+    log.wait("fresh press plays", |_| {
+        log.reports()[before..].iter().any(|r| has(r, xusb::A))
+    });
+}
+
+#[test]
+fn switching_to_an_output_off_profile_during_a_stall_releases_cleanly() {
+    let (backend, e, log) = xbox_engine();
+    stall_mid_macro(&backend, &e);
+    log.wait("A held", |_| {
+        last_report(&log, 1).is_some_and(|r| has(&r, xusb::A))
+    });
+
+    // Output on -> off, no reports arriving.
+    e.set_output_mode(VirtualOutputKind::Disabled);
+    e.set_macros(vec![]);
+    log.wait("removed", |p| p.contains(&Pad::Disconnect(1)));
+    wait_status(&e, "macro stopped", |s| {
+        s.devices[0].playing_macros.is_empty()
+    });
+    let all = log.all();
+    let i = all.iter().position(|p| *p == Pad::Disconnect(1)).unwrap();
+    assert_eq!(all[i - 1], Pad::Report(1, XusbReport::default()));
+    std::thread::sleep(Duration::from_millis(40));
+    assert_eq!(log.all().len(), i + 1, "nothing after the removal");
+    assert_eq!(log.live(), 0);
+}
+
+#[test]
+fn switching_to_an_output_on_profile_during_a_stall_starts_neutral() {
+    let (backend, e, log) = xbox_engine();
+    e.set_output_mode(VirtualOutputKind::Disabled);
+    log.wait("removed", |p| p.contains(&Pad::Disconnect(1)));
+    // The macro plays (output off) and then reports stop.
+    stall_mid_macro(&backend, &e);
+
+    // Output off -> on with a profile reload, no reports arriving.
+    e.set_output_mode(VirtualOutputKind::Xbox360);
+    e.set_macros(vec![jump_macro(PlaybackMode::RepeatWhileHeld)]);
+    log.wait("new virtual controller", |p| p.contains(&Pad::Connect(2)));
+    wait_status(&e, "macro stopped", |s| {
+        s.devices[0].playing_macros.is_empty()
+    });
+    log.wait("neutral frame", |_| {
+        last_report(&log, 2) == Some(XusbReport::default())
+    });
+    std::thread::sleep(Duration::from_millis(40));
+    assert_eq!(last_report(&log, 2), Some(XusbReport::default()));
+
+    // Reports resume: physical input reaches the new virtual controller.
+    backend.push_report(PATH, report(&[CROSS]));
+    log.wait("physical input", |_| {
+        last_report(&log, 2).is_some_and(|r| has(&r, xusb::A))
+    });
+}
+
+#[test]
+fn profile_reload_during_a_stall_with_output_off_creates_nothing() {
+    let (backend, e, log) = xbox_engine();
+    e.set_output_mode(VirtualOutputKind::Disabled);
+    log.wait("removed", |p| p.contains(&Pad::Disconnect(1)));
+    let events = log.all().len();
+    stall_mid_macro(&backend, &e);
+
+    // Output off -> off with a profile reload, no reports arriving.
+    e.set_macros(vec![jump_macro(PlaybackMode::RepeatWhileHeld)]);
+    let s = wait_status(&e, "macro stopped", |s| {
+        s.devices[0].playing_macros.is_empty()
+    });
+    assert_eq!(s.devices[0].processed, Some(ControllerState::default()));
+    std::thread::sleep(Duration::from_millis(40));
+    assert_eq!(log.all().len(), events, "no virtual controller activity");
+    assert_eq!(log.live(), 0);
+}
+
+#[test]
+fn idle_ticks_are_not_counted_as_processing_time_samples() {
+    let (backend, e) = connected_engine(); // 1 report so far
+    e.set_macros(vec![jump_macro(PlaybackMode::RepeatWhileHeld)]);
+    for _ in 0..63 {
+        backend.push_report(PATH, report(&[R3]));
+    }
+    let s = wait_status(&e, "64 reports", |s| s.devices[0].total_reports == 64);
+    assert_eq!(s.devices[0].playing_macros, vec!["jump".to_owned()]);
+    // A stall: the macro keeps running on idle ticks (about 5 ms apart).
+    std::thread::sleep(Duration::from_millis(150));
+    for _ in 0..64 {
+        backend.push_report(PATH, report(&[R3]));
+    }
+    let s = wait_status(&e, "128 reports", |s| {
+        s.devices[0].total_reports == 128 && s.devices[0].pipeline_latency.samples >= 128
+    });
+    assert_eq!(
+        s.devices[0].pipeline_latency.samples, 128,
+        "one sample per controller report, none for idle ticks"
+    );
+    // The stall itself stays visible in the report-interval statistics.
+    assert!(s.devices[0].report_intervals.over_50ms >= 1);
+}
