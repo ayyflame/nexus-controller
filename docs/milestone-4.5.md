@@ -2,7 +2,7 @@
 
 **Status:** implementation complete; hardware verification pending (see [`tests/m4.5-test-plan.md`](../tests/m4.5-test-plan.md)).
 
-**Build under test:** Windows build [43943310033](https://github.com/ayyflame/nexus-controller/actions/runs/43943310033), commit `832de00`. It contains every item below plus the latency changes P2, P4, P5 and P6 (`docs/latency-audit.md`).
+**Build under test:** Windows build [43948182942](https://github.com/ayyflame/nexus-controller/actions/runs/43948182942), commit `41a4f44`. It contains every item below plus the latency changes P2, P4, P5 and P6 (`docs/latency-audit.md`). It replaces the earlier test build `832de00`.
 
 **Scope rules:**
 
@@ -22,15 +22,16 @@
 | `ae54956` | Optional HidHide guidance on the Virtual Output tab (NEXUS never installs or configures it); `docs/hidhide-setup.md`; rows D1–D10 |
 | `31c6ec3` | **Editable macro timing:** per-action *starts at* and *wait before*; bulk edit for selected actions (set press time or wait, or scale speed); helpers clamped to engine limits; no data-model or engine change |
 | `b862b6a` | **Macro Studio audit:** recorder no longer merges a quick tap after a release into a "pressed together" action; recorded same-button presses keep a 20 ms release gap; millisecond fields revert on empty input, show the stored value and add no no-op undo steps; warnings for same-button presses under 20 ms apart (including the repeat boundary); looping preview for Repeat While Held and Toggle |
+| `41a4f44` | **Reliability and measurement corrections** (after the read-only audit). **Stall reload:** a profile switch or macro edit that stops a macro while the controller sends nothing now sends a neutral frame to the virtual controller, for every output on/off transition. **Statistics:** idle ticks are no longer counted as processing-time samples. **Diagnostics:** the report includes processing time (p50/p99/max) with its definition and the build commit (report version 2). **Tests added:** the reader thread's priority (Windows), the minimise and restore hook, macro timing after reopening the database file, `block_trigger` through duplicate, export and import (no defect found) |
 
 ## Automated results (simulated, no hardware)
 
-| Check | Result (commit `b862b6a`) |
+| Check | Result (commit `41a4f44`) |
 |---|---|
-| Rust tests (Linux and the Windows CI runner) | 284 passed, 0 failed |
-| Frontend tests | 33 passed, 0 failed |
+| Rust tests | Linux: 300 passed, 0 failed. Windows CI runner: 302 passed, 0 failed (includes the Windows-only reader-thread priority tests) |
+| Frontend tests | 39 passed, 0 failed |
 | `cargo fmt --check`, `cargo clippy -D warnings`, TypeScript check, production build | Clean |
-| Windows CI build and installers | Success (run 43907861742): `NEXUS_0.1.0_x64-setup.exe`, `.msi` |
+| Windows CI build and installers | Success (run 43948182942): `NEXUS_0.1.0_x64-setup.exe`, `.msi` |
 
 Automated tests use a mock HID backend and a mock virtual controller. They prove NEXUS's logic, not Windows, ViGEmBus, HidHide or game behaviour.
 
@@ -38,7 +39,7 @@ Automated tests use a mock HID backend and a mock virtual controller. They prove
 
 | Verified by the owner (2026-11-16, build `711f0d4`) | Outstanding |
 |---|---|
-| DualSense USB input; Windows recognises the virtual Xbox 360 controller (V3, V4); Repeat While Held repeats and stops on release (V6, V7); macro output in an offline game (V14, title pending) | Everything in `tests/m4.5-test-plan.md`, including re-checks of V6 and V7 on `832de00` |
+| DualSense USB input; Windows recognises the virtual Xbox 360 controller (V3, V4); Repeat While Held repeats and stops on release (V6, V7); macro output in an offline game (V14, title pending) | Everything in `tests/m4.5-test-plan.md`, including re-checks of V6 and V7 on `41a4f44` |
 
 ## Known limitations
 
@@ -50,4 +51,6 @@ See *Known limitations* in [`tests/hardware-verification.md`](../tests/hardware-
 - double input is possible without HidHide;
 - settings are shared across multiple controllers;
 - MZ Titan independent paddles are unsupported until capture evidence exists;
-- the installer is not code-signed.
+- the installer is not code-signed;
+- a stream of unreadable reports from a connected controller leaves the virtual controller on its last state until a readable report arrives (audit item C4; design proposed, not implemented);
+- the stall-reload fix can't be reproduced by hand on real hardware (a USB DualSense doesn't stop sending), so it is verified by simulation only.

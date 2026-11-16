@@ -37,13 +37,14 @@ parse report → [raw history + rate/interval counters + rumble check] → proce
 - Between reports, a playing macro is advanced only on an idle tick (read timeout).
 - The UI never runs on the reader thread. A separate bridge thread copies a snapshot at 60 Hz.
 
-**Build B (`832de00`):**
+**Build B (`832de00`; current test build `41a4f44`, same input path):**
 
 - **Order:** parse → processing → macros → virtual Xbox submit → bookkeeping (counters, raw history, vibration and lighting, UI snapshot).
 - **Allocations:** none per report.
 - **Priority:** the reader thread runs at above-normal priority.
 - **UI stream:** paused while minimised.
 - **Unchanged:** the output write (up to 1 s wait), because P3 isn't implemented.
+- **`41a4f44` adds (no latency change):** a neutral frame when a profile reload stops a macro during an input stall; idle ticks kept out of the processing-time statistics; processing time in the diagnostics report.
 
 ## 2. Baseline measurements
 
@@ -129,7 +130,7 @@ parse report → [raw history + rate/interval counters + rumble check] → proce
 Measure the **same steps on two builds**, on the same PC, with the same game and settings:
 
 - **Build A (before):** run [43907861742](https://github.com/ayyflame/nexus-controller/actions/runs/43907861742), commit `b862b6a`, artifact NEXUS-windows-x64.
-- **Build B (after):** run [43943310033](https://github.com/ayyflame/nexus-controller/actions/runs/43943310033), commit `832de00` (P2, P4, P5, P6), artifact NEXUS-windows-x64.
+- **Build B (after):** run [43948182942](https://github.com/ayyflame/nexus-controller/actions/runs/43948182942), commit `41a4f44`, artifact NEXUS-windows-x64. It has the latency changes P2, P4, P5 and P6 exactly as in `832de00` (the earlier build B, run 43943310033), plus reliability and measurement corrections that don't touch the input path. Use this one; `832de00` is no longer needed.
 
 **Installing:** install a build with its `-setup.exe`. Installing A after B (or B after A) replaces the program and keeps your profiles and macros.
 
@@ -141,9 +142,13 @@ Measure the **same steps on two builds**, on the same PC, with the same game and
   - in **A**, processing, macros and the virtual submit only.
 
   B's number covers slightly more, so a lower or equal B is a real improvement.
-- *Time between reports* (min / average / max) and *Late reports over 8 ms / over 50 ms*: how steady the controller's stream is.
 
-**Before each row:** unplug and re-plug the DualSense, then wait 10 s. The "late reports" and "time between reports" counters count from the moment the controller connects. The processing-time figures cover the most recent 256 reports.
+  **It is a rolling window:** the figures cover only the most recent 256 controller reports, about **one second** at 250 Hz. They show "right now", not the session. Read them **while the load you care about is still running**. A few seconds after you leave a game they describe an idle PC.
+- *Time between reports* (min / average / max) and *Late reports over 8 ms / over 50 ms*: how steady the controller's stream is. These count **since the controller connected**, so they keep everything that happened during a game. **They are the main evidence for behaviour under sustained game load** (P2); the processing-time figures are a spot check.
+
+**Before each row:** unplug and re-plug the DualSense, then wait 10 s. The "late reports" and "time between reports" counters count from the moment the controller connects. The processing-time figures cover the most recent 256 reports (about one second).
+
+**P6 (UI paused) applies only while the NEXUS window is minimised.** A NEXUS window that is merely behind a fullscreen or borderless game is not minimised and keeps updating. So L3 shows no P6 effect unless you minimise NEXUS; L4(b) is the row that measures P6.
 
 **Measuring CPU:** use Task Manager › **Processes** tab, the **NEXUS** app row. It includes NEXUS's WebView2 processes (`msedgewebview2.exe`), where the UI work (and the P6 saving) shows up. Watch it for about 30 s and write down the typical value, not a single spike.
 
@@ -151,10 +156,21 @@ Measure the **same steps on two builds**, on the same PC, with the same game and
 |---|---|---|
 | L1 | Connect, output on (Xbox 360), no game. Wait 2 min, open **Performance** | Rate; processing time p50/p99/max; time between reports min/avg/max; late > 8 ms and > 50 ms |
 | L2 | Hold a Repeat While Held macro for 30 s, then read **Performance** | Same values |
-| L3 | Start a demanding single-player game. Play 5 min using the macro. Alt+Tab to **Performance** | Same values (CPU under load: this is where P2 matters) |
+| L3 | Open **Performance** first. Start a demanding single-player game in **windowed or borderless** mode (or on a second monitor) so the Performance page stays visible. Play 5 min using the macro. Read the processing-time figures **while the game is still running and you are still playing** (a phone photo of the page is fine). If the game only runs fullscreen: Alt+Tab and read within about one second, and note "read after Alt+Tab" | Processing time p50/p99/max read **during** play; then rate, time between reports min/avg/max and late > 8 / > 50 ms (these can be read afterwards: they count since connect) |
 | L4 | Task Manager › Processes › **NEXUS** row (includes its WebView2 processes), CPU column. (a) NEXUS window visible on the Dashboard; (b) NEXUS **minimised**; both while the controller sends input | CPU % for (a) and (b). P6 should make (b) clearly lower on B |
-| L5 | During L3 | Late > 8 ms and > 50 ms since connect |
-| L6 | After L3: Settings › HID Devices › **Copy diagnostics report**; paste into a text file named A or B | Send both files |
+| L5 | At the end of L3, before unplugging | Late > 8 ms and > 50 ms since connect, and max time between reports. **This is the main P2 result** |
+| L6 | At the end of L3, **while the game is still running** if you can: Settings › HID Devices › **Copy diagnostics report**; paste into a text file named A or B | Send both files |
+
+**What the two diagnostics files contain (they are not identical):**
+
+| Field | Build A file (`b862b6a`) | Build B file (`41a4f44`) |
+|---|---|---|
+| Report format `version` | 1 | 2 |
+| `app.build` (source commit) | absent | present |
+| `reportIntervals`, `sequenceGaps`, `parseErrors`, `reportRateHz` | present, same meaning | present, same meaning |
+| `processingTime` (p50/p99/max, in µs) | **absent**: copy A's figures from the Performance page by hand | present, with `processingTimeDefinition` stating what it measures |
+
+`processingTime` in the file is the same rolling one-second window as on the Performance page, taken at the moment you copy the report. A's processing time measured a narrower span (see above), so compare A and B mainly on the fields that mean the same in both: time between reports, late counts, dropped reports and CPU.
 
 **Tips:**
 

@@ -11,9 +11,9 @@ NEXUS is developed in a Linux container without access to Windows or a controlle
 | Status | Rows |
 |---|---|
 | Physically verified (owner) | V3, V4, V6, V7, V14 (build `711f0d4`; V14 game title pending); USB input in general |
-| Re-check on build B `832de00` | V6, V7 |
+| Re-check on build B `41a4f44` | V6, V7 |
 | Outstanding (M4.5 pass, build B) | 22, 24–27, 35, 36, 53–62, V1–V2 (optional), V5, V8–V13, V15–V21, D1–D10, T1–T10 |
-| Outstanding (latency A/B) | L1–L6, on build A `b862b6a` and build B `832de00` |
+| Outstanding (latency A/B) | L1–L6, on build A `b862b6a` and build B `41a4f44` |
 | Outstanding (later) | 1–5, 10–21 (1–5 and 21 are covered by 53–55, 58 and 61 when those are run), 28–34, 38–52 |
 | Out of scope (Bluetooth) | 6–9, 23, 37 |
 
@@ -198,10 +198,10 @@ Virtual output must be on (Xbox 360). Run D1–D3 **before** installing HidHide.
 |---|---|---|---|
 | L1 | Controller connected, output on, no game; after 2 min open **Performance** | Report rate; time between reports min/avg/max; late > 8 ms and > 50 ms; NEXUS processing time p50/p99/max | |
 | L2 | Same while holding a Repeat While Held macro for 30 s | Same values | |
-| L3 | Play a demanding single-player game 5 min using the macro; Alt+Tab to **Performance** | Same values (under CPU load) | |
-| L4 | Task Manager › Details › `nexus-desktop.exe`, controller sending input: (a) window visible on Dashboard, (b) window minimised | CPU % for (a) and (b) on A and on B | |
-| L5 | During L3 | Late > 8 ms and > 50 ms since connect | |
-| L6 | **Copy diagnostics report** after L3 | Send the file | |
+| L3 | Open **Performance**, then play a demanding single-player game 5 min using the macro, windowed or borderless so the page stays visible. Read processing time **while still playing** (it covers only the last second). Fullscreen only: Alt+Tab and read within 1 s, and say so | Processing time p50/p99/max during play; then the other values | |
+| L4 | Task Manager › Processes › **NEXUS** row (includes its WebView2 processes), controller sending input: (a) window visible on Dashboard, (b) window **minimised** (not just behind another window: P6 pauses the UI only when minimised) | CPU % for (a) and (b) on A and on B | |
+| L5 | End of L3, before unplugging | Late > 8 ms and > 50 ms since connect; max time between reports (main evidence under load) | |
+| L6 | **Copy diagnostics report** at the end of L3, with the game still running if possible | Send the file (B's file includes processing time; A's does not) | |
 
 ## Known limitations (current build)
 
