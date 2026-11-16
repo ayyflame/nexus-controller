@@ -1,21 +1,37 @@
-# Builds the NEXUS Windows x64 installers.
+# Builds the NEXUS Windows x64 installers and, for published releases,
+# publishes a signed automatic update.
 #
 # Triggers:
-#   - Manually (Actions tab → "Windows release build" → Run workflow): builds and
-#     uploads the installers as a workflow artifact.
-#   - Pushing a tag like v0.1.0: builds and publishes a GitHub pre-release
-#     with the installers attached.
-#   - Publishing a GitHub Release: builds and attaches the installers to it.
+#   - Manually (Actions tab → "Windows release build" → Run workflow): runs the
+#     tests and uploads the installers as a workflow artifact. Nothing is signed
+#     for updates and nothing is published. These builds have no update server
+#     configured, so they never check for updates.
+#   - Publishing a GitHub Release whose tag is v<version> (e.g. v0.1.1):
+#       1. checks the tag matches the version in the source, and that the
+#          signing and hosting secrets exist (fails otherwise)
+#       2. runs all tests
+#       3. builds with the update server and public key embedded, and signs
+#          the updater artifacts with the private key from GitHub secrets
+#       4. generates latest.json, verifying the signature against the public key
+#          and refusing versions that are not newer than the published one
+#       5. uploads the installer, then latest.json, to the update host and
+#          verifies the published files from their public URLs
+#       6. attaches the installers to the GitHub Release
+#     A release marked "pre-release" gets signed installers attached but is not
+#     published to the Stable update channel.
 #
-# The installers are unsigned until a code-signing certificate is configured.
-# No drivers are bundled or installed.
+# Pushing a tag alone no longer builds a release. Publish a GitHub Release
+# instead (it creates the tag), so exactly one signed build exists per
+# version. See docs/releasing.md.
+#
+# Tauri updater signatures are separate from Windows Authenticode code signing.
+# The installers are not Authenticode-signed, so Windows SmartScreen may still
+# warn. No drivers are bundled or installed.
 
 name: Windows release build
 
 on:
   workflow_dispatch:
-  push:
-    tags: ["v*"]
   release:
     types: [published]
 
@@ -37,6 +53,65 @@ jobs:
     steps:
       - name: Check out
         uses: actions/checkout@v4
+
+      - name: Decide build type and check release prerequisites
+        id: mode
+        shell: pwsh
+        env:
+          EVENT: ${{ github.event_name }}
+          TAG: ${{ github.event.release.tag_name }}
+          PRERELEASE: ${{ github.event.release.prerelease }}
+          HAS_SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+          HAS_SIGNING_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD != '' }}
+          HAS_S3_KEY_ID: ${{ secrets.UPDATE_S3_ACCESS_KEY_ID != '' }}
+          HAS_S3_SECRET: ${{ secrets.UPDATE_S3_SECRET_ACCESS_KEY != '' }}
+          PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}
+          S3_ENDPOINT: ${{ vars.UPDATE_S3_ENDPOINT }}
+          S3_BUCKET: ${{ vars.UPDATE_S3_BUCKET }}
+          PUBLIC_BASE: ${{ vars.UPDATE_PUBLIC_BASE_URL }}
+        run: |
+          # Every place the version is recorded must agree.
+          $conf = (Get-Content apps/desktop/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $pkg = (Get-Content apps/desktop/package.json -Raw | ConvertFrom-Json).version
+          $cargo = (Select-String -Path Cargo.toml -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          if ($conf -ne $pkg -or $conf -ne $cargo) {
+            throw "Version mismatch: tauri.conf.json=$conf package.json=$pkg Cargo.toml=$cargo. Run: node scripts/bump-version.mjs <version>"
+          }
+          if ($conf -notmatch '^\d+\.\d+\.\d+$') { throw "Version $conf is not MAJOR.MINOR.PATCH" }
+          "version=$conf" >> $env:GITHUB_OUTPUT
+
+          if ($env:EVENT -ne 'release') {
+            Write-Host "Development build of $conf (not signed for updates, not published)."
+            "release=false" >> $env:GITHUB_OUTPUT
+            "publish=false" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+
+          if ($env:TAG -ne "v$conf") {
+            throw "Release tag '$($env:TAG)' does not match the source version $conf (expected v$conf)."
+          }
+          $missing = @()
+          if ($env:HAS_SIGNING_KEY -ne 'true') { $missing += 'secret TAURI_SIGNING_PRIVATE_KEY' }
+          if ($env:HAS_SIGNING_PASSWORD -ne 'true') { $missing += 'secret TAURI_SIGNING_PRIVATE_KEY_PASSWORD' }
+          if ($env:HAS_S3_KEY_ID -ne 'true') { $missing += 'secret UPDATE_S3_ACCESS_KEY_ID' }
+          if ($env:HAS_S3_SECRET -ne 'true') { $missing += 'secret UPDATE_S3_SECRET_ACCESS_KEY' }
+          if (-not $env:PUBKEY) { $missing += 'variable TAURI_UPDATER_PUBKEY' }
+          if (-not $env:S3_ENDPOINT) { $missing += 'variable UPDATE_S3_ENDPOINT' }
+          if (-not $env:S3_BUCKET) { $missing += 'variable UPDATE_S3_BUCKET' }
+          if (-not $env:PUBLIC_BASE) { $missing += 'variable UPDATE_PUBLIC_BASE_URL' }
+          if ($missing.Count -gt 0) {
+            throw "Release $($env:TAG) cannot be built: missing $($missing -join ', '). See docs/updater-setup.md."
+          }
+          if (-not $env:PUBLIC_BASE.StartsWith('https://')) { throw "UPDATE_PUBLIC_BASE_URL must start with https://" }
+          if (-not $env:S3_ENDPOINT.StartsWith('https://')) { throw "UPDATE_S3_ENDPOINT must start with https://" }
+
+          "release=true" >> $env:GITHUB_OUTPUT
+          if ($env:PRERELEASE -eq 'true') {
+            Write-Host "Pre-release $($env:TAG): signed build, not published to the Stable channel."
+            "publish=false" >> $env:GITHUB_OUTPUT
+          } else {
+            "publish=true" >> $env:GITHUB_OUTPUT
+          }
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -68,13 +143,36 @@ jobs:
         working-directory: apps/desktop
         run: npm test
 
-      - name: Build installers
+      - name: Build installers (development)
+        if: steps.mode.outputs.release != 'true'
         working-directory: apps/desktop
         run: npx tauri build
+
+      - name: Build installers (release, signed for updates)
+        if: steps.mode.outputs.release == 'true'
+        working-directory: apps/desktop
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}
+          PUBLIC_BASE: ${{ vars.UPDATE_PUBLIC_BASE_URL }}
+        run: |
+          $base = $env:PUBLIC_BASE.TrimEnd('/')
+          # Embeds the update endpoint and the PUBLIC key in this build only.
+          @{
+            bundle = @{ createUpdaterArtifacts = $true }
+            plugins = @{ updater = @{ pubkey = $env:PUBKEY.Trim(); endpoints = @("$base/stable/latest.json") } }
+          } | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 release.conf.json
+          npx tauri build --config release.conf.json
+          if ($LASTEXITCODE -ne 0) { throw "tauri build failed" }
 
       - name: Collect installers
         id: collect
         shell: pwsh
+        env:
+          VERSION: ${{ steps.mode.outputs.version }}
+          RELEASE: ${{ steps.mode.outputs.release }}
         run: |
           $out = New-Item -ItemType Directory -Force -Path installers
           Copy-Item target/release/bundle/nsis/*.exe $out
@@ -85,7 +183,16 @@ jobs:
           }
           Get-ChildItem $out | Format-Table Name, Length
           $exe = (Get-ChildItem $out -Filter *-setup.exe | Select-Object -First 1).Name
+          if ($exe -notlike "*_$($env:VERSION)_x64-setup.exe") { throw "Unexpected installer name $exe for version $($env:VERSION)" }
           "exe=$exe" >> $env:GITHUB_OUTPUT
+          if ($env:RELEASE -eq 'true') {
+            # The updater uses only the NSIS installer and its signature.
+            $sig = "target/release/bundle/nsis/$exe.sig"
+            if (-not (Test-Path $sig)) { throw "Updater signature $sig was not generated" }
+            New-Item -ItemType Directory -Force -Path updater | Out-Null
+            Copy-Item "target/release/bundle/nsis/$exe" updater/
+            Copy-Item $sig updater/
+          }
 
       - name: Verify the app binary has no VC++ runtime dependency
         shell: pwsh
@@ -105,15 +212,86 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Publish to GitHub Release
-        if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/v')
+      - name: Generate latest.json
+        if: steps.mode.outputs.publish == 'true'
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.mode.outputs.version }}
+          EXE: ${{ steps.collect.outputs.exe }}
+          TAURI_UPDATER_PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}
+          PUBLIC_BASE: ${{ vars.UPDATE_PUBLIC_BASE_URL }}
+          RELEASE_NOTES: ${{ github.event.release.body }}
+        run: |
+          $base = $env:PUBLIC_BASE.TrimEnd('/')
+          if ([string]::IsNullOrWhiteSpace($env:RELEASE_NOTES)) { throw "The GitHub Release description is empty; it becomes the in-app release notes." }
+          Set-Content -Encoding utf8 -NoNewline updater/notes.md -Value $env:RELEASE_NOTES
+          # Currently published manifest (none before the first release).
+          $code = curl.exe -sS -o updater/published.json -w "%{http_code}" "$base/stable/latest.json"
+          if ($code -eq '404') { Remove-Item updater/published.json -ErrorAction SilentlyContinue }
+          elseif ($code -ne '200') { throw "Could not read the published manifest (HTTP $code)" }
+          cargo run --locked --release -p nexus-updates --bin make-manifest -- create `
+            --version $env:VERSION `
+            --notes-file updater/notes.md `
+            --url "$base/stable/$($env:VERSION)/$($env:EXE)" `
+            --installer "updater/$($env:EXE)" `
+            --signature-file "updater/$($env:EXE).sig" `
+            --published updater/published.json `
+            --out updater/latest.json
+          if ($LASTEXITCODE -ne 0) { throw "latest.json was not generated" }
+          Get-Content updater/latest.json
+
+      - name: Publish update to the update host
+        if: steps.mode.outputs.publish == 'true'
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.mode.outputs.version }}
+          EXE: ${{ steps.collect.outputs.exe }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.UPDATE_S3_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.UPDATE_S3_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          # Cloudflare R2 and some S3-compatible hosts reject the newer default checksums.
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          S3_ENDPOINT: ${{ vars.UPDATE_S3_ENDPOINT }}
+          S3_BUCKET: ${{ vars.UPDATE_S3_BUCKET }}
+        run: |
+          $key = "stable/$($env:VERSION)/$($env:EXE)"
+          aws s3api head-object --bucket $env:S3_BUCKET --key $key --endpoint-url $env:S3_ENDPOINT *> $null
+          if ($LASTEXITCODE -eq 0) { throw "$key already exists on the update host. Versions are immutable; bump the version." }
+          # Installer first (immutable, versioned path), manifest last, so
+          # clients never see a manifest that points at a missing file.
+          aws s3 cp "updater/$($env:EXE)" "s3://$($env:S3_BUCKET)/$key" --endpoint-url $env:S3_ENDPOINT `
+            --content-type application/octet-stream --cache-control "public, max-age=31536000, immutable" --only-show-errors
+          if ($LASTEXITCODE -ne 0) { throw "Installer upload failed" }
+          aws s3 cp updater/latest.json "s3://$($env:S3_BUCKET)/stable/latest.json" --endpoint-url $env:S3_ENDPOINT `
+            --content-type application/json --cache-control "no-cache, max-age=0" --only-show-errors
+          if ($LASTEXITCODE -ne 0) { throw "latest.json upload failed" }
+
+      - name: Verify the published update from its public URLs
+        if: steps.mode.outputs.publish == 'true'
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.mode.outputs.version }}
+          TAURI_UPDATER_PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}
+          PUBLIC_BASE: ${{ vars.UPDATE_PUBLIC_BASE_URL }}
+        run: |
+          $base = $env:PUBLIC_BASE.TrimEnd('/')
+          New-Item -ItemType Directory -Force -Path check | Out-Null
+          curl.exe -fsSL --retry 5 --retry-delay 10 --retry-all-errors -o check/latest.json "$base/stable/latest.json"
+          if ($LASTEXITCODE -ne 0) { throw "Published latest.json is not reachable at $base/stable/latest.json" }
+          $url = (Get-Content check/latest.json -Raw | ConvertFrom-Json).platforms.'windows-x86_64-nsis'.url
+          curl.exe -fsSL --retry 5 --retry-delay 10 --retry-all-errors -o check/installer.exe $url
+          if ($LASTEXITCODE -ne 0) { throw "Published installer is not reachable at $url" }
+          cargo run --locked --release -p nexus-updates --bin make-manifest -- verify `
+            --manifest check/latest.json --installer check/installer.exe --expect-version $env:VERSION
+          if ($LASTEXITCODE -ne 0) { throw "Published update failed verification" }
+
+      - name: Attach installers to the GitHub Release
+        if: steps.mode.outputs.release == 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref_name }}
+          TAG: ${{ github.event.release.tag_name }}
         run: |
-          gh release view $env:TAG *> $null
-          if ($LASTEXITCODE -ne 0) {
-            gh release create $env:TAG --prerelease --title "NEXUS $env:TAG (Windows x64)" --notes-file docs/release-notes.md
-          }
           gh release upload $env:TAG (Get-ChildItem installers -File).FullName --clobber
+          if ($LASTEXITCODE -ne 0) { throw "Attaching installers failed" }

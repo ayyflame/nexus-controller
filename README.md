@@ -20,8 +20,10 @@ Download the Windows installer from the [Releases page](https://github.com/ayyfl
 
 Installers are built automatically by GitHub Actions ([`.github/workflows/windows-release.yml`](.github/workflows/windows-release.yml)):
 
-- **Run workflow** on the Actions tab produces a downloadable artifact.
-- Pushing a `v*` tag, or publishing a release, attaches the installers to a GitHub Release.
+- **Run workflow** on the Actions tab produces a downloadable artifact (no automatic updates).
+- **Publishing a GitHub Release** `v<version>` builds signed installers, publishes them as an automatic update, and attaches them to the release. See [`docs/releasing.md`](docs/releasing.md).
+
+**Automatic updates** use the official Tauri updater: a check shortly after start-up and every 6 hours, **Update now / Later**, signature-verified downloads, and data kept across updates. They are **implemented but not live yet**: the signing key, update host and GitHub secrets still need the one-time setup in [`docs/updater-setup.md`](docs/updater-setup.md). Real installation from one version to the next is unverified until [`docs/update-verification.md`](docs/update-verification.md) has been run on Windows.
 
 ## Develop
 
@@ -70,7 +72,7 @@ cd apps\desktop
 npm run tauri build
 ```
 
-Output goes to `target\release\bundle\nsis\` and `target\release\bundle\msi\`. The installers are unsigned until a code-signing certificate is configured. The MSI step downloads the WiX toolset on first use.
+Output goes to `target\release\bundle\nsis\` and `target\release\bundle\msi\`. The installers are not Authenticode-signed until a code-signing certificate is configured. The MSI step downloads the WiX toolset on first use. Local builds have no update server configured, so they never check for updates.
 
 ## Documentation
 
@@ -84,6 +86,9 @@ Output goes to `target\release\bundle\nsis\` and `target\release\bundle\msi\`. T
 - [Milestone 2 report](docs/milestone-2-report.md)
 - [Milestone 3 report](docs/milestone-3-report.md)
 - [Installing NEXUS (end users)](docs/install-windows.md)
+- [Automatic updates: one-time setup](docs/updater-setup.md)
+- [Releasing a new version](docs/releasing.md)
+- [Update verification checklist](docs/update-verification.md)
 - [Developer setup on Windows 11 and hardware validation](docs/windows-setup.md)
 - [Hardware verification checklist](tests/hardware-verification.md)
 

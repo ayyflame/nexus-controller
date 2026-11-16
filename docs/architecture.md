@@ -34,7 +34,8 @@ nexus-controller/
 │   ├── macro-engine/             Macro model/validation, MacroRunner (playback), MacroRecorder
 │   ├── profile-manager/          SQLite profiles + macro library (schema v2), migrations, last-used profile
 │   ├── telemetry/                Bounded event log, raw report history, report-rate counters
-│   └── engine/                   Runtime: wires everything together, owns threads, snapshots
+│   ├── engine/                   Runtime: wires everything together, owns threads, snapshots
+│   └── updates/                  Update policy: manifest, versions, schedule, state machine, signatures
 ├── apps/desktop/
 │   ├── src/                      React + TypeScript UI
 │   │   ├── components/ pages/ hooks/ styles/ lib/ types/
@@ -106,7 +107,7 @@ The TypeScript mirror is in `src/types/engine.ts`. A Rust test pins the JSON sha
 
 ## Security posture
 
-- The Tauri capability grants `core:default` only: no filesystem, shell or HTTP plugins.
+- The Tauri capability grants `core:default` only: no filesystem, shell or HTTP plugins. The updater plugin is driven from Rust; the webview has no updater permission.
 - A strict CSP is set.
 - No administrator rights are needed. HID enumeration uses zero-access query handles.
 - No driver is installed or bundled.
@@ -146,3 +147,26 @@ Settings and macros reach the reader threads through generation counters. Change
 - **`nexus-app-detect`** reports the foreground program (limited query; no memory access). `AutoSwitcher` holds the switching rules, and a watcher thread in the desktop shell applies profiles.
 - **Portability** (`profile-manager/portable.rs`): a versioned `nexus-config` JSON format, validated and transactional.
 - **Schema v4** adds per-profile games, with a database backup before each migration.
+
+## Automatic updates
+
+See [`updater-setup.md`](updater-setup.md) and [`releasing.md`](releasing.md).
+
+- **`nexus-updates`** (pure, no I/O):
+  - `latest.json` model and validation: HTTPS, NSIS-only `windows-x86_64-nsis` key, permanent URL, signature present;
+  - semantic-version rules: strictly newer stable versions only, never a downgrade;
+  - the check schedule: about 20 s after start, then every 6 h, or 1 h after a failure;
+  - the update state machine: one operation at a time, typed errors;
+  - minisign verification, and the `make-manifest` CLI used by CI.
+- **`src-tauri/src/updates.rs`** runs the official `tauri-plugin-updater` from a background thread and from commands:
+  - `get_update_status`, `check_for_updates`, `download_update`, `install_update`, `postpone_update`, `set_auto_update_check`, `dismiss_update_outcome`;
+  - it emits `nexus://update`.
+- **Install sequence:**
+  1. Snapshot the database (`VACUUM INTO backups/pre-update …db`).
+  2. Save `updates.expected_version`.
+  3. The plugin verifies the signature again.
+  4. `on_before_exit` stops the game watcher, the UI bridge and the engine (releasing controllers).
+  5. The plugin runs the NSIS installer in passive mode and exits.
+  6. The installer reopens NEXUS. At start-up, the expected version is compared with the running one, and the result is shown once.
+- Preferences live in `app_settings`: `updates.auto_check`, `updates.last_success`, `updates.postponed`, `updates.expected_version`.
+- The update endpoint and public key are empty in the repository. The release workflow injects them with `tauri build --config`.

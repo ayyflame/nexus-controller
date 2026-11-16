@@ -6,7 +6,7 @@ For testers and users. **No developer tools are needed**: no Rust, Node.js, Visu
 ## Install
 
 1. Get the installer while signed in to GitHub (the repository is private), in one of two ways:
-   - **From a release:** open the [Releases page](https://github.com/ayyflame/nexus-controller/releases) and click **`NEXUS_0.1.0_x64-setup.exe`** under the newest release.
+   - **From a release (recommended, updates automatically):** open the [Releases page](https://github.com/ayyflame/nexus-controller/releases) and click **`NEXUS_<version>_x64-setup.exe`** under the newest release.
    - **From a build:** open the [Actions tab](https://github.com/ayyflame/nexus-controller/actions/workflows/windows-release.yml), click the newest green run, and under **Artifacts** click **NEXUS-windows-x64**. This downloads a ZIP; right-click it, choose **Extract All…**, and open the extracted folder. Artifacts expire after 30 days.
 2. Find **`NEXUS_0.1.0_x64-setup.exe`** in your downloads (or the extracted folder).
 3. Double-click it.
@@ -28,6 +28,19 @@ NEXUS needs the Microsoft Edge WebView2 Runtime, which is already part of Window
 6. Send both files, plus anything that looked wrong. The checklist in [`tests/hardware-verification.md`](../tests/hardware-verification.md) lists what to look for.
 
 If the controller never appears, close Steam, DS4Windows or similar tools, then click **Settings → Scan now**. Those apps can hide or lock the controller.
+
+## Updates
+
+NEXUS installed from a **published release** updates itself. It checks about 20 seconds after it starts and then every 6 hours. You can also use **Settings → Updates → Check for updates**.
+
+- When a new version exists, a banner shows **Update available** with the release notes. Click **Update now**, or **Later** to hide it for that version. Nothing is installed without your OK.
+- After the download, NEXUS checks the update's signature. Then click **Restart and install**: NEXUS closes, a small installer window runs without asking questions, and NEXUS reopens on the new version.
+- Your profiles, macros, calibration and settings are kept. A backup copy is saved in `%APPDATA%\com.nexus.controllerengine\backups` first.
+- No internet? NEXUS works normally and tries again later.
+- Turn automatic checks off in **Settings → Updates**.
+- Copies installed from the **.msi**, and builds downloaded from the Actions tab, don't update automatically. Install the newest `-setup.exe` from the Releases page once instead.
+
+The installer is still not code-signed, so SmartScreen can still warn on a manual install. The update signature is a separate check and doesn't change that.
 
 ## Uninstall
 

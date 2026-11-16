@@ -1,3 +1,4 @@
+<!-- Template for a GitHub Release description. Since automatic updates were added, CI uses the Release description itself as the in-app release notes, not this file. See docs/releasing.md. -->
 ## NEXUS for Windows 11 (x64) — hardware validation build
 
 This pre-release is for testing NEXUS on a real Windows 11 PC with a DualSense controller. No developer tools are needed.

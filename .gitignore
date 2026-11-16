@@ -10,3 +10,7 @@ apps/desktop/src-tauri/gen/
 *.log
 *.pfx
 *.p12
+# Signing keys (the updater private key must never be committed)
+*.key
+*.key.pub
+release.conf.json
