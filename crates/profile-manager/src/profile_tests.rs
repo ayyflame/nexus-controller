@@ -32,10 +32,7 @@ fn create_rename_duplicate_delete_switch() {
 
     let mut cfg = ProcessingConfig::default();
     cfg.right_stick.curve = ResponseCurve::Power { exponent: 1.8 };
-    cfg.remap = vec![RemapRule {
-        from: Button::South,
-        to: Some(Button::East),
-    }];
+    cfg.remap = vec![RemapRule::new(Button::South, Some(Button::East))];
     s.set_processing(fps.id, &cfg).unwrap();
     s.set_virtual_output(fps.id, VirtualOutputKind::Xbox360)
         .unwrap();
@@ -202,7 +199,9 @@ fn old_database_is_backed_up_before_migration() {
     let backup = dir.join("nexus.db.v1.bak");
     assert!(backup.exists(), "backup written");
     let b = rusqlite::Connection::open(&backup).unwrap();
-    let v: i64 = b.pragma_query_value(None, "user_version", |r| r.get(0)).unwrap();
+    let v: i64 = b
+        .pragma_query_value(None, "user_version", |r| r.get(0))
+        .unwrap();
     assert_eq!(v, 1, "backup is the untouched old version");
     // A current database is not backed up again.
     assert_eq!(ProfileStore::backup_before_migration(&path).unwrap(), None);

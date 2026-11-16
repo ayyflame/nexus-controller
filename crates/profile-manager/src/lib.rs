@@ -84,7 +84,9 @@ impl ProfileStore {
     /// If an existing database is older than this build, copies it to
     /// `<name>.v<old>.bak` before any migration runs, so an interrupted or
     /// failed upgrade can always be recovered. Returns the backup path.
-    pub fn backup_before_migration(path: &Path) -> Result<Option<std::path::PathBuf>, ProfileError> {
+    pub fn backup_before_migration(
+        path: &Path,
+    ) -> Result<Option<std::path::PathBuf>, ProfileError> {
         if !path.exists() {
             return Ok(None);
         }
@@ -95,7 +97,10 @@ impl ProfileStore {
         if version == 0 || version >= SCHEMA_VERSION {
             return Ok(None);
         }
-        let file = path.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
+        let file = path
+            .file_name()
+            .map(|f| f.to_string_lossy().into_owned())
+            .unwrap_or_default();
         let backup = path.with_file_name(format!("{file}.v{version}.bak"));
         if !backup.exists() {
             // VACUUM INTO writes a consistent copy even with a WAL file present.

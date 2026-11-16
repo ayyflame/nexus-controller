@@ -489,10 +489,10 @@ fn processing_settings_apply_live_and_remap_reaches_output() {
     let (backend, e) = connected_engine();
     let mut cfg = nexus_input_processing::ProcessingConfig::passthrough();
     cfg.left_stick.deadzone = 0.5;
-    cfg.remap = vec![nexus_input_processing::RemapRule {
-        from: MacroButton::South,
-        to: Some(MacroButton::East),
-    }];
+    cfg.remap = vec![nexus_input_processing::RemapRule::new(
+        MacroButton::South,
+        Some(MacroButton::East),
+    )];
     e.set_processing(cfg);
     let mut p = Payload::neutral();
     p.lx = 160; // ≈0.25: inside the new deadzone
@@ -516,10 +516,10 @@ fn processing_settings_apply_live_and_remap_reaches_output() {
 fn macro_trigger_uses_physical_button_even_when_remapped() {
     let (backend, e) = connected_engine();
     let mut cfg = nexus_input_processing::ProcessingConfig::passthrough();
-    cfg.remap = vec![nexus_input_processing::RemapRule {
-        from: MacroButton::RightStick,
-        to: None,
-    }];
+    cfg.remap = vec![nexus_input_processing::RemapRule::new(
+        MacroButton::RightStick,
+        None,
+    )];
     e.set_processing(cfg);
     e.set_macros(vec![jump_macro(PlaybackMode::Once)]);
     backend.push_report(PATH, report(&[]));

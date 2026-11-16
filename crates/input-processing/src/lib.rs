@@ -12,12 +12,14 @@ mod config;
 mod processor;
 
 pub use config::{
-    CurvePoint, DeadzoneShape, ProcessingConfig, RemapRule, ResponseCurve, StickConfig,
-    TriggerConfig, MAX_CURVE_POINTS,
+    find_conflicts, ConfigConflict, CurvePoint, DeadzoneShape, GyroActivation, GyroConfig,
+    GyroHorizontalAxis, LayerMode, MappingLayer, ProcessingConfig, RemapRule, ResponseCurve,
+    StickCalibration, StickConfig, TouchLayout, TouchpadConfig, TriggerConfig, MAX_CURVE_POINTS,
+    MAX_EXTRA_ACTIONS, MAX_LAYERS,
 };
 pub use processor::{
     evaluate_curve, process_stick, process_trigger, shape_magnitude, trigger_output,
-    ConfiguredProcessor,
+    ConfiguredProcessor, GYRO_LSB_PER_DPS,
 };
 
 use nexus_controller_core::ControllerState;
@@ -59,6 +61,9 @@ impl ProcessingPipeline {
 
 #[cfg(test)]
 mod processing_tests;
+
+#[cfg(test)]
+mod advanced_tests;
 
 #[cfg(test)]
 mod tests {

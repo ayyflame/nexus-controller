@@ -202,6 +202,7 @@ fn trigger_deadzone_saturation_and_range() {
         max_input: 0.9,
         output_min: 0.2,
         output_max: 0.8,
+        ..TriggerConfig::default()
     };
     assert_eq!(trigger_output(&c, 0.05), 0.0);
     assert!(close(trigger_output(&c, 0.5), 0.5));
@@ -228,7 +229,7 @@ fn remap(rules: &[(Button, Option<Button>)]) -> ProcessingConfig {
     let mut c = ProcessingConfig::passthrough();
     c.remap = rules
         .iter()
-        .map(|&(from, to)| RemapRule { from, to })
+        .map(|&(from, to)| RemapRule::new(from, to))
         .collect();
     c
 }
@@ -340,20 +341,12 @@ fn sanitize_clamps_and_dedupes() {
         max_input: 0.2,
         output_min: 0.9,
         output_max: 0.1,
+        ..TriggerConfig::default()
     };
     c.remap = vec![
-        RemapRule {
-            from: Button::South,
-            to: Some(Button::East),
-        },
-        RemapRule {
-            from: Button::South,
-            to: None,
-        },
-        RemapRule {
-            from: Button::North,
-            to: Some(Button::North),
-        },
+        RemapRule::new(Button::South, Some(Button::East)),
+        RemapRule::new(Button::South, None),
+        RemapRule::new(Button::North, Some(Button::North)),
     ];
     let s = c.sanitized();
     assert_eq!(s.left_stick.deadzone, 0.9);
@@ -371,10 +364,7 @@ fn sanitize_clamps_and_dedupes() {
     assert!(s.left_trigger.output_max >= s.left_trigger.output_min);
     assert_eq!(
         s.remap,
-        vec![RemapRule {
-            from: Button::South,
-            to: Some(Button::East)
-        }]
+        vec![RemapRule::new(Button::South, Some(Button::East))]
     );
 }
 
