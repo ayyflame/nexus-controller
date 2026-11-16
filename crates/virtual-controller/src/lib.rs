@@ -66,7 +66,7 @@ pub trait VirtualControllerBackend: Send {
 pub struct UnavailableBackend;
 
 pub const NO_DRIVER_REASON: &str = "Virtual controller output is not enabled in this build yet. \
-It will be turned on after NEXUS has been verified with a real DualSense over USB and Bluetooth.";
+It is planned as an optional, separately installed driver; see Controller › Virtual Output.";
 
 impl VirtualControllerBackend for UnavailableBackend {
     fn name(&self) -> &'static str {

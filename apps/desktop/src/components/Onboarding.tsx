@@ -22,7 +22,7 @@ export function Onboarding({ forceOpen, onClose, onNavigate }: {
   const steps = [
     { title: "Welcome to NEXUS", body: <>NEXUS reads your DualSense, lets you tune sticks and triggers, remap buttons, add gyro aiming and record macros, and saves everything in profiles.</> },
     { title: "Connect your controller", body: <>
-      Plug in a USB-C cable, or pair over Bluetooth: hold <b>Create + PS</b> until the light flashes, then add it in Windows Settings › Bluetooth.
+      Plug your DualSense into the PC with a USB-C data cable. NEXUS finds it automatically.
       <div className={`onb-status tone-${phase.tone}`}><span className="dot" /> {phase.label}: {phase.detail}</div></> },
     { title: "Make it yours", body: <>Open <b>Controller</b> to tune sticks, triggers, gyro and the touchpad, or start from a template in <b>Profiles</b>. Changes save automatically.</> },
     { title: "Find anything fast", body: <>Press <kbd>Ctrl</kbd> + <kbd>K</kbd> anywhere to search every setting. Hover any control for an explanation.</> },

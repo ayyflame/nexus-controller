@@ -133,6 +133,69 @@ impl RateCounter {
     }
 }
 
+/// Time between consecutive input reports, for USB stability checks
+/// (a DualSense over USB normally reports about every 4 ms, i.e. ~250 Hz).
+/// Counts are since the controller connected. Recording never allocates.
+#[derive(Debug, Default)]
+pub struct IntervalStats {
+    last: Option<Instant>,
+    count: u64,
+    sum_us: u64,
+    min_us: u32,
+    max_us: u32,
+    over_8ms: u64,
+    over_50ms: u64,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IntervalSummary {
+    /// Number of intervals measured (reports - 1).
+    pub intervals: u64,
+    pub min_us: u32,
+    pub mean_us: u32,
+    pub max_us: u32,
+    /// Intervals longer than 8 ms (two normal USB periods): a late report.
+    pub over_8ms: u64,
+    /// Intervals longer than 50 ms: a visible stall.
+    pub over_50ms: u64,
+}
+
+impl IntervalStats {
+    pub fn record(&mut self, now: Instant) {
+        if let Some(prev) = self.last {
+            let us = now
+                .saturating_duration_since(prev)
+                .as_micros()
+                .min(u128::from(u32::MAX)) as u32;
+            if self.count == 0 || us < self.min_us {
+                self.min_us = us;
+            }
+            self.max_us = self.max_us.max(us);
+            self.count += 1;
+            self.sum_us += u64::from(us);
+            if us > 8_000 {
+                self.over_8ms += 1;
+            }
+            if us > 50_000 {
+                self.over_50ms += 1;
+            }
+        }
+        self.last = Some(now);
+    }
+
+    pub fn summary(&self) -> IntervalSummary {
+        IntervalSummary {
+            intervals: self.count,
+            min_us: self.min_us,
+            mean_us: self.sum_us.checked_div(self.count).unwrap_or(0) as u32,
+            max_us: self.max_us,
+            over_8ms: self.over_8ms,
+            over_50ms: self.over_50ms,
+        }
+    }
+}
+
 /// Fixed-size window of recent durations (microseconds) for latency
 /// percentiles. Recording never allocates.
 #[derive(Debug)]
@@ -296,5 +359,24 @@ mod tests {
         assert_eq!(log.len(), 2);
         assert_eq!(log[1].message, "m9");
         assert_eq!(t.recent_raw(10)[1].bytes, vec![9]);
+    }
+
+    #[test]
+    fn report_intervals_track_min_mean_max_and_late_reports() {
+        let mut st = IntervalStats::default();
+        assert_eq!(st.summary(), IntervalSummary::default());
+        let t0 = Instant::now();
+        // 250 Hz with one 12 ms hiccup and one 60 ms stall.
+        let offsets_ms = [0u64, 4, 8, 12, 24, 28, 88, 92];
+        for ms in offsets_ms {
+            st.record(t0 + Duration::from_millis(ms));
+        }
+        let s = st.summary();
+        assert_eq!(s.intervals, 7);
+        assert_eq!(s.min_us, 4_000);
+        assert_eq!(s.max_us, 60_000);
+        assert_eq!(s.mean_us, 92_000 / 7);
+        assert_eq!(s.over_8ms, 2);
+        assert_eq!(s.over_50ms, 1);
     }
 }

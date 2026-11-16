@@ -27,6 +27,7 @@ export async function buildDiagnosticsReport(appInfo: AppInfo | null): Promise<s
       outputBackend: status.outputBackend,
       outputBackendStatus: status.outputBackendStatus,
     },
+    connectionStats: status.stats,
     connectedDevices: status.devices.map((d) => ({
       model: d.device.model,
       connection: d.device.connection,
@@ -37,6 +38,9 @@ export async function buildDiagnosticsReport(appInfo: AppInfo | null): Promise<s
       reportRateHz: Math.round(d.reportRateHz * 10) / 10,
       totalReports: d.totalReports,
       parseErrors: d.parseErrors,
+      sequenceGaps: d.sequenceGaps,
+      reportIntervals: d.reportIntervals,
+      connectedForSeconds: Math.round((Date.now() - d.connectedAtMs) / 1000),
       lastParseError: d.lastParseError,
       lastInput: d.input,
     })),

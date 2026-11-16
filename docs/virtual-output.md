@@ -12,12 +12,12 @@
 
 ### The hardware gate
 
-The project rule is that no ViGEmBus code ships until **physical DualSense input has been verified on real Windows 11 hardware**, over both USB and Bluetooth. At the time of this milestone, every row of `tests/hardware-verification.md` is empty: no diagnostics reports or recorded fixtures exist. Synthetic tests do not count.
+The project rule is that no ViGEmBus code ships until **physical DualSense input has been verified on real Windows 11 hardware**, over USB (Bluetooth is out of scope). At the time of this milestone, every row of `tests/hardware-verification.md` is empty: no diagnostics reports or recorded fixtures exist. Synthetic tests do not count.
 
 To open the gate:
 
 1. Install the current NEXUS build (`docs/install-windows.md`).
-2. Complete the USB and Bluetooth sections of `tests/hardware-verification.md`.
+2. Complete the USB sections of `tests/hardware-verification.md`.
 3. Share both **Copy diagnostics report** outputs (Settings → HID Devices).
 4. Raw reports from those files become regression fixtures. Any parsing fixes land first, then the ViGEmBus backend.
 

@@ -42,7 +42,7 @@ export function useControllerPhase(): ControllerPhase {
   const d = status.devices[0];
   if (!d)
     return { key: "disconnected", label: "No controller", tone: "idle",
-      detail: status.enumerationError ?? "Connect a DualSense by USB or Bluetooth. NEXUS will detect it automatically." };
+      detail: status.enumerationError ?? "Connect a DualSense with a USB cable. NEXUS will detect it automatically." };
   if (!d.input || d.lastReportMs === null)
     return { key: "awaiting", label: "Awaiting input", tone: "warn",
       detail: "The controller is open but no valid input report has been received yet." };

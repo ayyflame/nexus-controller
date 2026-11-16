@@ -1,13 +1,13 @@
 # NEXUS Controller Engine
 
-Windows 11 controller customization and emulation for the Sony DualSense.
+Windows 11 controller customization and emulation for the Sony DualSense, connected by **USB** (Bluetooth is not supported).
 Tauri 2 · React · TypeScript · Rust · SQLite · Windows HID.
 
 **Milestone 1 (foundation)** contains:
 
 - The desktop application.
-- DualSense discovery over USB and Bluetooth, with automatic connect, reconnect and deduplication.
-- USB and Bluetooth input parsing into a normalized state model.
+- DualSense discovery over USB, with automatic connect, reconnect and deduplication.
+- USB input parsing into a normalized state model.
 - Profile persistence with last-used profile loading.
 - Diagnostics: raw HID reports, an event log and report rate.
 - A replaceable virtual-output interface, **with no driver yet**.
@@ -78,7 +78,8 @@ Output goes to `target\release\bundle\nsis\` and `target\release\bundle\msi\`. T
 
 - [Architecture](docs/architecture.md)
 - [Virtual driver evaluation and recommendation](docs/virtual-driver-evaluation.md)
-- [DualSense report format, USB vs Bluetooth](docs/dualsense-protocol.md)
+- [DualSense report format](docs/dualsense-protocol.md)
+- [Milestone 4 plan](docs/milestone-4-plan.md)
 - [Milestone 1 report](docs/milestone-1-report.md)
 - [Milestone 2 proposal](docs/milestone-2-proposal.md)
 - [Macro Studio](docs/macro-studio.md)

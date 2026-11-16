@@ -26,8 +26,8 @@ use nexus_macro_engine::{
     Macro, MacroButton, MacroLibrary, MacroRecorder, MacroRunner, RecordingResult,
 };
 use nexus_telemetry::{
-    unix_millis, LatencySummary, LatencyWindow, LogEntry, LogLevel, RateCounter, RawReport,
-    Telemetry,
+    unix_millis, IntervalStats, IntervalSummary, LatencySummary, LatencyWindow, LogEntry, LogLevel,
+    RateCounter, RawReport, Telemetry,
 };
 use nexus_virtual_controller::drivers::{probe_drivers, DriverStatus};
 use nexus_virtual_controller::{
@@ -90,6 +90,8 @@ pub struct DeviceSnapshot {
     /// Reports missing according to the controller's sequence counter
     /// (estimate: assumes the counter advances once per report).
     pub sequence_gaps: u64,
+    /// Time between reports since connect (USB stability).
+    pub report_intervals: IntervalSummary,
     /// Output reports (lightbar, LEDs, vibration) sent to this controller.
     pub output_reports_sent: u64,
     pub last_report_ms: Option<u64>,
@@ -879,6 +881,7 @@ struct EngineSessionHandler {
     output: VirtualOutputManager,
     output_generation: u64,
     rate: RateCounter,
+    intervals: IntervalStats,
     last_rate_published: f64,
     feedback: Feedback,
     last_sequence: Option<u8>,
@@ -995,6 +998,7 @@ fn new_session_handler(
             playing_macros: Vec::new(),
             pipeline_latency: LatencySummary::default(),
             sequence_gaps: 0,
+            report_intervals: IntervalSummary::default(),
             output_reports_sent: 0,
             last_report_ms: None,
             report_rate_hz: 0.0,
@@ -1024,6 +1028,7 @@ fn new_session_handler(
         output,
         output_generation: generation,
         rate: RateCounter::new(Duration::from_secs(1)),
+        intervals: IntervalStats::default(),
         last_rate_published: 0.0,
     })
 }
@@ -1126,7 +1131,9 @@ impl EngineSessionHandler {
 impl SessionHandler for EngineSessionHandler {
     fn on_report(&mut self, raw: &[u8], parsed: Result<ControllerState, ReportError>) {
         self.sync_output_mode();
-        self.rate.record(Instant::now(), parsed.is_ok());
+        let now = Instant::now();
+        self.rate.record(now, parsed.is_ok());
+        self.intervals.record(now);
         let error = parsed.as_ref().err().map(ToString::to_string);
         self.shared
             .telemetry
@@ -1155,11 +1162,12 @@ impl SessionHandler for EngineSessionHandler {
         self.reports_since_latency_publish += 1;
         let latency = (self.reports_since_latency_publish >= 64).then(|| {
             self.reports_since_latency_publish = 0;
-            self.latency.summary()
+            (self.latency.summary(), self.intervals.summary())
         });
         self.shared.update_device(&self.id, |s| {
-            if let Some(l) = latency {
+            if let Some((l, i)) = latency {
                 s.pipeline_latency = l;
+                s.report_intervals = i;
             }
             s.last_report_ms = Some(unix_millis());
             s.report_rate_hz = rate;

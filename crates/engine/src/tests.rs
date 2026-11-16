@@ -746,3 +746,19 @@ fn sequence_gaps_and_connection_stats_are_counted() {
     let s = wait_status(&e, "disconnect", |s| s.devices.is_empty());
     assert_eq!(s.stats.disconnects, 1);
 }
+
+#[test]
+fn report_intervals_are_published_for_usb_stability_checks() {
+    let (backend, e) = connected_engine();
+    for seq in 1..=70u8 {
+        let mut p = Payload::neutral();
+        p.seq = seq;
+        backend.push_report(PATH, p.usb_report());
+    }
+    let s = wait_status(&e, "intervals", |s| {
+        s.devices[0].report_intervals.intervals >= 60
+    });
+    let i = s.devices[0].report_intervals;
+    assert!(i.min_us <= i.mean_us && i.mean_us <= i.max_us, "{i:?}");
+    // Simulated timing only: real 250 Hz behaviour must be checked on hardware.
+}

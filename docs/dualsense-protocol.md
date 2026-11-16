@@ -1,3 +1,5 @@
+> NEXUS supports **USB only**. The Bluetooth sections below document code that is kept but unused; Bluetooth is permanently out of scope.
+
 # DualSense Input Report Format
 
 Implemented in `crates/dualsense/src/report.rs`. Sources: the Linux kernel `drivers/hid/hid-playstation.c` (`struct dualsense_input_report`) and SDL `src/joystick/hidapi/SDL_hidapi_ps5.c`; the two agree on every field used here.

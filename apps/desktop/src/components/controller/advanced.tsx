@@ -240,7 +240,7 @@ export function GyroTab({ config, onChange }: { config: ProcessingConfig; onChan
               ))}
               {out && <StickPlot label="Right stick sent to game" config={config.rightStick} raw={null} processed={[out.x, out.y]} />}
             </>
-          ) : <p className="muted small">{device ? "No motion data yet. Over Bluetooth, motion arrives once the controller is in full report mode." : "Connect your controller to see motion."}</p>}
+          ) : <p className="muted small">{device ? "No motion data yet." : "Connect your controller to see motion."}</p>}
           <button className="btn-secondary" disabled={!motion || (status?.gyroCalibrating ?? false)} onClick={() => void calibrate()}>
             Calibrate gyro
           </button>
@@ -444,17 +444,11 @@ export function LightingTab({ config, onChange }: { config: ProcessingConfig; on
         <div className="lightbar-preview" style={{ background: preview ? `rgb(${preview.join(",")})` : undefined }}
           aria-label="Lightbar preview">{preview ? "" : "Controller default"}</div>
         <div className="field-row"><span className="field-label">Colour</span>
-          <input type="color" value={hex(f.color)} disabled={!f.lightbarEnabled || f.connectionColors} aria-label="Lightbar colour"
-            onChange={(e) => set({ color: rgb(e.target.value) })} /></div>
+          <input type="color" value={hex(f.connectionColors ? f.usbColor : f.color)} disabled={!f.lightbarEnabled} aria-label="Lightbar colour"
+            onChange={(e) => set({ color: rgb(e.target.value), connectionColors: false })} /></div>
         <Slider label="Brightness" tip="Dims the colour" value={f.brightness} onChange={(brightness) => set({ brightness })} />
-        <Switch checked={f.connectionColors} onChange={(connectionColors) => set({ connectionColors })}
-          label="Colour shows the connection" tip="Different colours for USB and Bluetooth" />
-        {f.connectionColors && (
-          <div className="row gap">
-            <label className="row gap-sm small">USB <input type="color" value={hex(f.usbColor)} onChange={(e) => set({ usbColor: rgb(e.target.value) })} /></label>
-            <label className="row gap-sm small">Bluetooth <input type="color" value={hex(f.bluetoothColor)} onChange={(e) => set({ bluetoothColor: rgb(e.target.value) })} /></label>
-          </div>
-        )}
+        {/* "Colour shows the connection" is hidden: NEXUS supports USB only. The
+            saved fields are kept so existing profiles load unchanged. */}
         <Switch checked={f.playerLedsEnabled} onChange={(playerLedsEnabled) => set({ playerLedsEnabled })} label="Player indicator lights" />
         {f.playerLedsEnabled && (
           <div className="player-leds" role="group" aria-label="Player LEDs">

@@ -8,7 +8,7 @@ import { ButtonChip } from "./ButtonChip";
 const MAX_SECONDS = 60;
 
 /**
- * Records button presses from the physical controller (USB or Bluetooth).
+ * Records button presses from the physical controller (USB).
  * The engine captures presses, releases and timing; this panel only drives it.
  */
 export function RecordPanel({ hasSteps, onRecorded }: {
@@ -99,7 +99,7 @@ export function RecordPanel({ hasSteps, onRecorded }: {
             <p className="muted small">
               {controllerReady
                 ? "Press Start, perform your button presses on the controller, then press Stop. Timing is captured automatically."
-                : "Connect your DualSense by USB or Bluetooth to record."}
+                : "Connect your DualSense with a USB cable to record."}
             </p>
           </div>
           {note && <div className="notice dev">{note}</div>}

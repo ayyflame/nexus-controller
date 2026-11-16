@@ -55,6 +55,10 @@ export function Performance() {
               <tr><td>Reports received <Kind /></td><td className="right mono">{d.totalReports.toLocaleString()}</td></tr>
               <tr><td>Input errors (unreadable reports) <Kind /></td><td className="right mono">{d.parseErrors.toLocaleString()}</td></tr>
               <tr><td>Dropped reports (from the controller's sequence counter) <Kind estimate /></td><td className="right mono">{d.sequenceGaps.toLocaleString()}</td></tr>
+              <tr><td>Time between reports, min / average / max (USB normal ≈ 4 ms) <Kind /></td>
+                <td className="right mono">{d.reportIntervals.intervals ? `${(d.reportIntervals.minUs / 1000).toFixed(2)} / ${(d.reportIntervals.meanUs / 1000).toFixed(2)} / ${(d.reportIntervals.maxUs / 1000).toFixed(1)} ms` : "—"}</td></tr>
+              <tr><td>Late reports since connect: over 8 ms / over 50 ms <Kind /></td>
+                <td className="right mono">{d.reportIntervals.intervals ? `${d.reportIntervals.over8ms.toLocaleString()} / ${d.reportIntervals.over50ms.toLocaleString()}` : "—"}</td></tr>
               <tr><td>Settings sent to the controller (lightbar, LEDs, vibration) <Kind /></td><td className="right mono">{d.outputReportsSent.toLocaleString()}</td></tr>
               <tr><td>Virtual output updates</td><td className="right">{d.output.active ? <span className="ok-text">Active</span> : <span className="muted">Not active (virtual output not enabled)</span>}</td></tr>
               <tr><td>Macros playing</td><td className="right">{d.playingMacros.length || "None"}</td></tr>

@@ -6,7 +6,7 @@ This pre-release is for testing NEXUS on a real Windows 11 PC with a DualSense c
 **Download:** `NEXUS_<version>_x64-setup.exe` (recommended), or the `.msi` if you prefer Windows Installer.
 
 ### What this build does
-- Detects a DualSense over USB or Bluetooth, and reconnects automatically.
+- Detects a DualSense over USB and reconnects automatically. Bluetooth is not supported.
 - Shows live input, connection events, raw HID reports and the engine log.
 - **Settings → HID Devices → Copy diagnostics report** creates a report you can share. Serial numbers and MAC addresses are masked.
 

@@ -20,12 +20,13 @@ NEXUS needs the Microsoft Edge WebView2 Runtime, which is already part of Window
 
 ## Test your DualSense
 
-1. **USB:** plug the controller in with a USB-C data cable. Within about a second, the dashboard shows **Connected · USB**. Move the sticks and press buttons; the diagram and values should follow.
+NEXUS supports the DualSense over **USB only**. Bluetooth is not supported.
+
+1. Plug the controller in with a USB-C data cable. Within about a second, the dashboard shows **Connected · USB**. Move the sticks and press buttons; the diagram and values should follow.
 2. Open **Settings → HID Devices (Sony) → Copy diagnostics report**. Paste it into a text file named `diagnostics-usb.txt`. Do this while the controller is connected.
 3. Unplug the cable. The dashboard returns to **No controller**.
-4. **Bluetooth:** hold **Create + PS** on the controller until the light bar flashes quickly. Then go to **Windows Settings → Bluetooth & devices → Add device → Bluetooth** and pick **DualSense Wireless Controller**. NEXUS shows **Connected · Bluetooth**.
-5. Copy the diagnostics report again and save it as `diagnostics-bluetooth.txt`.
-6. Send both files, plus anything that looked wrong. The checklist in [`tests/hardware-verification.md`](../tests/hardware-verification.md) lists what to look for.
+4. Plug the cable back in. NEXUS reconnects within about a second.
+5. Send the file, plus anything that looked wrong. The checklist in [`tests/hardware-verification.md`](../tests/hardware-verification.md) lists what to look for.
 
 If the controller never appears, close Steam, DS4Windows or similar tools, then click **Settings → Scan now**. Those apps can hide or lock the controller.
 

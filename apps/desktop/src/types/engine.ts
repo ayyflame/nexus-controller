@@ -79,6 +79,8 @@ export interface DeviceSnapshot {
   pipelineLatency: LatencySummary;
   /** Reports missing per the controller's sequence counter (estimate). */
   sequenceGaps: number;
+  /** Time between input reports since connect (USB stability). */
+  reportIntervals: { intervals: number; minUs: number; meanUs: number; maxUs: number; over8ms: number; over50ms: number };
   outputReportsSent: number;
   lastReportMs: number | null;
   reportRateHz: number;

@@ -614,4 +614,174 @@ mod tests {
         );
         assert_eq!(rec.ends.lock().unwrap().len(), 2);
     }
+
+    // ---- USB reliability (Milestone 4, simulated with the mock backend) ----
+
+    type TaggedLog = Arc<Mutex<Vec<(String, Option<u8>)>>>;
+
+    /// Records which session (device path) delivered each report.
+    fn tagged_manager(backend: &MockHidBackend, log: &TaggedLog) -> DeviceManager {
+        struct Tagged(String, TaggedLog);
+        impl SessionHandler for Tagged {
+            fn on_report(&mut self, _raw: &[u8], p: Result<ControllerState, ReportError>) {
+                if let Ok(s) = p {
+                    self.1.lock().unwrap().push((self.0.clone(), s.sequence));
+                }
+            }
+            fn on_end(&mut self, _r: &DisconnectReason) {}
+        }
+        let log = log.clone();
+        DeviceManager::new(
+            Arc::new(backend.clone()),
+            vec![Arc::new(TestDriver)],
+            DeviceManagerConfig {
+                scan_interval: Duration::from_millis(10),
+                read_timeout: Duration::from_millis(5),
+            },
+            Box::new(move |d| Box::new(Tagged(d.id.0.clone(), log.clone()))),
+            Arc::new(|| {}),
+        )
+    }
+
+    fn with_serial(path: &str, serial: Option<&str>) -> nexus_controller_core::HidDeviceInfo {
+        nexus_controller_core::HidDeviceInfo {
+            serial_number: serial.map(str::to_owned),
+            ..info(path)
+        }
+    }
+
+    fn connected_paths(m: &DeviceManager) -> Vec<String> {
+        let mut v: Vec<String> = m.connected_devices().into_iter().map(|d| d.id.0).collect();
+        v.sort();
+        v
+    }
+
+    #[test]
+    fn new_hid_path_with_same_serial_replaces_the_old_session() {
+        // Windows can give a re-plugged controller a new interface path while
+        // the old session has not failed its read yet.
+        let backend = MockHidBackend::new();
+        backend.plug(with_serial("path-a", Some("SERIAL1")));
+        let rec = Recorder::default();
+        let mut m = manager(&backend, &rec);
+        poll_until(&mut m, |e| matches!(e, DeviceEvent::Connected { .. }));
+
+        backend.hide("path-a"); // old handle still readable, gone from enumeration
+        backend.plug(with_serial("path-b", Some("SERIAL1")));
+        let events = poll_until(
+            &mut m,
+            |e| matches!(e, DeviceEvent::Connected { device } if device.id.0 == "path-b"),
+        );
+        assert!(events.iter().any(|e| matches!(e,
+            DeviceEvent::Disconnected { device_id, reason: DisconnectReason::Removed } if device_id.0 == "path-a")));
+        assert_eq!(connected_paths(&m), vec!["path-b"]);
+        assert_eq!(backend.live_connections("path-a"), 0, "old handle closed");
+        assert_eq!(backend.live_connections("path-b"), 1);
+    }
+
+    #[test]
+    fn new_hid_path_without_serial_reconnects_once() {
+        // Windows often reports no serial number for a USB DualSense.
+        let backend = MockHidBackend::new();
+        backend.plug(with_serial("path-a", None));
+        let rec = Recorder::default();
+        let mut m = manager(&backend, &rec);
+        poll_until(&mut m, |e| matches!(e, DeviceEvent::Connected { .. }));
+        backend.unplug("path-a");
+        backend.plug(with_serial("path-b", None));
+        poll_until(
+            &mut m,
+            |e| matches!(e, DeviceEvent::Connected { device } if device.id.0 == "path-b"),
+        );
+        for _ in 0..20 {
+            m.poll();
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert_eq!(connected_paths(&m), vec!["path-b"]);
+        assert_eq!(backend.live_connections("path-a"), 0);
+    }
+
+    #[test]
+    fn repeated_replug_cycles_never_duplicate_or_leak() {
+        const CYCLES: usize = 100;
+        let backend = MockHidBackend::new();
+        let rec = Recorder::default();
+        let mut m = manager(&backend, &rec);
+        let (mut connects, mut disconnects) = (0, 0);
+        let count = |evs: &[DeviceEvent], c: &mut usize, d: &mut usize| {
+            for e in evs {
+                match e {
+                    DeviceEvent::Connected { .. } => *c += 1,
+                    DeviceEvent::Disconnected { .. } => *d += 1,
+                    _ => {}
+                }
+            }
+        };
+        for i in 0..CYCLES {
+            // Alternate paths, as Windows may do across re-plugs.
+            let path = if i % 2 == 0 { "pad-x" } else { "pad-y" };
+            backend.plug(with_serial(path, Some("S")));
+            let evs = poll_until(&mut m, |e| matches!(e, DeviceEvent::Connected { .. }));
+            count(&evs, &mut connects, &mut disconnects);
+            assert_eq!(connected_paths(&m), vec![path], "cycle {i}");
+            backend.unplug(path);
+            let evs = poll_until(&mut m, |e| matches!(e, DeviceEvent::Disconnected { .. }));
+            count(&evs, &mut connects, &mut disconnects);
+            assert!(m.connected_devices().is_empty(), "cycle {i}");
+            assert_eq!(
+                backend.live_connections(path),
+                0,
+                "cycle {i}: handle leaked"
+            );
+        }
+        assert_eq!((connects, disconnects), (CYCLES, CYCLES));
+        assert!(m.sessions.is_empty(), "all reader threads joined");
+    }
+
+    #[test]
+    fn reports_from_a_removed_session_never_reach_the_new_one() {
+        let backend = MockHidBackend::new();
+        backend.plug(with_serial("old", Some("S")));
+        let log = TaggedLog::default();
+        let mut m = tagged_manager(&backend, &log);
+        poll_until(&mut m, |e| matches!(e, DeviceEvent::Connected { .. }));
+        backend.push_report("old", vec![0x01, 1]);
+        wait_for(|| log.lock().unwrap().len() == 1);
+
+        backend.hide("old");
+        backend.plug(with_serial("new", Some("S")));
+        poll_until(
+            &mut m,
+            |e| matches!(e, DeviceEvent::Connected { device } if device.id.0 == "new"),
+        );
+        // A late report on the old handle must go nowhere.
+        backend.push_report("old", vec![0x01, 99]);
+        backend.push_report("new", vec![0x01, 2]);
+        wait_for(|| log.lock().unwrap().iter().any(|(p, _)| p == "new"));
+        std::thread::sleep(Duration::from_millis(30));
+        let log = log.lock().unwrap().clone();
+        assert_eq!(
+            log,
+            vec![("old".to_owned(), Some(1)), ("new".to_owned(), Some(2))]
+        );
+    }
+
+    #[test]
+    fn shutdown_and_restart_reopen_the_same_controller_once() {
+        let backend = MockHidBackend::new();
+        backend.plug(with_serial("pad", Some("S")));
+        for run in 0..5 {
+            let rec = Recorder::default();
+            let mut m = manager(&backend, &rec);
+            poll_until(&mut m, |e| matches!(e, DeviceEvent::Connected { .. }));
+            assert_eq!(backend.live_connections("pad"), 1, "run {run}");
+            m.shutdown();
+            assert_eq!(
+                backend.live_connections("pad"),
+                0,
+                "run {run}: handle released on exit"
+            );
+        }
+        assert_eq!(backend.open_count("pad"), 5);
+    }
 }
