@@ -10,15 +10,20 @@
 //!   report layouts; any driver backend uses it.
 //! * [`drivers`] detects (read-only) whether ViGEmBus and HidHide exist.
 //!
-//! No driver-backed implementation is enabled yet: the experimental
-//! ViGEmBus backend is gated on real-hardware validation of DualSense input
-//! (see `docs/virtual-output.md`). [`UnavailableBackend`] reports that
-//! honestly.
+//! * [`platform_backend`] picks the backend for this build. On Windows that is
+//!   the **experimental** ViGEmBus backend (Xbox 360 only), which works only if
+//!   the user installed ViGEmBus themselves; elsewhere [`UnavailableBackend`].
+//!
+//! Before any virtual device is removed (switching output, physical
+//! disconnect, shutdown) the manager sends a neutral report, so a game never
+//! sees a button that stays held.
 
 #![deny(unsafe_code)]
 
 pub mod drivers;
 pub mod translate;
+#[cfg(windows)]
+pub mod vigem;
 
 use nexus_controller_core::{ControllerState, VirtualOutputKind};
 use serde::Serialize;
@@ -61,12 +66,29 @@ pub trait VirtualControllerBackend: Send {
     fn disconnect(&mut self, handle: VirtualDeviceHandle) -> Result<(), OutputError>;
 }
 
-/// The backend used until a driver strategy is approved.
+/// The backend for this platform: experimental ViGEmBus on Windows.
+pub fn platform_backend() -> Box<dyn VirtualControllerBackend> {
+    #[cfg(windows)]
+    {
+        Box::new(vigem::ViGEmBackend::new())
+    }
+    #[cfg(not(windows))]
+    {
+        Box::new(UnavailableBackend)
+    }
+}
+
+/// Neutral state: nothing pressed, sticks centred, triggers released.
+fn neutral() -> ControllerState {
+    ControllerState::default()
+}
+
+/// Used where no driver backend exists (non-Windows builds, tests).
 #[derive(Debug, Default)]
 pub struct UnavailableBackend;
 
-pub const NO_DRIVER_REASON: &str = "Virtual controller output is not enabled in this build yet. \
-It is planned as an optional, separately installed driver; see Controller › Virtual Output.";
+pub const NO_DRIVER_REASON: &str =
+    "Virtual controller output needs Windows and the optional ViGEmBus driver.";
 
 impl VirtualControllerBackend for UnavailableBackend {
     fn name(&self) -> &'static str {
@@ -148,7 +170,7 @@ impl VirtualOutputManager {
 
     fn apply(&mut self) -> Result<(), OutputError> {
         if let Some((_, handle)) = self.active {
-            self.backend.disconnect(handle)?;
+            self.remove(handle)?;
             self.active = None;
         }
         if self.requested == VirtualOutputKind::Disabled {
@@ -177,9 +199,15 @@ impl VirtualOutputManager {
     /// Removes the virtual device (on physical disconnect or shutdown).
     pub fn release(&mut self) -> Result<(), OutputError> {
         if let Some((_, handle)) = self.active.take() {
-            self.backend.disconnect(handle)?;
+            self.remove(handle)?;
         }
         Ok(())
+    }
+
+    /// Sends a neutral report, then disconnects, so no input stays held.
+    fn remove(&mut self, handle: VirtualDeviceHandle) -> Result<(), OutputError> {
+        let _ = self.backend.update(handle, &neutral());
+        self.backend.disconnect(handle)
     }
 }
 
@@ -198,7 +226,8 @@ mod tests {
     enum Call {
         Connect(VirtualOutputKind),
         Disconnect(u64),
-        Update(u64),
+        /// Handle and whether the state was neutral.
+        Update(u64, bool),
     }
 
     #[derive(Default)]
@@ -228,9 +257,12 @@ mod tests {
         fn update(
             &mut self,
             h: VirtualDeviceHandle,
-            _: &ControllerState,
+            s: &ControllerState,
         ) -> Result<(), OutputError> {
-            self.calls.lock().unwrap().push(Call::Update(h.0));
+            self.calls
+                .lock()
+                .unwrap()
+                .push(Call::Update(h.0, *s == ControllerState::default()));
             Ok(())
         }
         fn disconnect(&mut self, h: VirtualDeviceHandle) -> Result<(), OutputError> {
@@ -260,6 +292,7 @@ mod tests {
             *calls.lock().unwrap(),
             vec![
                 Call::Connect(VirtualOutputKind::Xbox360),
+                Call::Update(1, true),
                 Call::Disconnect(1),
                 Call::Connect(VirtualOutputKind::DualShock4),
             ]
@@ -298,8 +331,49 @@ mod tests {
         m.set_mode(VirtualOutputKind::Xbox360).unwrap();
         m.submit(&ControllerState::default());
         drop(m);
-        assert_eq!(calls.lock().unwrap().last(), Some(&Call::Disconnect(1)));
+        let calls = calls.lock().unwrap();
+        assert_eq!(
+            calls[calls.len() - 2..],
+            [Call::Update(1, true), Call::Disconnect(1)],
+            "neutral, then removed"
+        );
         assert!(live.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn every_removal_sends_a_neutral_report_first() {
+        let (mut m, calls, live) = manager();
+        let mut held = ControllerState::default();
+        held.buttons.south = true;
+        m.set_mode(VirtualOutputKind::Xbox360).unwrap();
+        m.submit(&held);
+        m.set_mode(VirtualOutputKind::Disabled).unwrap(); // output switched off
+        m.set_mode(VirtualOutputKind::Xbox360).unwrap();
+        m.submit(&held);
+        m.release().unwrap(); // physical disconnect / shutdown
+        assert_eq!(
+            *calls.lock().unwrap(),
+            vec![
+                Call::Connect(VirtualOutputKind::Xbox360),
+                Call::Update(1, false),
+                Call::Update(1, true),
+                Call::Disconnect(1),
+                Call::Connect(VirtualOutputKind::Xbox360),
+                Call::Update(2, false),
+                Call::Update(2, true),
+                Call::Disconnect(2),
+            ]
+        );
+        assert!(live.lock().unwrap().is_empty());
+        assert!(m.release().is_ok(), "releasing twice is harmless");
+    }
+
+    #[test]
+    fn neutral_state_translates_to_an_idle_xbox_report() {
+        assert_eq!(
+            translate::to_xusb(&ControllerState::default()),
+            translate::XusbReport::default()
+        );
     }
 
     #[test]

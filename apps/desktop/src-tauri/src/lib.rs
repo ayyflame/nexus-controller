@@ -57,7 +57,7 @@ pub fn run() {
             let profile = store.active_profile()?;
 
             let engine = Arc::new(Engine::start_default(EngineConfig {
-                initial_output: profile.virtual_output,
+                initial_output: commands::effective_output(&store, profile.virtual_output),
                 processing: profile.processing.clone(),
                 ..Default::default()
             }));
@@ -99,6 +99,8 @@ pub fn run() {
             commands::get_active_profile,
             commands::set_active_profile,
             commands::set_virtual_output,
+            commands::get_output_consent,
+            commands::set_output_consent,
             commands::create_profile,
             commands::rename_profile,
             commands::duplicate_profile,

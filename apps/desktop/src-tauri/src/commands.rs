@@ -120,12 +120,39 @@ pub fn get_active_profile(state: State<'_, AppState>) -> CmdResult<Profile> {
 
 /// Makes the engine match `profile` completely: output mode, processing
 /// settings and the macros switched on in that profile. Running macros stop.
+/// Key in `app_settings`: the user turned on experimental virtual output
+/// (ViGEmBus). Stored as an app setting, so no schema change is needed.
+pub(crate) const KEY_OUTPUT_CONSENT: &str = "virtual_output.experimental_consent";
+
+pub(crate) fn output_consent(store: &ProfileStore) -> bool {
+    store
+        .get_setting(KEY_OUTPUT_CONSENT)
+        .ok()
+        .flatten()
+        .is_some_and(|v| v == "true")
+}
+
+/// The output the engine should use: the profile's choice, but only after
+/// the user has turned on experimental virtual output.
+pub(crate) fn effective_output(
+    store: &ProfileStore,
+    wanted: VirtualOutputKind,
+) -> VirtualOutputKind {
+    if output_consent(store) {
+        wanted
+    } else {
+        VirtualOutputKind::Disabled
+    }
+}
+
 pub(crate) fn apply_profile(
     state: &AppState,
     store: &ProfileStore,
     profile: &Profile,
 ) -> CmdResult<()> {
-    state.engine.set_output_mode(profile.virtual_output);
+    state
+        .engine
+        .set_output_mode(effective_output(store, profile.virtual_output));
     state.engine.set_processing(profile.processing.clone());
     let macros = store.list_macros_for(profile.id).map_err(profile_error)?;
     state.engine.set_macros(macros);
@@ -181,19 +208,52 @@ pub fn set_processing(state: State<'_, AppState>, config: ProcessingConfig) -> C
 
 /// Saves the virtual output choice to the active profile and requests it
 /// from the engine. Whether a virtual device actually exists is reported
-/// separately in `EngineStatus` (no driver backend exists in Milestone 1).
+/// separately in `EngineStatus` (it needs the user-installed ViGEmBus driver).
 #[tauri::command]
 pub fn set_virtual_output(
     state: State<'_, AppState>,
     mode: VirtualOutputKind,
 ) -> CmdResult<Profile> {
-    let profile = {
-        let mut store = state.store.lock().map_err(|_| "profile store poisoned")?;
-        let active = store.active_profile()?;
-        store.set_virtual_output(active.id, mode)?
-    };
+    let mut store = state.store.lock().map_err(|_| "profile store poisoned")?;
+    if mode == VirtualOutputKind::DualShock4 {
+        return Err("DualShock 4 output isn't available in this beta. Use Xbox 360.".into());
+    }
+    if mode != VirtualOutputKind::Disabled && !output_consent(&store) {
+        return Err(
+            "Turn on “Experimental virtual controller” first (Controller › Virtual Output).".into(),
+        );
+    }
+    let active = store.active_profile()?;
+    let profile = store.set_virtual_output(active.id, mode)?;
     state.engine.set_output_mode(mode);
     Ok(profile)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OutputConsent {
+    pub enabled: bool,
+}
+
+#[tauri::command]
+pub fn get_output_consent(state: State<'_, AppState>) -> CmdResult<OutputConsent> {
+    let store = state.store.lock().map_err(|_| "profile store poisoned")?;
+    Ok(OutputConsent {
+        enabled: output_consent(&store),
+    })
+}
+
+/// Turns experimental virtual output on or off. Off removes the virtual
+/// controller at once (after a neutral report); the profile's choice is kept.
+#[tauri::command]
+pub fn set_output_consent(state: State<'_, AppState>, enabled: bool) -> CmdResult<OutputConsent> {
+    let mut store = state.store.lock().map_err(|_| "profile store poisoned")?;
+    store.set_setting(KEY_OUTPUT_CONSENT, if enabled { "true" } else { "false" })?;
+    let wanted = store.active_profile()?.virtual_output;
+    state
+        .engine
+        .set_output_mode(effective_output(&store, wanted));
+    Ok(OutputConsent { enabled })
 }
 
 // ---- Macro Studio -----------------------------------------------------------
@@ -691,4 +751,33 @@ pub async fn inspector_export(app: tauri::AppHandle) -> CmdResult<ExportResult> 
         &json,
     );
     Ok(ExportResult { path, json })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn virtual_output_stays_off_without_consent() {
+        let mut store = ProfileStore::open_in_memory().unwrap();
+        assert!(!output_consent(&store), "off by default");
+        assert_eq!(
+            effective_output(&store, VirtualOutputKind::Xbox360),
+            VirtualOutputKind::Disabled
+        );
+        store.set_setting(KEY_OUTPUT_CONSENT, "true").unwrap();
+        assert_eq!(
+            effective_output(&store, VirtualOutputKind::Xbox360),
+            VirtualOutputKind::Xbox360
+        );
+        assert_eq!(
+            effective_output(&store, VirtualOutputKind::Disabled),
+            VirtualOutputKind::Disabled
+        );
+        store.set_setting(KEY_OUTPUT_CONSENT, "false").unwrap();
+        assert_eq!(
+            effective_output(&store, VirtualOutputKind::Xbox360),
+            VirtualOutputKind::Disabled
+        );
+    }
 }

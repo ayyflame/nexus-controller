@@ -31,7 +31,7 @@ use nexus_telemetry::{
 };
 use nexus_virtual_controller::drivers::{probe_drivers, DriverStatus};
 use nexus_virtual_controller::{
-    BackendStatus, OutputStatus, UnavailableBackend, VirtualControllerBackend, VirtualOutputManager,
+    BackendStatus, OutputStatus, VirtualControllerBackend, VirtualOutputManager,
 };
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -322,7 +322,8 @@ struct Shared {
     hid_available: bool,
     hotplug_active: std::sync::atomic::AtomicBool,
     output_backend: String,
-    output_backend_status: BackendStatus,
+    output_backend_status: Mutex<BackendStatus>,
+    output_factory: OutputBackendFactory,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -366,7 +367,7 @@ impl Engine {
         Self::start(
             platform_backend(),
             vec![Arc::new(DualSenseDriver)],
-            Arc::new(|| Box::new(UnavailableBackend)),
+            Arc::new(nexus_virtual_controller::platform_backend),
             config,
         )
     }
@@ -402,7 +403,8 @@ impl Engine {
             hid_available: hid.is_available(),
             hotplug_active: std::sync::atomic::AtomicBool::new(false),
             output_backend: probe.name().to_owned(),
-            output_backend_status: probe.status(),
+            output_backend_status: Mutex::new(probe.status()),
+            output_factory: output_factory.clone(),
         });
         drop(probe);
 
@@ -492,6 +494,7 @@ impl Engine {
         let drivers = *lock(&self.shared.drivers);
         let stats = *lock(&self.shared.stats);
         let gyro_calibrating = lock(&self.shared.gyro_cal).is_some();
+        let output_backend_status = lock(&self.shared.output_backend_status).clone();
         EngineStatus {
             revision: self.revision(),
             hid_backend: self.shared.hid_backend.clone(),
@@ -500,7 +503,7 @@ impl Engine {
             enumeration_error,
             requested_output,
             output_backend: self.shared.output_backend.clone(),
-            output_backend_status: self.shared.output_backend_status.clone(),
+            output_backend_status,
             devices,
             macros,
             drivers,
@@ -514,11 +517,12 @@ impl Engine {
         let any_active = lock(&self.shared.devices)
             .values()
             .any(|d| d.output.active.is_some());
-        let blocked_reason = match (&self.shared.output_backend_status, requested) {
+        let backend_status = lock(&self.shared.output_backend_status).clone();
+        let blocked_reason = match (&backend_status, requested) {
             _ if any_active => None,
             (BackendStatus::Unavailable { .. }, _) => Some(
-                "Games can't receive macros yet: virtual controller output isn't enabled in this build. \
-                 You can still create, record and test macros here."
+                "Games receive macros through a virtual controller, which needs the optional ViGEmBus driver \
+                 (Controller › Virtual Output). You can still create, record and test macros here."
                     .to_owned(),
             ),
             (BackendStatus::Ready { .. }, VirtualOutputKind::Disabled) => Some(
@@ -792,6 +796,9 @@ impl Engine {
     pub fn refresh_drivers(&self) -> DriverStatus {
         let status = probe_drivers();
         *lock(&self.shared.drivers) = status;
+        // Picks up a driver the user installed while NEXUS was running.
+        let backend_status = (self.shared.output_factory)().status();
+        *lock(&self.shared.output_backend_status) = backend_status;
         self.shared.bump();
         status
     }

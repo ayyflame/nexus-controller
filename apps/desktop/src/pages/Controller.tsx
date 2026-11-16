@@ -349,6 +349,7 @@ function ButtonsTab({ config, onChange }: { config: ProcessingConfig; onChange: 
 // ---- Output --------------------------------------------------------------
 
 const OUTPUTS: VirtualOutputKind[] = ["disabled", "xbox360", "dualShock4"];
+export const VIGEMBUS_RELEASES = "https://github.com/nefarius/ViGEmBus/releases";
 
 function presence(p: DriverPresence | undefined) {
   return p === "installed" ? <span className="ok-text">Installed</span>
@@ -360,41 +361,94 @@ function OutputTab() {
   const { status, profile, setProfile, connection } = useEngine();
   const device = usePrimaryDevice();
   const [error, setError] = useState<string | null>(null);
-  const requested = status?.requestedOutput ?? profile?.virtualOutput ?? "disabled";
+  const [consent, setConsent] = useState<boolean | null>(null);
+  const [copied, setCopied] = useState(false);
+  const ready = connection.kind === "ready";
+  const requested = status?.requestedOutput ?? "disabled";
+  const saved = profile?.virtualOutput ?? "disabled";
   const active = device?.output.active ?? null;
   const backend = status?.outputBackendStatus;
+  const driverReady = !!backend && backendReady(backend);
+  const outputError = device?.output.lastError ?? null;
+
+  useEffect(() => {
+    if (ready) engineApi.getOutputConsent().then((c) => setConsent(c.enabled)).catch(() => setConsent(false));
+  }, [ready]);
 
   const choose = async (mode: VirtualOutputKind) => {
     setError(null);
     try { setProfile(await engineApi.setVirtualOutput(mode)); } catch (e) { setError(errorMessage(e)); }
   };
+  const toggleConsent = async (on: boolean) => {
+    setError(null);
+    try { setConsent((await engineApi.setOutputConsent(on)).enabled); } catch (e) { setError(errorMessage(e)); }
+  };
+  const copyLink = async () => {
+    try { await navigator.clipboard.writeText(VIGEMBUS_RELEASES); setCopied(true); } catch { setCopied(false); }
+  };
 
   return (
     <div className="two-col">
-      <Panel title="Virtual controller">
-        <p className="muted small">The controller type games will see. Only one virtual controller exists per physical controller; switching removes the old one before creating the new one.</p>
+      <Panel title="Virtual controller (experimental)">
+        <p className="muted small">
+          Games receive your remaps and macros through a virtual <b>Xbox 360 controller</b> that NEXUS creates.
+          This needs ViGEmBus, a free third-party driver that you install yourself. It was retired by its developer in 2023,
+          so NEXUS treats it as experimental and may replace it later.
+        </p>
+        <Switch checked={!!consent} disabled={!ready || consent === null} onChange={(on) => void toggleConsent(on)}
+          label="Use the experimental virtual controller"
+          tip="Off removes the virtual controller immediately; your profile's choice is kept" />
         <div className="segmented" role="radiogroup" aria-label="Virtual output">
-          {OUTPUTS.map((o) => (
-            <button key={o} role="radio" aria-checked={requested === o} disabled={connection.kind !== "ready"}
-              className={requested === o ? "selected" : ""} onClick={() => void choose(o)}>{outputLabel[o]}</button>
-          ))}
+          {OUTPUTS.map((o) => {
+            const unavailable = o === "dualShock4" || (o !== "disabled" && !consent);
+            return (
+              <button key={o} role="radio" aria-checked={requested === o} disabled={!ready || unavailable}
+                title={o === "dualShock4" ? "Not available in this beta" : o !== "disabled" && !consent ? "Turn on the experimental virtual controller first" : undefined}
+                className={requested === o ? "selected" : ""} onClick={() => void choose(o)}>
+                {outputLabel[o]}{o === "dualShock4" ? " (later)" : ""}
+              </button>
+            );
+          })}
         </div>
-        <div className="kv-row"><span className="muted">Selected in profile</span><span>{outputLabel[requested]}</span></div>
+        <div className="kv-row"><span className="muted">Saved in this profile</span><span>{outputLabel[saved]}</span></div>
         <div className="kv-row"><span className="muted">Virtual controller now</span>
-          <span>{active ? <span className="ok-text">{outputLabel[active]} connected</span> : "Not connected"}</span></div>
-        {backend && !backendReady(backend) && (
-          <div className="notice warn"><strong>Not available yet.</strong> {backend.state === "unavailable" ? backend.reason : ""} Your choice is saved and will be used once virtual output is enabled.</div>
-        )}
+          <span>{active ? <span className="ok-text">{outputLabel[active]} connected</span>
+            : !consent ? "Off" : !device ? "Waiting for your DualSense (USB)" : !driverReady ? "Waiting for ViGEmBus" : "Not connected"}</span></div>
+        {outputError && <div className="notice error">{outputError}</div>}
         {error && <div className="notice error">{error}</div>}
+        {active && (
+          <p className="muted small">
+            Check it in Windows: press <kbd>Win</kbd> + <kbd>R</kbd>, type <code>joy.cpl</code> and press Enter. “Controller (XBOX 360 For Windows)”
+            should be listed; its Properties page shows the buttons NEXUS sends, including macros.
+          </p>
+        )}
       </Panel>
 
-      <Panel title="Drivers" aside={<button className="btn-ghost" disabled={connection.kind !== "ready"}
+      <Panel title="Driver" aside={<button className="btn-ghost" disabled={!ready}
         onClick={() => void engineApi.refreshDrivers()}>Check again</button>}>
-        <div className="kv-row"><span>ViGEmBus <span className="muted small">(virtual Xbox 360 / DualShock 4)</span></span>{presence(status?.drivers.vigembus)}</div>
-        <div className="kv-row"><span>HidHide <span className="muted small">(hides the physical controller from games)</span></span>{presence(status?.drivers.hidhide)}</div>
-        <p className="muted small">NEXUS never installs drivers silently. Both are optional third-party drivers that will be offered as a separate, explained step once virtual output is enabled. ViGEmBus is retired (no further security updates); details are in the NEXUS documentation.</p>
+        <div className="kv-row"><span>ViGEmBus <span className="muted small">(virtual Xbox 360)</span></span>
+          {driverReady ? <span className="ok-text">Installed and ready</span> : presence(status?.drivers.vigembus)}</div>
+        {!driverReady && backend?.state === "unavailable" && status?.drivers.vigembus === "installed" && (
+          <div className="notice warn small">{backend.reason}</div>
+        )}
+        {!driverReady && (
+          <ol className="small driver-steps">
+            <li>Open the official ViGEmBus release page:{" "}
+              <code className="mono break">{VIGEMBUS_RELEASES}</code>{" "}
+              <button className="btn-ghost small" onClick={() => void copyLink()}>{copied ? "Copied" : "Copy link"}</button></li>
+            <li>Download <b>ViGEmBus_1.22.0_x64_x86_arm64.exe</b> (the latest release) and run it. Windows asks for administrator approval: this is the driver's installer, not NEXUS.</li>
+            <li>Come back here and click <b>Check again</b>.</li>
+          </ol>
+        )}
+        <p className="muted small">
+          NEXUS never installs or bundles drivers. To remove ViGEmBus later: Windows Settings › Apps › Installed apps ›
+          “Nefarius Virtual Gamepad Emulation Bus Driver” › Uninstall. NEXUS keeps working without it; games then simply don't see a virtual controller.
+        </p>
+        <div className="kv-row"><span>HidHide <span className="muted small">(not used in this beta)</span></span>{presence(status?.drivers.hidhide)}</div>
         <Advanced title="Why might games see two controllers?">
-          <p className="muted small">When a virtual controller is active, games can also see your physical DualSense and react to both. HidHide can hide the physical controller from games while NEXUS keeps reading it. Until then, turn off PlayStation controller support in the game or Steam if you see double input.</p>
+          <p className="muted small">Games can also see your physical DualSense and react to both it and the virtual Xbox controller. If a test tool or
+            game shows double input, turn off PlayStation controller support in that game or in Steam (Settings › Controller). NEXUS does not hide
+            your physical controller in this beta.</p>
         </Advanced>
       </Panel>
     </div>

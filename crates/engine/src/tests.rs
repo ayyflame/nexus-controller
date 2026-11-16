@@ -7,6 +7,7 @@ use nexus_device_manager::mock::MockHidBackend;
 use nexus_device_manager::UnsupportedBackend;
 use nexus_dualsense::synthetic::Payload;
 use nexus_dualsense::{PRODUCT_ID_DUALSENSE, VENDOR_ID_SONY};
+use nexus_virtual_controller::UnavailableBackend;
 
 const PATH: &str = r"\\?\hid#vid_054c&pid_0ce6&mi_03#test#{4d1e55b2-f16f-11cf-88cb-001111000030}";
 
@@ -340,14 +341,14 @@ fn macro_runs_from_physical_trigger_and_shows_in_processed_output() {
     assert_eq!(s.macros.armed, 1);
     assert!(
         !s.macros.games_can_receive,
-        "no virtual output in this build"
+        "no virtual output backend in this test"
     );
     assert!(s
         .macros
         .blocked_reason
         .as_deref()
         .unwrap()
-        .contains("virtual controller output isn't enabled"));
+        .contains("needs the optional ViGEmBus driver"));
 }
 
 #[test]
@@ -990,4 +991,299 @@ fn related_interfaces_lists_only_the_same_physical_device() {
     expected.sort();
     assert_eq!(paths, expected);
     assert!(list.iter().any(|d| d.usage_page == 0xFF00));
+}
+
+// ---- Macro → virtual Xbox 360 controller (mock driver backend) ---------------
+//
+// These prove the whole pipeline in software: physical report → macro engine →
+// virtual controller report. They do not prove that Windows or a game sees
+// the controller; that needs ViGEmBus and hardware (see the checklist).
+
+use nexus_virtual_controller::translate::{to_xusb, xusb, XusbReport};
+use nexus_virtual_controller::{OutputError, VirtualDeviceHandle};
+
+#[derive(Clone, Debug, PartialEq)]
+enum Pad {
+    Connect(u64),
+    Report(u64, XusbReport),
+    Disconnect(u64),
+}
+
+#[derive(Clone, Default)]
+struct PadLog(Arc<Mutex<Vec<Pad>>>);
+
+impl PadLog {
+    fn all(&self) -> Vec<Pad> {
+        self.0.lock().unwrap().clone()
+    }
+    fn reports(&self) -> Vec<XusbReport> {
+        self.all()
+            .into_iter()
+            .filter_map(|p| match p {
+                Pad::Report(_, r) => Some(r),
+                _ => None,
+            })
+            .collect()
+    }
+    fn live(&self) -> usize {
+        let all = self.all();
+        let c = all.iter().filter(|p| matches!(p, Pad::Connect(_))).count();
+        let d = all
+            .iter()
+            .filter(|p| matches!(p, Pad::Disconnect(_)))
+            .count();
+        c - d
+    }
+    fn wait(&self, what: &str, pred: impl Fn(&[Pad]) -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !pred(&self.all()) {
+            assert!(
+                Instant::now() < deadline,
+                "timed out waiting for {what}: {:?}",
+                self.all().len()
+            );
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+}
+
+/// Stands in for the ViGEmBus backend: Xbox 360 only, records every report.
+struct RecordingPad {
+    log: PadLog,
+    next: u64,
+}
+
+impl VirtualControllerBackend for RecordingPad {
+    fn name(&self) -> &'static str {
+        "recording"
+    }
+    fn status(&self) -> BackendStatus {
+        BackendStatus::Ready { version: None }
+    }
+    fn supports(&self, kind: VirtualOutputKind) -> bool {
+        kind == VirtualOutputKind::Xbox360
+    }
+    fn connect(&mut self, _: VirtualOutputKind) -> Result<VirtualDeviceHandle, OutputError> {
+        self.next += 1;
+        self.log.0.lock().unwrap().push(Pad::Connect(self.next));
+        Ok(VirtualDeviceHandle(self.next))
+    }
+    fn update(&mut self, h: VirtualDeviceHandle, s: &ControllerState) -> Result<(), OutputError> {
+        self.log
+            .0
+            .lock()
+            .unwrap()
+            .push(Pad::Report(h.0, to_xusb(s)));
+        Ok(())
+    }
+    fn disconnect(&mut self, h: VirtualDeviceHandle) -> Result<(), OutputError> {
+        self.log.0.lock().unwrap().push(Pad::Disconnect(h.0));
+        Ok(())
+    }
+}
+
+fn rapid_macro() -> Macro {
+    Macro {
+        steps: vec![MacroStep {
+            id: "s1".into(),
+            buttons: vec![MacroButton::South],
+            hold_ms: 30,
+            delay_after_ms: 30,
+        }],
+        repeat_delay_ms: 0,
+        ..jump_macro(PlaybackMode::RepeatWhileHeld)
+    }
+}
+
+/// Engine with Xbox 360 output requested and the controller connected.
+fn xbox_engine() -> (MockHidBackend, Engine, PadLog) {
+    let backend = MockHidBackend::new();
+    backend.plug(usb_info());
+    let log = PadLog::default();
+    let factory_log = log.clone();
+    let e = Engine::start(
+        Arc::new(backend.clone()),
+        vec![Arc::new(DualSenseDriver)],
+        Arc::new(move || {
+            Box::new(RecordingPad {
+                log: factory_log.clone(),
+                next: 0,
+            })
+        }),
+        EngineConfig {
+            initial_output: VirtualOutputKind::Xbox360,
+            ..config()
+        },
+    );
+    wait_status(&e, "connect", |s| s.devices.len() == 1);
+    log.wait("virtual controller", |p| p.contains(&Pad::Connect(1)));
+    (backend, e, log)
+}
+
+/// Sends `n` reports about 4 ms apart (USB DualSense rate).
+fn pump_at_250hz(backend: &MockHidBackend, bits: &[(usize, u8)], n: usize) {
+    for _ in 0..n {
+        backend.push_report(PATH, report(bits));
+        std::thread::sleep(Duration::from_millis(4));
+    }
+}
+
+const A_PRESSED: fn(&XusbReport) -> bool = |r| r.buttons & xusb::A != 0;
+
+#[test]
+fn physical_buttons_reach_the_virtual_xbox_controller() {
+    let (backend, _e, log) = xbox_engine();
+    backend.push_report(PATH, report(&[(0, 0x20)])); // Cross
+    log.wait("A", |p| {
+        p.iter()
+            .any(|x| matches!(x, Pad::Report(_, r) if A_PRESSED(r)))
+    });
+    backend.push_report(PATH, report(&[]));
+    log.wait(
+        "release",
+        |p| matches!(p.last(), Some(Pad::Report(_, r)) if r.buttons == 0),
+    );
+}
+
+#[test]
+fn repeat_while_held_repeats_on_the_virtual_controller_and_stops_on_the_first_released_report() {
+    let (backend, e, log) = xbox_engine();
+    e.set_macros(vec![rapid_macro()]);
+    // Let the reader thread pick up the macro on an idle report first.
+    backend.push_report(PATH, report(&[]));
+    log.wait("idle report", |p| {
+        p.iter().any(|x| matches!(x, Pad::Report(..)))
+    });
+    let before = log.reports().len();
+
+    // While a macro plays the engine also updates the virtual controller
+    // between reports (idle ticks), so reports are matched by content, not
+    // count: the released phase holds Triangle (Y) as a marker.
+    const TRIANGLE: (usize, u8) = (0, 0x80);
+    pump_at_250hz(&backend, &[R3], 100); // ~400 ms: about 6 cycles of 60 ms
+    pump_at_250hz(&backend, &[TRIANGLE], 25);
+    log.wait("released phase", |p| {
+        p.iter()
+            .filter(|x| matches!(x, Pad::Report(_, r) if r.buttons & xusb::Y != 0))
+            .count()
+            >= 25
+    });
+
+    let reports = log.reports()[before..].to_vec();
+    let first_released = reports
+        .iter()
+        .position(|r| r.buttons & xusb::Y != 0)
+        .unwrap();
+    let (held, released) = reports.split_at(first_released);
+    let presses = held
+        .windows(2)
+        .filter(|w| !A_PRESSED(&w[0]) && A_PRESSED(&w[1]))
+        .count()
+        + usize::from(held.first().is_some_and(A_PRESSED));
+    assert!(presses >= 3, "macro repeats while held: {presses} presses");
+    assert!(
+        held.iter().any(|r| !A_PRESSED(r)),
+        "A is released between repeats"
+    );
+    assert!(
+        held.iter().all(|r| r.buttons & xusb::RIGHT_THUMB == 0),
+        "trigger (R3) never reaches the game"
+    );
+    assert!(
+        released.iter().all(|r| !A_PRESSED(r)),
+        "from the first released report on, the macro presses nothing: {:?}",
+        released.iter().map(|r| r.buttons).collect::<Vec<_>>()
+    );
+    wait_status(&e, "macro stopped", |s| {
+        s.devices[0].playing_macros.is_empty()
+    });
+}
+
+#[test]
+fn unplugging_mid_macro_sends_neutral_then_removes_the_virtual_controller() {
+    let (backend, e, log) = xbox_engine();
+    e.set_macros(vec![jump_macro(PlaybackMode::RepeatWhileHeld)]); // holds A for 2 s
+    backend.push_report(PATH, report(&[]));
+    backend.push_report(PATH, report(&[R3]));
+    log.wait("A held", |p| {
+        p.iter()
+            .any(|x| matches!(x, Pad::Report(_, r) if A_PRESSED(r)))
+    });
+    backend.unplug(PATH);
+    log.wait("removed", |p| p.contains(&Pad::Disconnect(1)));
+    let all = log.all();
+    let n = all.len();
+    assert_eq!(
+        all[n - 2..],
+        [Pad::Report(1, XusbReport::default()), Pad::Disconnect(1)]
+    );
+    assert_eq!(log.live(), 0);
+    wait_status(&e, "disconnected", |s| s.devices.is_empty());
+}
+
+#[test]
+fn switching_output_mid_macro_releases_cleanly_and_reconnects_fresh() {
+    let (backend, e, log) = xbox_engine();
+    e.set_macros(vec![jump_macro(PlaybackMode::RepeatWhileHeld)]);
+    backend.push_report(PATH, report(&[]));
+    backend.push_report(PATH, report(&[R3]));
+    log.wait("A held", |p| {
+        p.iter()
+            .any(|x| matches!(x, Pad::Report(_, r) if A_PRESSED(r)))
+    });
+
+    // Off while the macro is pressing A.
+    e.set_output_mode(VirtualOutputKind::Disabled);
+    backend.push_report(PATH, report(&[R3]));
+    log.wait("off", |p| p.contains(&Pad::Disconnect(1)));
+    let all = log.all();
+    let i = all.iter().position(|p| *p == Pad::Disconnect(1)).unwrap();
+    assert_eq!(
+        all[i - 1],
+        Pad::Report(1, XusbReport::default()),
+        "neutral before removal"
+    );
+    assert_eq!(log.live(), 0);
+
+    // DualShock 4 is not offered by this backend: nothing is created.
+    e.set_output_mode(VirtualOutputKind::DualShock4);
+    backend.push_report(PATH, report(&[]));
+    wait_status(&e, "ds4 refused", |s| {
+        s.devices[0].output.last_error.is_some()
+    });
+    assert_eq!(log.live(), 0);
+
+    // Back to Xbox 360: a new controller, nothing held over from before.
+    e.set_output_mode(VirtualOutputKind::Xbox360);
+    backend.push_report(PATH, report(&[]));
+    log.wait("reconnected", |p| p.contains(&Pad::Connect(2)));
+    log.wait("first report", |p| {
+        p.iter().any(|x| matches!(x, Pad::Report(2, _)))
+    });
+    let first = log.all().into_iter().find_map(|p| match p {
+        Pad::Report(2, r) => Some(r),
+        _ => None,
+    });
+    assert_eq!(first.map(|r| r.buttons), Some(0));
+    assert_eq!(log.live(), 1, "exactly one virtual controller");
+}
+
+#[test]
+fn shutdown_mid_macro_sends_neutral_and_removes_the_virtual_controller() {
+    let (backend, e, log) = xbox_engine();
+    e.set_macros(vec![jump_macro(PlaybackMode::Toggle)]);
+    backend.push_report(PATH, report(&[]));
+    backend.push_report(PATH, report(&[R3]));
+    log.wait("A held", |p| {
+        p.iter()
+            .any(|x| matches!(x, Pad::Report(_, r) if A_PRESSED(r)))
+    });
+    e.shutdown();
+    let all = log.all();
+    let n = all.len();
+    assert_eq!(
+        all[n - 2..],
+        [Pad::Report(1, XusbReport::default()), Pad::Disconnect(1)]
+    );
+    assert_eq!(log.live(), 0);
 }

@@ -670,3 +670,5 @@ input[type="color"]:disabled { opacity: 0.4; cursor: not-allowed; }
 .badge.tone-warn { background: rgba(227, 170, 74, 0.12); color: #f0cf96; border-color: rgba(227, 170, 74, 0.4); }
 .badge.tone-neutral { background: var(--panel-3); color: var(--text-dim); border-color: var(--border-strong); }
 .badge.tone-ok { background: rgba(98, 196, 131, 0.12); color: #b5e6c6; border-color: rgba(98, 196, 131, 0.4); margin-left: 6px; }
+
+.driver-steps { margin: 8px 0 10px 18px; display: flex; flex-direction: column; gap: 6px; }

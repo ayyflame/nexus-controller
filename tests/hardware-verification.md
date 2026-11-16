@@ -123,3 +123,30 @@ Do every capture with the controller lying still, pressing only what the step sa
 | T10 | — | **Export captures** for T2 and T4–T8 | Send the JSON files |
 
 **Interpretation.** NEXUS will add Paddle Left and Paddle Right as inputs only if T4–T7 show consistent bits that NEXUS does not decode yet, or an extra interface from T1/T3 carries them. "Reported as Cross" means mapped mode, which already works as Cross. "No change" with no extra interface means the paddles are not visible to Windows in that mode. That would be documented, not worked around.
+
+## Macro beta: experimental virtual Xbox 360 controller (USB)
+
+Prerequisites:
+
+- ViGEmBus 1.22 installed by you (`docs/virtual-output.md`);
+- DualSense connected by USB;
+- Controller › Virtual Output → **Use the experimental virtual controller** on, then **Xbox 360**.
+
+Use Windows tools and offline or single-player games only.
+
+| # | Step | Expected | Result |
+|---|---|---|---|
+| V1 | Virtual Output tab before installing ViGEmBus | "Not installed" with install steps; Xbox 360 cannot be selected while the switch is off | |
+| V2 | Install ViGEmBus, click **Check again** | "Installed and ready" | |
+| V3 | Switch on, choose Xbox 360 | "Xbox 360 connected" | |
+| V4 | `joy.cpl` (Win+R) | **Controller (XBOX 360 For Windows)** listed. Properties: buttons, sticks and triggers follow the DualSense (Cross = button 1 / A) | |
+| V5 | Browser gamepad tester (e.g. a "gamepad tester" site) | An Xbox 360 controller shows input. Note whether the physical DualSense also appears (duplicate input) | |
+| V6 | Macro Studio: Repeat While Held macro (e.g. Cross, hold 50 ms, wait 50 ms) on R3 or a mapped paddle; hold the trigger 5 s in `joy.cpl` Properties | Button 1 blinks repeatedly; the trigger itself never lights | |
+| V7 | Release the trigger | Blinking stops at once; nothing stays lit | |
+| V8 | Tap the trigger quickly 20 times | No button stays lit afterwards; no extra repeats after release | |
+| V9 | Hold the trigger, unplug USB | Virtual controller disappears from `joy.cpl`; on re-plug it returns with nothing pressed | |
+| V10 | Hold the trigger, switch output to Disabled, then back to Xbox 360 | Removed, then re-created; nothing pressed | |
+| V11 | Hold the trigger, close NEXUS | Virtual controller disappears; nothing stays pressed | |
+| V12 | Turn the switch off | Virtual controller removed at once | |
+| V13 | Steam running (Big Picture → Controller settings) | Record which controllers Steam lists, and whether input doubles | |
+| V14 | One offline or single-player game you choose | Record the title, whether the game uses the Xbox controller, macro behaviour, and any double input | |

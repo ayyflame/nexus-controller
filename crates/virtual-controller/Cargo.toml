@@ -15,4 +15,5 @@ serde.workspace = true
 thiserror.workspace = true
 
 [target."cfg(windows)".dependencies]
+vigem-client = "0.1.4"
 windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Devices_DeviceAndDriverInstallation", "Win32_Storage_FileSystem", "Win32_Security"] }
