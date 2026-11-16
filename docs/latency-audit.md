@@ -121,7 +121,7 @@ parse report → [raw history + rate/interval counters + rumble check] → proce
 Measure the **same steps on two builds**, on the same PC, with the same game and settings:
 
 - **Build A (before):** run [43907861742](https://github.com/ayyflame/nexus-controller/actions/runs/43907861742), commit `b862b6a`, artifact NEXUS-windows-x64.
-- **Build B (after):** the build named in the final report of this phase (P2, P4, P5, P6).
+- **Build B (after):** run [43943310033](https://github.com/ayyflame/nexus-controller/actions/runs/43943310033), commit `832de00` (P2, P4, P5, P6), artifact NEXUS-windows-x64.
 
 **Installing:** install a build with its `-setup.exe`. Installing A after B (or B after A) replaces the program and keeps your profiles and macros.
 
@@ -178,7 +178,20 @@ The Rust side of each status frame (build plus JSON) measured 3.8 µs, which is 
 
 ### Windows (CI virtual machine; real Windows scheduler, no USB hardware)
 
-P2 scheduling probe, wake-up delay of a thread blocked on an event under full CPU load: see the final report of this phase (CI step "Scheduling latency probe").
+P2 scheduling probe ([run 43943310033](https://github.com/ayyflame/nexus-controller/actions/runs/43943310033), CI step "Scheduling latency probe"):
+
+- **Setup:** a thread blocked on an event (as a reader thread is on its read) is woken every 4 ms (250 Hz), 2,500 times. The CI VM has 2 CPUs, kept busy by 4 normal-priority spinning threads.
+- **Signalling thread:** it stands in for the USB driver and runs time-critical, so it isn't starved.
+- **Delayed reports:** "past the next report" counts wake-ups so late that the next report was already waiting.
+
+| Mode | p50 | p99 | p99.9 | max | Reports past the next one |
+|---|---|---|---|---|---|
+| Idle, normal priority | 10.8 µs | 43.4 µs | 193 µs | 264 µs | 0 |
+| Full load, normal priority (before) | 9.1 µs | 47.6 µs | 712 µs | **1.95 ms** | **14 / 2500** |
+| Full load, **above normal (P2, shipped)** | 9.2 µs | 25.9 µs | 94.8 µs | 349 µs | **0 / 2500** |
+| Full load, MMCSS "Games" (probe only) | 9.2 µs | 26.6 µs | 55.3 µs | 107 µs | 0 / 2500 |
+
+This is the real Windows scheduler, but on a virtual machine with no USB controller. Real numbers come from rows L1–L6.
 
 ### Real hardware
 
@@ -190,8 +203,8 @@ Pending: §6, rows L1–L6 on builds A and B.
 |---|---|---|
 | P4 send first | Yes | −38 % p50 / −42 % p99.9 report → submit (simulation); ordering test |
 | P5 no allocations or locks | Yes | 6 → 0 allocations per report; tests |
-| P2 above-normal reader threads | See the final report | Windows CI probe |
-| MMCSS ("Games" scheduling) | Not used in production | Kept only as a probe variant; adopted only if the probe shows a clear benefit over above-normal |
+| P2 above-normal reader threads | Yes | Windows probe under full CPU load: max 1.95 ms → 349 µs, p99.9 712 → 95 µs, delayed reports 14 → 0 of 2,500 |
+| MMCSS ("Games" scheduling) | **No** (probe only) | One run showed a further gain only in the rarest tail (p99.9 95 → 55 µs, max 349 → 107 µs) after above-normal had already removed every delayed report. Not enough to justify another mechanism now; revisit only if rows L3/L5 on your PC show late reports with build B |
 | P6 pause UI while minimised | Yes | ≈ 100+ ms/s renderer work and ≈ 30 ms/s script avoided while minimised (Chromium measurement) |
 
 ## 8. P3 investigation (HID output write timeout); not implemented
