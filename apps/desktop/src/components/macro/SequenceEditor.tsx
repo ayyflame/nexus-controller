@@ -1,17 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { History } from "../../hooks/useHistory";
-import { LIMITS, formatMs, newStep, sequenceAt, stateWithButtons, totalDuration, uid } from "../../lib/macros";
-import type { Macro, MacroButton, MacroStep } from "../../types/engine";
+import { LIMITS, buttonNames, formatMs, newStep, sequenceAt, stateWithButtons, totalDuration, uid } from "../../lib/macros";
+import type { Macro, MacroButton, MacroStep, PlaybackMode } from "../../types/engine";
 import { ControllerVisual } from "../ControllerVisual";
 import { ButtonPad } from "./ButtonPad";
 import { RecordPanel } from "./RecordPanel";
 import { StepInspector } from "./StepInspector";
 import { BulkTiming } from "./BulkTiming";
-import { setWaitBefore, startTimes, waitBefore } from "../../lib/macroTiming";
+import { mergeRisks, previewAt, setWaitBefore, startTimes, waitBefore } from "../../lib/macroTiming";
 import { Timeline } from "./Timeline";
 
-/** Plays the sequence on screen. Never touches the controller or games. */
-function usePreview(steps: MacroStep[]) {
+/** Plays the sequence on screen. Never touches the controller or games.
+ *  Looping modes repeat with the pause between repeats until stopped. */
+function usePreview(steps: MacroStep[], loopPauseMs: number | null) {
   const [elapsed, setElapsed] = useState<number | null>(null);
   const raf = useRef<number | null>(null);
   const stop = useCallback(() => {
@@ -21,19 +22,18 @@ function usePreview(steps: MacroStep[]) {
   }, []);
   const play = useCallback(() => {
     if (raf.current !== null) cancelAnimationFrame(raf.current);
-    const total = totalDuration(steps);
     const t0 = performance.now();
     const tick = () => {
-      const t = performance.now() - t0;
-      if (t >= total) { stop(); return; }
-      setElapsed(t);
+      const p = previewAt(steps, performance.now() - t0, loopPauseMs);
+      if (p.done) { stop(); return; }
+      setElapsed(p.cycleMs);
       raf.current = requestAnimationFrame(tick);
     };
     raf.current = requestAnimationFrame(tick);
-  }, [steps, stop]);
+  }, [steps, stop, loopPauseMs]);
   useEffect(() => stop, [stop]);
-  // Editing the sequence ends a running preview.
-  useEffect(() => { stop(); }, [steps, stop]);
+  // Editing the sequence or the repeat settings ends a running preview.
+  useEffect(() => { stop(); }, [steps, stop, loopPauseMs]);
   const point = elapsed === null ? null : sequenceAt(steps, elapsed);
   return { playing: elapsed !== null, elapsed: elapsed ?? 0, point, play, stop };
 }
@@ -43,11 +43,15 @@ type Source = "record" | "manual";
 /** In-app clipboard shared by every editor, so actions can be copied between macros. */
 let clipboard: MacroStep[] = [];
 
-export function SequenceEditor({ history, initialSource = "record", library = [] }: {
+export function SequenceEditor({ history, initialSource = "record", library = [], mode = "once", repeatDelayMs = 0 }: {
   history: History<MacroStep[]>;
   initialSource?: Source;
   /** Other macros whose sequences can be inserted as reusable blocks. */
   library?: Macro[];
+  /** Playback mode and pause between repeats, for the loop preview and the
+   *  same-button gap check at the repeat boundary. */
+  mode?: PlaybackMode;
+  repeatDelayMs?: number;
 }) {
   const steps = history.value;
   const [source, setSource] = useState<Source>(initialSource);
@@ -87,7 +91,10 @@ export function SequenceEditor({ history, initialSource = "record", library = []
     history.set([...steps, ...fresh].slice(0, LIMITS.maxSteps));
     setSelection(fresh.map((s) => s.id));
   };
-  const preview = usePreview(steps);
+  const looping = mode !== "once";
+  const preview = usePreview(steps, looping ? repeatDelayMs : null);
+  const risks = mergeRisks(steps, mode, repeatDelayMs);
+  const riskyWaits = new Set(risks.filter((r) => !r.repeat).map((r) => r.after));
   const selectedIndex = steps.findIndex((s) => s.id === selectedId);
   const selected = selectedIndex >= 0 ? steps[selectedIndex]! : null;
 
@@ -171,7 +178,8 @@ export function SequenceEditor({ history, initialSource = "record", library = []
             <button className="btn-primary" onClick={preview.stop} data-tip="Stop the preview">■ Stop</button>
           ) : (
             <button className="btn-primary" onClick={preview.play} disabled={steps.length === 0}
-              data-tip="Play the sequence on screen (does not press anything in games)">▶ Play preview</button>
+              data-tip={looping ? "Play on screen, repeating like the real macro until you press Stop (does not press anything in games)" : "Play the sequence on screen once (does not press anything in games)"}>
+              ▶ Play preview{looping ? " (loops)" : ""}</button>
           )}
           <button className="btn-icon" onClick={history.undo} disabled={!history.canUndo} data-tip="Undo (Ctrl+Z)" aria-label="Undo">↶</button>
           <button className="btn-icon" onClick={history.redo} disabled={!history.canRedo} data-tip="Redo (Ctrl+Y)" aria-label="Redo">↷</button>
@@ -196,11 +204,25 @@ export function SequenceEditor({ history, initialSource = "record", library = []
         </span>
       </div>
       {preview.playing && (
-        <div className="preview-progress"><div style={{ width: `${(preview.elapsed / Math.max(total, 1)) * 100}%` }} /></div>
+        <div className="preview-progress"><div style={{ width: `${Math.min(100, (preview.elapsed / Math.max(total, 1)) * 100)}%` }} /></div>
       )}
 
       <Timeline steps={steps} selectedId={selectedId} selection={selection} onSelect={select} onMove={move}
-        playing={preview.point ? { step: preview.point.step, pressed: preview.point.pressed } : null} />
+        playing={preview.point ? { step: preview.point.step, pressed: preview.point.pressed } : null}
+        riskyWaits={riskyWaits} />
+
+      {risks.length > 0 && (
+        <div className="notice warn small" role="status">
+          {risks.map((r) => (
+            <div key={`${r.after}-${r.repeat}`}>
+              ⚠ {r.repeat
+                ? <>Repeat boundary: action {steps.length} and action 1 both press {buttonNames(r.buttons)} with only {r.gapMs} ms between them (wait after action {steps.length} + pause between repeats).</>
+                : <>Actions {r.after + 1} and {r.after + 2} both press {buttonNames(r.buttons)} with only {r.gapMs} ms between them.</>}
+              {" "}A game may see one long press instead of two. Use at least {LIMITS.minReleaseGapMs} ms.
+            </div>
+          ))}
+        </div>
+      )}
 
       {preview.playing && (
         <div className="preview-visual">
@@ -217,9 +239,15 @@ export function SequenceEditor({ history, initialSource = "record", library = []
         <StepInspector
           step={selected} index={selectedIndex} count={steps.length}
           waitBefore={waitBefore(steps, selectedIndex)}
+          gapWarning={riskyWaits.has(selectedIndex) || risks.some((r) => r.repeat && selectedIndex === steps.length - 1)}
           startsAt={startTimes(steps)[selectedIndex] ?? 0}
           onWaitBefore={(ms) => history.set(setWaitBefore(steps, selectedIndex, ms))}
-          onChange={(s) => update((all) => all.map((x) => (x.id === s.id ? s : x)))}
+          onChange={(s) => {
+            const cur = steps.find((x) => x.id === s.id);
+            const same = cur && cur.holdMs === s.holdMs && cur.delayAfterMs === s.delayAfterMs
+              && cur.buttons.join() === s.buttons.join();
+            if (!same) update((all) => all.map((x) => (x.id === s.id ? s : x))); // no undo step for no-op edits
+          }}
           onMove={(d) => { const to = selectedIndex + d; if (to >= 0 && to < steps.length) move(selectedIndex, to); }}
           onDuplicate={() => duplicate(selectedIndex)}
           onDelete={() => remove(selectedIndex)}

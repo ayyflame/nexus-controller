@@ -52,3 +52,56 @@ test("edited timing always validates and drives the preview", () => {
   assert.equal(sequenceAt(edited, b!).step, 1, "preview reaches action 2 exactly at its new start");
   assert.equal(sequenceAt(edited, b! - 1).step, 0);
 });
+
+import { mergeRisks, parseMs, previewAt } from "./macroTiming.ts";
+
+const yy = (gap: number, last = 50): MacroStep[] => [
+  { id: "1", buttons: ["north"], holdMs: 50, delayAfterMs: gap },
+  { id: "2", buttons: ["north"], holdMs: 50, delayAfterMs: last },
+];
+
+test("same-button presses that would merge are flagged", () => {
+  assert.deepEqual(mergeRisks(yy(50), "repeatWhileHeld", 50), [], "YY with 50 ms gaps is fine");
+  const between = mergeRisks(yy(0), "repeatWhileHeld", 50);
+  assert.equal(between.length, 1);
+  assert.deepEqual([between[0]!.after, between[0]!.repeat, between[0]!.gapMs], [0, false, 0]);
+  // Repeat boundary: last wait 0 + pause 0 merges the last Y into the next first Y.
+  const boundary = mergeRisks(yy(50, 0), "repeatWhileHeld", 0);
+  assert.deepEqual(boundary.map((r) => [r.after, r.repeat, r.gapMs]), [[1, true, 0]]);
+  assert.deepEqual(mergeRisks(yy(50, 0), "repeatWhileHeld", 30), [], "the pause provides the gap");
+  assert.deepEqual(mergeRisks(yy(50, 0), "once", 0), [], "Play Once has no repeat boundary");
+  assert.equal(mergeRisks(yy(50, 0), "toggle", 10).length, 1, "Toggle loops too");
+  // Different buttons never merge.
+  const xy: MacroStep[] = [{ id: "a", buttons: ["west"], holdMs: 50, delayAfterMs: 0 }, { id: "b", buttons: ["north"], holdMs: 50, delayAfterMs: 0 }];
+  assert.deepEqual(mergeRisks(xy, "repeatWhileHeld", 0), []);
+});
+
+test("preview loops exactly like the engine", () => {
+  const s = yy(40, 0); // cycle = 50+40+50+0 = 140 ms, + pause 60 = 200 ms
+  assert.deepEqual(previewAt(s, 150, null), { cycleMs: 150, done: true }, "Play Once ends after one pass");
+  assert.deepEqual(previewAt(s, 139, null), { cycleMs: 139, done: false });
+  assert.deepEqual(previewAt(s, 210, 60), { cycleMs: 10, done: false }, "loops after 200 ms");
+  assert.equal(sequenceAt(s, previewAt(s, 210, 60).cycleMs).pressed, true);
+  assert.equal(sequenceAt(s, previewAt(s, 160, 60).cycleMs).finished, true, "repeat pause shows nothing pressed");
+});
+
+test("preview timing matches the engine's sequence_at", () => {
+  // Same table as the Rust test `sequence_at` (Cross 100 / wait 50, Circle 100 / wait 0).
+  const s: MacroStep[] = [
+    { id: "a", buttons: ["south"], holdMs: 100, delayAfterMs: 50 },
+    { id: "b", buttons: ["east"], holdMs: 100, delayAfterMs: 0 },
+  ];
+  assert.deepEqual(sequenceAt(s, 0), { step: 0, pressed: true, finished: false });
+  assert.equal(sequenceAt(s, 99).pressed, true);
+  assert.deepEqual(sequenceAt(s, 100), { step: 0, pressed: false, finished: false });
+  assert.deepEqual(sequenceAt(s, 150), { step: 1, pressed: true, finished: false });
+  assert.equal(sequenceAt(s, 250).finished, true);
+});
+
+test("millisecond fields: empty reverts, out of range is limited", () => {
+  assert.equal(parseMs("", 20, 10000), null);
+  assert.equal(parseMs("abc", 20, 10000), null);
+  assert.equal(parseMs("99999", 20, 10000), 10000);
+  assert.equal(parseMs("5", 20, 10000), 20);
+  assert.equal(parseMs("42.6", 0, 10000), 43);
+});

@@ -12,10 +12,12 @@ interface Props {
   onMove: (from: number, to: number) => void;
   /** Index of the step being previewed, and whether it is pressed. */
   playing: { step: number | null; pressed: boolean } | null;
+  /** Indexes of actions whose wait is too short before the same button again. */
+  riskyWaits?: Set<number>;
 }
 
 /** Horizontal sequence of action blocks with the waits between them. */
-export function Timeline({ steps, selectedId, selection = [], onSelect, onMove, playing }: Props) {
+export function Timeline({ steps, selectedId, selection = [], onSelect, onMove, playing, riskyWaits }: Props) {
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dropAt, setDropAt] = useState<number | null>(null);
 
@@ -60,10 +62,10 @@ export function Timeline({ steps, selectedId, selection = [], onSelect, onMove, 
               <span className="tl-release muted small">then release</span>
             </button>
             {(i < steps.length - 1 || s.delayAfterMs > 0) && (
-              <span className={`tl-wait${isPlaying && !playing?.pressed ? " playing" : ""}`}
-                data-tip="Wait before the next action">
+              <span className={`tl-wait${isPlaying && !playing?.pressed ? " playing" : ""}${riskyWaits?.has(i) ? " risky" : ""}`}
+                data-tip={riskyWaits?.has(i) ? "Too short: the same button is pressed again, so a game may see one long press" : "Wait before the next action"}>
                 <span className="tl-wait-line" />
-                <span className="tl-wait-label">wait {formatMs(s.delayAfterMs)}</span>
+                <span className="tl-wait-label">{riskyWaits?.has(i) ? "⚠ " : ""}wait {formatMs(s.delayAfterMs)}</span>
               </span>
             )}
           </div>

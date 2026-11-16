@@ -12,7 +12,7 @@ NEXUS is developed in a Linux container without access to Windows or a controlle
 |---|---|
 | Physically verified (owner) | V3, V4, V6, V7, V14 (build `711f0d4`; V14 game title pending); USB input in general |
 | Re-check on build `31c6ec3` | V6, V7 |
-| Outstanding (M4.5 pass) | 22, 24–27, 35, 36, 53–62, V1–V2 (optional), V5, V8–V13, V15–V19, D1–D10, T1–T10 |
+| Outstanding (M4.5 pass) | 22, 24–27, 35, 36, 53–62, V1–V2 (optional), V5, V8–V13, V15–V21, D1–D10, T1–T10 |
 | Outstanding (later) | 1–5, 10–21 (1–5 and 21 are covered by 53–55, 58 and 61 when those are run), 28–34, 38–52 |
 | Out of scope (Bluetooth) | 6–9, 23, 37 |
 
@@ -169,6 +169,8 @@ Re-test V6–V12 on each new build that changes macro or output code. M4.5 chang
 | V17 | NEXUS running, output on: Device Manager › System devices › **Nefarius Virtual Gamepad Emulation Bus** › Disable device; watch Virtual Output; then Enable device and click **Check again** | While disabled: virtual controller shown as not connected, with a message (no crash or freeze). After Enable + **Check again**: **Xbox 360 connected** again, without re-plugging or restarting NEXUS | |
 | V18 | Record a macro, then edit one action's press time and wait (Exact timing), save; hold its trigger with `joy.cpl` Properties open | Timing visibly follows the edit (e.g. 2× slower is clearly slower); no re-recording needed | |
 | V19 | Select all actions, **2× faster**, save, test again; then Ctrl+Z | Faster playback; undo restores the recorded timing | |
+| V20 | Record: tap Square, then Triangle quickly (Square released before Triangle) | Two separate actions, not one "Square + Triangle" action | |
+| V21 | Build YY (Triangle, Triangle) with wait 0 ms and pause between repeats 0 ms | ⚠ on the wait and two warnings under the timeline. After setting both to 50 ms, warnings disappear and `joy.cpl` shows Y blinking in pairs while held | |
 
 ## Duplicate input, with and without HidHide (optional)
 

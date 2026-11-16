@@ -1,4 +1,4 @@
-use crate::model::{MacroStep, MAX_DELAY_MS, MAX_HOLD_MS, MIN_HOLD_MS};
+use crate::model::{MacroStep, MAX_DELAY_MS, MAX_HOLD_MS, MIN_HOLD_MS, MIN_RELEASE_GAP_MS};
 use crate::MacroButton;
 use nexus_controller_core::ControllerState;
 use serde::Serialize;
@@ -147,7 +147,10 @@ impl MacroRecorder {
         let mut groups: Vec<(u64, u64, Vec<MacroButton>)> = Vec::new();
         for (b, start, end) in intervals {
             match groups.last_mut() {
-                Some(g) if start - g.0 <= CHORD_WINDOW_MS && !g.2.contains(&b) => {
+                // Only presses that start while the group is still held
+                // are "pressed together"; a quick tap after a release is
+                // its own action.
+                Some(g) if start - g.0 <= CHORD_WINDOW_MS && start < g.1 && !g.2.contains(&b) => {
                     g.1 = g.1.max(end);
                     g.2.push(b);
                 }
@@ -177,12 +180,34 @@ impl MacroRecorder {
             });
         }
 
+        keep_release_gaps(&mut steps);
+
         RecordingResult {
             steps,
             duration_ms: last_end - first,
             presses: self.presses,
             limit_reached: self.limit_reached,
         }
+    }
+}
+
+/// Two consecutive actions that press the same button need a release in
+/// between, or playback would merge them into one long press. Takes the gap
+/// from the first action's press time where possible, otherwise adds it.
+fn keep_release_gaps(steps: &mut [MacroStep]) {
+    for i in 1..steps.len() {
+        let shares = steps[i]
+            .buttons
+            .iter()
+            .any(|b| steps[i - 1].buttons.contains(b));
+        let prev = &mut steps[i - 1];
+        if !shares || prev.delay_after_ms >= MIN_RELEASE_GAP_MS {
+            continue;
+        }
+        let needed = MIN_RELEASE_GAP_MS - prev.delay_after_ms;
+        let take = needed.min(prev.hold_ms.saturating_sub(MIN_HOLD_MS));
+        prev.hold_ms -= take;
+        prev.delay_after_ms = (prev.delay_after_ms + take).max(MIN_RELEASE_GAP_MS);
     }
 }
 
@@ -303,6 +328,61 @@ mod tests {
             summary(&s.finish(100)),
             vec![(vec![MacroButton::West], MIN_HOLD_MS, 0)]
         );
+    }
+
+    #[test]
+    fn quick_taps_of_different_buttons_stay_separate_actions() {
+        // Square released before Triangle is pressed, 40 ms apart: two
+        // actions, not a combined "pressed together" action.
+        let mut s = Script::new();
+        s.set(0, MacroButton::West, true)
+            .set(30, MacroButton::West, false)
+            .set(40, MacroButton::North, true)
+            .set(70, MacroButton::North, false);
+        assert_eq!(
+            summary(&s.finish(200)),
+            vec![
+                (vec![MacroButton::West], 30, 10),
+                (vec![MacroButton::North], 30, 0)
+            ]
+        );
+    }
+
+    #[test]
+    fn rapid_taps_of_the_same_button_keep_a_release_gap() {
+        // Very fast taps (10 ms press, 15 ms apart) must not merge into one
+        // long press when played back.
+        let mut s = Script::new();
+        for k in 0..3u64 {
+            s.set(k * 25, MacroButton::North, true)
+                .set(k * 25 + 10, MacroButton::North, false);
+        }
+        let r = s.finish(200);
+        assert_eq!(r.steps.len(), 3);
+        for w in r.steps.windows(2) {
+            assert!(
+                w[0].delay_after_ms >= MIN_RELEASE_GAP_MS,
+                "{:?}",
+                summary(&r)
+            );
+            assert!(w[0].hold_ms >= MIN_HOLD_MS);
+        }
+    }
+
+    #[test]
+    fn twenty_rapid_taps_are_all_recorded_with_their_timing() {
+        let mut s = Script::new();
+        for k in 0..20u64 {
+            s.set(k * 80, MacroButton::North, true)
+                .set(k * 80 + 40, MacroButton::North, false);
+        }
+        let r = s.finish(2000);
+        assert_eq!(r.presses, 20);
+        assert_eq!(r.steps.len(), 20);
+        assert!(r.steps[..19]
+            .iter()
+            .all(|x| (x.hold_ms, x.delay_after_ms) == (40, 40)));
+        assert_eq!((r.steps[19].hold_ms, r.steps[19].delay_after_ms), (40, 0));
     }
 
     #[test]

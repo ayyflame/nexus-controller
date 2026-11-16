@@ -94,3 +94,12 @@ Recorded or built macros can be retimed at any time. There is no need to record 
 - **Saving:** timing is part of the saved macro, so it is kept by saving, duplicating, exporting and importing.
 - **Behaviour unchanged:** Play Once, Repeat While Held and Toggle work the same. Each mode simply plays the edited timing.
 - **Precision:** timing follows controller reports, about every 4 ms over USB.
+
+## Recording rules and timing checks
+
+- **Combined actions:** a button joins a "pressed together" action only if it is pressed while the first button is still held, within 50 ms. A quick tap after a release is its own action, so a fast Square-then-Triangle stays two actions.
+- **Minimum release gap:** recorded presses of the same button always keep at least a **20 ms release gap**, so playback never merges two taps into one long press. If needed the gap is taken from the press time.
+- **Merge warnings:** the editor warns (⚠ on the wait in the timeline, a notice under the timeline, and in the action panel) when two consecutive actions press the same button less than 20 ms apart. It also warns when a looping macro's last and first actions do so across the repeat boundary (*wait after the last action + pause between repeats*). Warnings never block saving.
+- **Preview:** for Repeat While Held and Toggle, **Play preview (loops)** repeats with the pause between repeats, exactly like the engine, until you press Stop.
+- **Millisecond fields:** an empty or invalid field reverts. Out-of-range values are limited, and the field then shows the stored value. Leaving a field unchanged creates no undo step.
+- **Known limits:** timing resolution is one controller report (about 4 ms over USB). A press shorter than that can't be recorded. Overlapping holds are recorded as consecutive actions: when a second button is pressed while the first is held, the first is released at that moment, because actions don't overlap in a macro.

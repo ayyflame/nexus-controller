@@ -46,6 +46,8 @@ export function buttonNames(buttons: MacroButton[]): string {
 
 export const LIMITS = {
   minHoldMs: 20,
+  /** Release needed between two presses of the same button (engine: MIN_RELEASE_GAP_MS). */
+  minReleaseGapMs: 20,
   maxHoldMs: 10_000,
   maxDelayMs: 10_000,
   maxSteps: 200,

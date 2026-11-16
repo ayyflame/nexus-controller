@@ -12,13 +12,15 @@ interface Props {
   waitBefore: number;
   startsAt: number;
   onWaitBefore: (ms: number) => void;
+  /** The wait after this action is too short before the same button again. */
+  gapWarning?: boolean;
   onMove: (delta: -1 | 1) => void;
   onDuplicate: () => void;
   onDelete: () => void;
 }
 
 /** Editor for the selected action block. */
-export function StepInspector({ step, index, count, onChange, waitBefore, startsAt, onWaitBefore, onMove, onDuplicate, onDelete }: Props) {
+export function StepInspector({ step, index, count, onChange, waitBefore, startsAt, onWaitBefore, gapWarning, onMove, onDuplicate, onDelete }: Props) {
   const toggle = (b: MacroButton) => {
     const has = step.buttons.includes(b);
     if (has && step.buttons.length === 1) return; // an action always has a button
@@ -56,6 +58,9 @@ export function StepInspector({ step, index, count, onChange, waitBefore, starts
           <DurationPicker label="Press time" tip="How long the button is held down"
             value={step.holdMs} presets={HOLD_PRESETS} min={LIMITS.minHoldMs} max={LIMITS.maxHoldMs}
             onChange={(holdMs) => onChange({ ...step, holdMs })} />
+          {gapWarning && (
+            <div className="notice warn small">⚠ The next press uses the same button. Wait at least {LIMITS.minReleaseGapMs} ms after release, or a game may see one long press.</div>
+          )}
           <DurationPicker label="Wait after release" tip="Pause before the next action starts"
             value={step.delayAfterMs} presets={DELAY_PRESETS} min={0} max={LIMITS.maxDelayMs}
             onChange={(delayAfterMs) => onChange({ ...step, delayAfterMs })} />

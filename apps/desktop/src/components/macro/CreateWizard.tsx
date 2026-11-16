@@ -113,7 +113,7 @@ export function CreateWizard({ others, onDone, onCancel }: {
         {page === 1 && (
           <>
             <TemplateStrip onPick={(st) => steps.set(st)} />
-            <SequenceEditor history={steps} library={others} />
+            <SequenceEditor history={steps} library={others} mode={full.mode} repeatDelayMs={full.repeatDelayMs} />
             <Issues issues={issues} field="steps" />
           </>
         )}

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { ValidationIssue } from "../../types/engine";
+import { parseMs } from "../../lib/macroTiming";
 
 export function Switch({ checked, onChange, label, disabled, tip }: {
   checked: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean; tip?: string;
@@ -95,9 +96,12 @@ export function MsInput({ label, value, onChange, min, max }: {
   const [text, setText] = useState(String(value));
   useEffect(() => setText(String(value)), [value]);
   const commit = () => {
-    const n = Math.round(Number(text));
-    if (Number.isFinite(n)) onChange(Math.max(min, Math.min(max, n)));
-    else setText(String(value));
+    // Empty or invalid reverts; out-of-range is limited and the field shows
+    // the stored value. Unchanged values don't create an undo step.
+    const n = parseMs(text, min, max);
+    if (n === null) { setText(String(value)); return; }
+    setText(String(n));
+    if (n !== value) onChange(n);
   };
   return (
     <label className="ms-input">

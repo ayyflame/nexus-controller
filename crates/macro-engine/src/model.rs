@@ -6,6 +6,10 @@ pub const DEFAULT_HOLD_MS: u32 = 100;
 pub const DEFAULT_DELAY_MS: u32 = 150;
 pub const DEFAULT_REPEAT_DELAY_MS: u32 = 50;
 pub const MIN_HOLD_MS: u32 = 20;
+/// Release time needed between two presses of the same button so a game
+/// (reading the controller once per frame) sees two presses, not one long
+/// press. Recording keeps at least this gap; the editor warns below it.
+pub const MIN_RELEASE_GAP_MS: u32 = 20;
 pub const MAX_HOLD_MS: u32 = 10_000;
 pub const MAX_DELAY_MS: u32 = 10_000;
 pub const MAX_STEPS: usize = 200;
