@@ -77,7 +77,32 @@ impl ProfileStore {
         if let Some(dir) = path.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
+        Self::backup_before_migration(path)?;
         Self::init(Connection::open(path)?)
+    }
+
+    /// If an existing database is older than this build, copies it to
+    /// `<name>.v<old>.bak` before any migration runs, so an interrupted or
+    /// failed upgrade can always be recovered. Returns the backup path.
+    pub fn backup_before_migration(path: &Path) -> Result<Option<std::path::PathBuf>, ProfileError> {
+        if !path.exists() {
+            return Ok(None);
+        }
+        let version: i64 = {
+            let conn = Connection::open(path)?;
+            conn.pragma_query_value(None, "user_version", |r| r.get(0))?
+        };
+        if version == 0 || version >= SCHEMA_VERSION {
+            return Ok(None);
+        }
+        let file = path.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
+        let backup = path.with_file_name(format!("{file}.v{version}.bak"));
+        if !backup.exists() {
+            // VACUUM INTO writes a consistent copy even with a WAL file present.
+            let conn = Connection::open(path)?;
+            conn.execute("VACUUM INTO ?1", [backup.to_string_lossy().as_ref()])?;
+        }
+        Ok(Some(backup))
     }
 
     pub fn open_in_memory() -> Result<Self, ProfileError> {

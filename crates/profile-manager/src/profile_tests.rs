@@ -177,3 +177,34 @@ fn v2_database_migrates_to_v3_preserving_macros_and_enabled_state() {
     drop(s);
     let _ = std::fs::remove_dir_all(dir);
 }
+
+#[test]
+fn old_database_is_backed_up_before_migration() {
+    let dir = std::env::temp_dir().join(format!("nexus-backup-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("nexus.db");
+    {
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE profiles (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE,
+               virtual_output TEXT NOT NULL DEFAULT 'disabled', settings_json TEXT NOT NULL DEFAULT '{}',
+               created_at_ms INTEGER NOT NULL, updated_at_ms INTEGER NOT NULL);
+             CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+             INSERT INTO profiles (name, created_at_ms, updated_at_ms) VALUES ('Old', 1, 1);
+             PRAGMA user_version = 1;",
+        )
+        .unwrap();
+    }
+    let s = ProfileStore::open(&path).unwrap();
+    assert_eq!(s.active_profile().unwrap().name, "Old");
+    drop(s);
+    let backup = dir.join("nexus.db.v1.bak");
+    assert!(backup.exists(), "backup written");
+    let b = rusqlite::Connection::open(&backup).unwrap();
+    let v: i64 = b.pragma_query_value(None, "user_version", |r| r.get(0)).unwrap();
+    assert_eq!(v, 1, "backup is the untouched old version");
+    // A current database is not backed up again.
+    assert_eq!(ProfileStore::backup_before_migration(&path).unwrap(), None);
+    let _ = std::fs::remove_dir_all(dir);
+}
