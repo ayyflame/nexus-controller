@@ -40,6 +40,9 @@ mod profile_tests;
 #[cfg(test)]
 mod smart_tests;
 
+#[cfg(test)]
+mod update_tests;
+
 #[derive(Debug, Error)]
 pub enum ProfileError {
     #[error("{}", .0.iter().map(|i| i.message.as_str()).collect::<Vec<_>>().join(" "))]
@@ -128,6 +131,17 @@ impl ProfileStore {
             conn.execute("VACUUM INTO ?1", [backup.to_string_lossy().as_ref()])?;
         }
         Ok(Some(backup))
+    }
+
+    /// Writes a consistent copy of the whole database to `dest` (used before
+    /// an app update is installed). Fails if `dest` already exists.
+    pub fn snapshot_to(&self, dest: &Path) -> Result<(), ProfileError> {
+        if let Some(dir) = dest.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        self.conn
+            .execute("VACUUM INTO ?1", [dest.to_string_lossy().as_ref()])?;
+        Ok(())
     }
 
     pub fn open_in_memory() -> Result<Self, ProfileError> {

@@ -1,0 +1,23 @@
+[package]
+name = "nexus-updates"
+description = "Update policy for NEXUS: manifest model and validation, version rules, check schedule, update state machine and signature verification. No network or UI code."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+semver = "1"
+# The same minisign verifier and base64 encoding the Tauri updater plugin uses.
+minisign-verify = "0.3"
+base64 = "0.23"
+
+[[bin]]
+name = "make-manifest"
+path = "src/bin/make_manifest.rs"

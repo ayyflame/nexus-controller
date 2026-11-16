@@ -647,3 +647,16 @@ input[type="color"]:disabled { opacity: 0.4; cursor: not-allowed; }
   .remap-row > span[aria-hidden] { display: none; }
 }
 .field-row .field-label { white-space: nowrap; }
+
+/* ---- Updates ------------------------------------------------------------- */
+.update-banner { position: sticky; top: 0; z-index: 6; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 10px 34px; font-size: 13px; background: #1d1a12; border-bottom: 1px solid rgba(212, 169, 79, 0.45); color: #ecd9ad; }
+.update-banner.ok { background: #12201a; border-color: rgba(98, 196, 131, 0.4); color: #b5e6c6; }
+.update-banner.error { background: #211414; border-color: rgba(226, 106, 106, 0.35); color: #f1a5a5; }
+.update-banner-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
+.update-notes-body { white-space: pre-wrap; font-family: inherit; font-size: 12.5px; margin: 6px 0 0; max-height: 220px; overflow: auto; color: var(--text-dim); background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 10px; }
+.update-progress { display: inline-flex; align-items: center; gap: 10px; min-width: 220px; }
+.update-bar { flex: 1; height: 6px; border-radius: 3px; background: var(--panel-3); overflow: hidden; min-width: 120px; display: block; }
+.update-bar .bar-fill { display: block; transition: width 150ms linear; }
+.update-status.tone-ok { color: var(--ok); }
+.update-status.tone-warn { color: #f0cf96; }
+.update-status.tone-error { color: #f1a5a5; }

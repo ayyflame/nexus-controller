@@ -371,7 +371,7 @@ pub struct ExportResult {
 }
 
 /// "2026-11-16_14-05-09" in UTC, for file names.
-fn stamp() -> String {
+pub(crate) fn stamp() -> String {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
@@ -508,4 +508,54 @@ pub fn export_macros(app: tauri::AppHandle, state: State<'_, AppState>) -> CmdRe
         &json,
     );
     Ok(ExportResult { path, json })
+}
+
+// ---- Updates ----------------------------------------------------------------
+
+use crate::updates::{self, UpdateService, UpdateStatus};
+
+#[tauri::command]
+pub fn get_update_status(svc: State<'_, UpdateService>) -> UpdateStatus {
+    svc.status()
+}
+
+/// "Check for updates". The result is in the returned state.
+#[tauri::command]
+pub async fn check_for_updates(app: tauri::AppHandle) -> UpdateStatus {
+    updates::check(&app, true).await;
+    app.state::<UpdateService>().status()
+}
+
+/// "Update now": downloads and verifies the package. Progress arrives as
+/// `nexus://update` events.
+#[tauri::command]
+pub async fn download_update(app: tauri::AppHandle) -> UpdateStatus {
+    updates::download(&app).await;
+    app.state::<UpdateService>().status()
+}
+
+/// "Restart and install". On success NEXUS exits and the installer reopens it.
+#[tauri::command]
+pub async fn install_update(app: tauri::AppHandle) -> UpdateStatus {
+    updates::install(&app).await;
+    app.state::<UpdateService>().status()
+}
+
+/// "Later": hides the banner for this version.
+#[tauri::command]
+pub fn postpone_update(app: tauri::AppHandle) -> UpdateStatus {
+    updates::postpone(&app);
+    app.state::<UpdateService>().status()
+}
+
+#[tauri::command]
+pub fn set_auto_update_check(app: tauri::AppHandle, enabled: bool) -> UpdateStatus {
+    updates::set_auto_check(&app, enabled);
+    app.state::<UpdateService>().status()
+}
+
+#[tauri::command]
+pub fn dismiss_update_outcome(app: tauri::AppHandle) -> UpdateStatus {
+    updates::dismiss_outcome(&app);
+    app.state::<UpdateService>().status()
 }

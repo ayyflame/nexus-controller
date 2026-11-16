@@ -5,10 +5,12 @@ import type {
   ConfigConflict, DriverStatus, ExportResult, GyroCalibration, ImportMode, ImportPreview, ImportReport, ProcessingConfig,
   ProfileTemplate, RecordingResult, ValidationIssue, VirtualOutputKind,
 } from "../types/engine";
+import type { UpdateStatus } from "./updates";
 
 export const EVENT_STATUS = "nexus://status";
 export const EVENT_ENGINE = "nexus://engine-event";
 export const EVENT_PROFILE_CHANGED = "nexus://profile-changed";
+export const EVENT_UPDATE = "nexus://update";
 
 /** True only inside the NEXUS desktop shell, where the Rust engine exists. */
 export function isDesktopShell(): boolean {
@@ -73,6 +75,16 @@ export const engineApi = {
   startMacroRecording: () => invoke<void>("start_macro_recording"),
   stopMacroRecording: () => invoke<RecordingResult>("stop_macro_recording"),
   cancelMacroRecording: () => invoke<void>("cancel_macro_recording"),
+
+  getUpdateStatus: () => invoke<UpdateStatus>("get_update_status"),
+  checkForUpdates: () => invoke<UpdateStatus>("check_for_updates"),
+  downloadUpdate: () => invoke<UpdateStatus>("download_update"),
+  installUpdate: () => invoke<UpdateStatus>("install_update"),
+  postponeUpdate: () => invoke<UpdateStatus>("postpone_update"),
+  setAutoUpdateCheck: (enabled: boolean) => invoke<UpdateStatus>("set_auto_update_check", { enabled }),
+  dismissUpdateOutcome: () => invoke<UpdateStatus>("dismiss_update_outcome"),
+  onUpdate: (cb: (s: UpdateStatus) => void): Promise<UnlistenFn> =>
+    listen<UpdateStatus>(EVENT_UPDATE, (e) => cb(e.payload)),
 
   onStatus: (cb: (s: EngineStatus) => void): Promise<UnlistenFn> =>
     listen<EngineStatus>(EVENT_STATUS, (e) => cb(e.payload)),

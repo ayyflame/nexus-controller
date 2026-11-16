@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { CommandPalette } from "./components/CommandPalette";
 import { Onboarding } from "./components/Onboarding";
 import { Sidebar, type PageId } from "./components/Sidebar";
+import { UpdateBanner } from "./components/UpdateBanner";
 import { EngineProvider, useEngine } from "./hooks/useEngine";
 import { Dashboard } from "./pages/Dashboard";
 import { MacroStudio } from "./pages/MacroStudio";
@@ -54,6 +55,7 @@ export function App() {
         <Onboarding onNavigate={(p) => navigate(p)} />
         <main className="content">
           <ShellBanner />
+          <UpdateBanner />
           <Page key={`${page}-${nav}`} id={page} tab={tab} />
         </main>
       </div>

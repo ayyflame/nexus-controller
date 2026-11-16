@@ -5,6 +5,7 @@
 mod bridge;
 mod commands;
 mod game_watch;
+mod updates;
 
 use nexus_engine::{Engine, EngineConfig};
 use nexus_profile_manager::ProfileStore;
@@ -46,6 +47,8 @@ fn open_store(data_dir: Option<&PathBuf>) -> (ProfileStore, Option<String>) {
 
 pub fn run() {
     let app = tauri::Builder::default()
+        // Rust-side only: no updater permission is granted to the webview.
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let data_dir = app.path().app_data_dir().ok();
             let (store, storage_warning) = open_store(data_dir.as_ref());
@@ -77,6 +80,9 @@ pub fn run() {
                 let watch = game_watch::GameWatch::spawn(app.handle().clone());
                 let _ = app.state::<AppState>().game_watch.set(watch);
             }
+            let updates = updates::UpdateService::init(app.handle(), &app.state::<AppState>());
+            app.manage(updates);
+            updates::spawn_scheduler(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -119,20 +125,20 @@ pub fn run() {
             commands::import_config,
             commands::create_backup,
             commands::export_macros,
+            commands::get_update_status,
+            commands::check_for_updates,
+            commands::download_update,
+            commands::install_update,
+            commands::postpone_update,
+            commands::set_auto_update_check,
+            commands::dismiss_update_outcome,
         ])
         .build(tauri::generate_context!())
         .expect("failed to build the NEXUS application");
 
     app.run(|handle, event| {
         if let RunEvent::Exit = event {
-            if let Some(state) = handle.try_state::<AppState>() {
-                if let Some(w) = state.game_watch.get() {
-                    w.stop();
-                }
-                state.bridge.stop();
-                // Releases controller handles and any virtual devices.
-                state.engine.shutdown();
-            }
+            updates::shutdown_runtime(handle);
         }
     });
 }

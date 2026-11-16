@@ -4,26 +4,55 @@ import { useEngine } from "../hooks/useEngine";
 import { buildDiagnosticsReport } from "../lib/diagnostics";
 import { engineApi, errorMessage } from "../lib/engine";
 import { hex, time } from "../lib/format";
-import { checkForUpdates } from "../lib/updates";
+import { describeUpdate, formatLastCheck, isBusy, releaseOf } from "../lib/updates";
+import { useUpdates } from "../hooks/useUpdates";
+import { ReleaseNotes, UpdateActions } from "../components/UpdateBanner";
+import { Switch } from "../components/macro/common";
 import type { HidDiagnostic, LogEntry, RawReport } from "../types/engine";
 
-function UpdateRow({ version }: { version?: string }) {
-  const [state, setState] = useState<string | null>(null);
-  const [link, setLink] = useState<string | null>(null);
+function UpdatesCard() {
+  const u = useUpdates();
+  const st = u.status;
+  const desc = st ? describeUpdate(st) : null;
+  const busy = st ? isBusy(st.state) || st.state.kind === "readyToInstall" : true;
+  const release = st ? releaseOf(st.state) : null;
+  const failed = st?.state.kind === "failed" ? st.state.error : null;
   return (
-    <Row label="Updates">
-      <span className="row gap-sm">
-        <button className="btn-ghost" disabled={!version} onClick={async () => {
-          setState("Checking…"); setLink(null);
-          const r = await checkForUpdates(version!);
-          if (r.kind === "available") { setState(`Version ${r.latest} is available.`); setLink(r.url); }
-          else if (r.kind === "current") setState(`You have the latest version (${r.latest}).`);
-          else setState(r.reason);
-        }}>Check for updates</button>
-        {state && <span className="small">{state}</span>}
-        {link && <a className="small gold" href={link} target="_blank" rel="noreferrer">Download</a>}
-      </span>
-    </Row>
+    <div className="card">
+      <h2>Updates</h2>
+      <Row label="Current version">{st?.currentVersion ?? "—"}</Row>
+      <Row label="Channel">Stable</Row>
+      <Row label="Check automatically">
+        <Switch checked={st?.autoCheck ?? false} disabled={!st?.configured}
+          onChange={(on) => void u.setAutoCheck(on)}
+          label={st?.autoCheck ? "On (at start-up and every 6 hours)" : "Off"} />
+      </Row>
+      <Row label="Last checked">{st?.configured ? formatLastCheck(st.lastSuccessMs) : "—"}</Row>
+      <Row label="Status">
+        <span className={`update-status tone-${desc?.tone ?? "neutral"}`} aria-live="polite">
+          {st ? desc?.text : u.error ?? "Loading…"}
+        </span>
+      </Row>
+      {failed?.detail && (
+        <details className="small muted"><summary>Details</summary><span className="mono break">{failed.detail}</span></details>
+      )}
+      {release && st?.state.kind === "available" && <ReleaseNotes notes={release.notes} />}
+      <div className="row gap-sm" style={{ marginTop: 12, flexWrap: "wrap" }}>
+        <button className="btn-secondary" disabled={!st?.configured || busy} onClick={() => void u.check()}>
+          <Icon name="refresh" size={15} /> {st?.state.kind === "checking" ? "Checking…" : "Check for updates"}
+        </button>
+        {st && <UpdateActions status={st} actions={u} />}
+      </div>
+      {st && !st.configured && (
+        <div className="notice dev">
+          This build has no update server configured, so it never checks. Builds from published releases update automatically.
+        </div>
+      )}
+      <p className="small muted" style={{ marginTop: 10 }}>
+        Updates are never installed without your OK. Each update is checked against NEXUS's signing key before it runs.
+        Profiles, macros, calibration and settings are kept, and a backup of them is saved first.
+      </p>
+    </div>
   );
 }
 
@@ -191,13 +220,14 @@ export function Settings() {
         <div className="card">
           <h2>Application</h2>
           <Row label="Version">{appInfo?.version ?? "—"}</Row>
-          <UpdateRow version={appInfo?.version} />
           <Row label="Your data">Profiles and macros are stored separately from the program, so updates and reinstalls keep them.</Row>
           <Row label="Welcome guide"><button className="btn-ghost" onClick={() => { try { localStorage.removeItem("nexus.onboarding.v1"); } catch { /* ignore */ } window.location.reload(); }}>Show again</button></Row>
           <Row label="Platform">{appInfo ? `${appInfo.os} / ${appInfo.arch}` : "—"}</Row>
           <Row label="Data folder"><span className="mono small break">{appInfo?.dataDir ?? "—"}</span></Row>
           <Row label="Start with Windows"><span className="muted">Planned for a later milestone</span></Row>
         </div>
+
+        <UpdatesCard />
 
         <div className="card">
           <h2>Device Discovery</h2>

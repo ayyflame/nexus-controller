@@ -29,3 +29,5 @@ nexus-macro-engine.workspace = true
 nexus-input-processing.workspace = true
 nexus-virtual-controller.workspace = true
 nexus-app-detect.workspace = true
+tauri-plugin-updater = { version = "2", default-features = false, features = ["rustls-tls", "system-proxy"] }
+nexus-updates.workspace = true
