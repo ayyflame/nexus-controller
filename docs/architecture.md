@@ -138,3 +138,11 @@ Settings and macros reach the reader threads through generation counters. Change
 - Switching profile applies output mode, processing and macros together.
 
 **Virtual output.** See [`virtual-output.md`](virtual-output.md). Translation and driver detection are implemented. The ViGEmBus backend is gated on hardware validation.
+
+## Milestone 3 additions
+
+- **`ConfiguredProcessor`** is now stateful and clocked (`process_at`). Per report it runs: stick calibration and shaping → trigger calibration/curve/activation → gyro → touchpad zones/swipes → shift layers and remapping (with multi-action). It still never allocates per report.
+- **Output reports.** `HidConnection::write_output_report` exists. Reader threads poll their handler for at most **one** pending report per iteration (latest-state, so bounded). The engine builds USB `0x02` / Bluetooth `0x31` reports (`dualsense::output`) only when lighting changes or a vibration starts or stops.
+- **`nexus-app-detect`** reports the foreground program (limited query; no memory access). `AutoSwitcher` holds the switching rules, and a watcher thread in the desktop shell applies profiles.
+- **Portability** (`profile-manager/portable.rs`): a versioned `nexus-config` JSON format, validated and transactional.
+- **Schema v4** adds per-profile games, with a database backup before each migration.

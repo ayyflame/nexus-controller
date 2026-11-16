@@ -646,3 +646,4 @@ input[type="color"]:disabled { opacity: 0.4; cursor: not-allowed; }
   .remap-row { grid-template-columns: auto 1fr 150px; }
   .remap-row > span[aria-hidden] { display: none; }
 }
+.field-row .field-label { white-space: nowrap; }

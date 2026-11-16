@@ -82,6 +82,7 @@ Output goes to `target\release\bundle\nsis\` and `target\release\bundle\msi\`. T
 - [Macro Studio](docs/macro-studio.md)
 - [Virtual output, drivers and duplicate input](docs/virtual-output.md)
 - [Milestone 2 report](docs/milestone-2-report.md)
+- [Milestone 3 report](docs/milestone-3-report.md)
 - [Installing NEXUS (end users)](docs/install-windows.md)
 - [Developer setup on Windows 11 and hardware validation](docs/windows-setup.md)
 - [Hardware verification checklist](tests/hardware-verification.md)

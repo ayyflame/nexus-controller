@@ -65,3 +65,23 @@ Setup steps: `docs/windows-setup.md`. Useful tools: **Settings → HID Devices (
 | 35 | Plug/unplug USB and pair/unpair Bluetooth | Connect/disconnect appears instantly (Settings shows "Instant (Windows device notifications)") | |
 | 36 | Macro Studio: start a Toggle macro, press **Stop all macros** | Playing stops immediately; holding the trigger does not restart it | |
 | 37 | Repeat 28–32 and 36 over Bluetooth | Same results | |
+
+## Milestone 3 (USB and Bluetooth)
+
+| # | Step | Expected | Result |
+|---|---|---|---|
+| 38 | Controller › Sticks › Calibrate (both sticks) | Rest reads 0,0 afterwards; full circle reaches the edge | |
+| 39 | Triggers › Calibrate; set Click point 20% | L2 counts as pressed at a light pull (Buttons tab lights) | |
+| 40 | Gyro › Live motion: turn, tilt, roll | Correct bars move; record the sign of each | |
+| 41 | Gyro on, While holding L2; turn right | Right stick moves right (else note: inverted) | |
+| 42 | Gyro › Calibrate on a table | "Calibrated"; resting stick output stays at 0 | |
+| 43 | Touchpad › Four zones; click each corner | Assigned button for each zone | |
+| 44 | Touchpad swipes in each direction | Assigned button pulses once | |
+| 45 | Buttons: layer on L1 (hold) mapping Square → D-pad Up | Holding L1 changes Square; L1 hidden | |
+| 46 | Lighting: enable lightbar, change colour | Controller lightbar follows (USB and BT) | |
+| 47 | Player lights pattern | LEDs match | |
+| 48 | Test vibration at 100% and 30% | Vibrates ~0.6 s, then stops; strength differs | |
+| 49 | Profiles: add your game's .exe, enable auto-switch, launch the game | Profile switches within ~1 s; returns when you leave | |
+| 50 | Export a profile, Import on another PC (or after deleting it) | Same settings restored | |
+| 51 | Create backup, change things, Restore backup | Everything restored; safety backup in the data folder | |
+| 52 | Two controllers (USB + BT) | Both listed; selector switches the view | |

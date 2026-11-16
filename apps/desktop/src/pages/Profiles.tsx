@@ -4,13 +4,17 @@ import { AutoSwitchToggle, GamesEditor, PortabilityPanel, TemplatePicker } from 
 import { useEngine } from "../hooks/useEngine";
 import { engineApi, errorMessage } from "../lib/engine";
 import { outputLabel } from "../lib/format";
+import { withDefaults } from "../lib/processing";
 import type { Profile } from "../types/engine";
 
-function summary(p: Profile): string {
+function summary(raw: Profile): string {
+  const p = { ...raw, processing: withDefaults(raw.processing) };
   const parts = [outputLabel[p.virtualOutput] + " output"];
   if (p.processing.remap.length) parts.push(`${p.processing.remap.length} remapped button${p.processing.remap.length === 1 ? "" : "s"}`);
   const curve = p.processing.rightStick.curve.type !== "linear" || p.processing.leftStick.curve.type !== "linear";
   if (curve) parts.push("custom stick curves");
+  if (p.processing.layers.length) parts.push(`${p.processing.layers.length} layer${p.processing.layers.length === 1 ? "" : "s"}`);
+  if (p.processing.gyro.enabled) parts.push("gyro");
   return parts.join(" · ");
 }
 
