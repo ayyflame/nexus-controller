@@ -280,7 +280,7 @@ impl ProfileStore {
         };
         let mut renamed = Vec::new();
         let now = now_ms();
-        let mut position: i64 = tx.query_row(
+        let first_position: i64 = tx.query_row(
             "SELECT COALESCE(MAX(position), -1) + 1 FROM macros",
             [],
             |r| r.get(0),
@@ -300,9 +300,8 @@ impl ProfileStore {
             m.updated_at_ms = now;
             tx.execute(
                 "INSERT INTO macros (id, position, data_json, created_at_ms, updated_at_ms) VALUES (?1, ?2, ?3, ?4, ?4)",
-                rusqlite::params![m.id, position, serde_json::to_string(&m).expect("serialises"), now],
+                rusqlite::params![m.id, first_position + i as i64, serde_json::to_string(&m).expect("serialises"), now],
             )?;
-            position += 1;
             id_map.insert(old_id, m);
         }
         let mut disabled = Vec::new();
