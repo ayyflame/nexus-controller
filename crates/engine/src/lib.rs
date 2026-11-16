@@ -31,7 +31,7 @@ use nexus_telemetry::{
 };
 use nexus_virtual_controller::drivers::{probe_drivers, DriverStatus};
 use nexus_virtual_controller::{
-    BackendStatus, OutputStatus, VirtualControllerBackend, VirtualOutputManager,
+    BackendStatus, OutputEvent, OutputStatus, VirtualControllerBackend, VirtualOutputManager,
 };
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -799,6 +799,9 @@ impl Engine {
         // Picks up a driver the user installed while NEXUS was running.
         let backend_status = (self.shared.output_factory)().status();
         *lock(&self.shared.output_backend_status) = backend_status;
+        // Every controller re-applies its requested output on its next
+        // report, so a driver installed while NEXUS runs is used at once.
+        self.shared.output_generation.fetch_add(1, Ordering::AcqRel);
         self.shared.bump();
         status
     }
@@ -1141,6 +1144,9 @@ impl EngineSessionHandler {
         self.macros.process(physical, &mut out, Instant::now());
         self.output.submit(&out);
         self.latency.record(started.elapsed());
+        if let Some(event) = self.output.take_event() {
+            self.on_output_event(event);
+        }
         let playing = self.macros.playing();
         (out, (playing != was_playing).then_some(playing))
     }
@@ -1196,6 +1202,19 @@ impl EngineSessionHandler {
             }
             rec.recorder.feed(physical, Instant::now());
         }
+    }
+
+    /// Rare: the virtual controller failed or came back (logged once each).
+    fn on_output_event(&mut self, event: OutputEvent) {
+        match event {
+            OutputEvent::Failed(msg) => self.shared.log(LogLevel::Warn, "output", msg),
+            OutputEvent::Recovered => {
+                self.shared
+                    .log(LogLevel::Info, "output", "Virtual controller re-created")
+            }
+        }
+        let status = self.output.status();
+        self.shared.update_device(&self.id, |s| s.output = status);
     }
 
     fn sync_output_mode(&mut self) {
@@ -1291,7 +1310,15 @@ impl SessionHandler for EngineSessionHandler {
         self.feedback.update(&self.shared, Instant::now());
         // Keep macro timing moving even if reports pause briefly.
         if let Some(physical) = self.last_physical {
+            let was_playing = self.macros.playing();
             self.macros.refresh(&physical);
+            let playing = self.macros.playing();
+            if playing != was_playing {
+                // A reload (e.g. profile switch) stopped a macro: publish it,
+                // otherwise the UI would keep showing it as playing.
+                self.shared
+                    .update_device(&self.id, |s| s.playing_macros = playing);
+            }
             if !self.macros.playing().is_empty() {
                 let (out, playing) = self.run_pipeline(&physical);
                 self.shared.update_device(&self.id, |s| {

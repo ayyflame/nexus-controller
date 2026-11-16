@@ -27,6 +27,7 @@ pub mod vigem;
 
 use nexus_controller_core::{ControllerState, VirtualOutputKind};
 use serde::Serialize;
+use std::time::{Duration, Instant};
 use thiserror::Error;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -125,12 +126,34 @@ pub struct OutputStatus {
     pub last_error: Option<String>,
 }
 
+/// Something the engine should log and show (returned once per change).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum OutputEvent {
+    /// The virtual controller stopped working; NEXUS will retry.
+    Failed(String),
+    /// A retry succeeded; the virtual controller exists again.
+    Recovered,
+}
+
+/// First retry delay after a driver failure; doubles up to [`RETRY_MAX`].
+pub const RETRY_BASE: Duration = Duration::from_secs(1);
+pub const RETRY_MAX: Duration = Duration::from_secs(30);
+
+#[derive(Clone, Copy, Debug)]
+struct Retry {
+    attempts: u32,
+    at: Instant,
+}
+
 /// Enforces one virtual device per physical controller.
 pub struct VirtualOutputManager {
     backend: Box<dyn VirtualControllerBackend>,
     requested: VirtualOutputKind,
     active: Option<(VirtualOutputKind, VirtualDeviceHandle)>,
     last_error: Option<String>,
+    retry: Option<Retry>,
+    retry_base: Duration,
+    event: Option<OutputEvent>,
 }
 
 impl VirtualOutputManager {
@@ -140,7 +163,31 @@ impl VirtualOutputManager {
             requested: VirtualOutputKind::Disabled,
             active: None,
             last_error: None,
+            retry: None,
+            retry_base: RETRY_BASE,
+            event: None,
         }
+    }
+
+    /// Shorter retry delays (tests only need milliseconds).
+    pub fn with_retry_base(mut self, base: Duration) -> Self {
+        self.retry_base = base;
+        self
+    }
+
+    /// The latest failure or recovery, once.
+    pub fn take_event(&mut self) -> Option<OutputEvent> {
+        self.event.take()
+    }
+
+    fn schedule_retry(&mut self, now: Instant) {
+        let attempts = self.retry.map_or(0, |r| r.attempts) + 1;
+        let delay =
+            (self.retry_base * (1u32 << (attempts - 1).min(5))).min(RETRY_MAX.max(self.retry_base));
+        self.retry = Some(Retry {
+            attempts,
+            at: now + delay,
+        });
     }
 
     pub fn status(&self) -> OutputStatus {
@@ -160,11 +207,16 @@ impl VirtualOutputManager {
     /// for one physical controller.
     pub fn set_mode(&mut self, kind: VirtualOutputKind) -> Result<(), OutputError> {
         self.requested = kind;
+        self.retry = None;
         if self.active.map(|(k, _)| k) == Some(kind) {
             return Ok(());
         }
         let result = self.apply();
         self.last_error = result.as_ref().err().map(|e| e.to_string());
+        if let Err(OutputError::Backend(_)) = &result {
+            // The driver is there but refused: try again later by itself.
+            self.schedule_retry(Instant::now());
+        }
         result
     }
 
@@ -188,10 +240,51 @@ impl VirtualOutputManager {
     }
 
     /// Forwards processed state to the active virtual device, if any.
+    ///
+    /// If the driver stops accepting updates, the device is dropped (best
+    /// effort), the failure is reported once, and creating it again is
+    /// retried with growing delays. If the driver is gone entirely
+    /// ("unavailable"), retrying stops until the user checks again.
     pub fn submit(&mut self, state: &ControllerState) {
-        if let Some((_, handle)) = self.active {
-            if let Err(e) = self.backend.update(handle, state) {
-                self.last_error = Some(e.to_string());
+        let now = Instant::now();
+        match self.active {
+            Some((_, handle)) => {
+                if let Err(e) = self.backend.update(handle, state) {
+                    let _ = self.backend.disconnect(handle);
+                    self.active = None;
+                    let msg = format!(
+                        "The virtual controller stopped working ({e}). NEXUS will try again."
+                    );
+                    self.last_error = Some(msg.clone());
+                    self.event = Some(OutputEvent::Failed(msg));
+                    self.schedule_retry(now);
+                }
+            }
+            None => {
+                let Some(retry) = self.retry else { return };
+                if now < retry.at || self.requested == VirtualOutputKind::Disabled {
+                    return;
+                }
+                match self.apply() {
+                    Ok(()) => {
+                        self.retry = None;
+                        self.last_error = None;
+                        self.event = Some(OutputEvent::Recovered);
+                        if let Some((_, handle)) = self.active {
+                            let _ = self.backend.update(handle, state);
+                        }
+                    }
+                    Err(e @ OutputError::Backend(_)) => {
+                        self.last_error = Some(e.to_string());
+                        self.schedule_retry(now);
+                    }
+                    Err(e) => {
+                        // Driver missing or mode unsupported: stop retrying.
+                        self.last_error = Some(e.to_string());
+                        self.retry = None;
+                        self.event = Some(OutputEvent::Failed(e.to_string()));
+                    }
+                }
             }
         }
     }
@@ -366,6 +459,143 @@ mod tests {
         );
         assert!(live.lock().unwrap().is_empty());
         assert!(m.release().is_ok(), "releasing twice is harmless");
+    }
+
+    /// A backend whose device can break and recover on demand.
+    #[derive(Default)]
+    struct Flaky {
+        fail_updates: Arc<std::sync::atomic::AtomicBool>,
+        fail_connects: Arc<std::sync::atomic::AtomicBool>,
+        unavailable: Arc<std::sync::atomic::AtomicBool>,
+        connects: Arc<std::sync::atomic::AtomicUsize>,
+        live: Arc<std::sync::atomic::AtomicUsize>,
+        next: u64,
+    }
+
+    impl VirtualControllerBackend for Flaky {
+        fn name(&self) -> &'static str {
+            "flaky"
+        }
+        fn status(&self) -> BackendStatus {
+            BackendStatus::Ready { version: None }
+        }
+        fn supports(&self, kind: VirtualOutputKind) -> bool {
+            kind == VirtualOutputKind::Xbox360
+        }
+        fn connect(&mut self, _: VirtualOutputKind) -> Result<VirtualDeviceHandle, OutputError> {
+            use std::sync::atomic::Ordering::SeqCst;
+            if self.unavailable.load(SeqCst) {
+                return Err(OutputError::Unavailable("driver removed".into()));
+            }
+            if self.fail_connects.load(SeqCst) {
+                return Err(OutputError::Backend("busy".into()));
+            }
+            self.connects.fetch_add(1, SeqCst);
+            self.live.fetch_add(1, SeqCst);
+            self.next += 1;
+            Ok(VirtualDeviceHandle(self.next))
+        }
+        fn update(
+            &mut self,
+            _: VirtualDeviceHandle,
+            _: &ControllerState,
+        ) -> Result<(), OutputError> {
+            if self.fail_updates.load(std::sync::atomic::Ordering::SeqCst) {
+                return Err(OutputError::Backend("device gone".into()));
+            }
+            Ok(())
+        }
+        fn disconnect(&mut self, _: VirtualDeviceHandle) -> Result<(), OutputError> {
+            self.live.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_failing_virtual_controller_is_dropped_reported_once_and_recreated() {
+        use std::sync::atomic::Ordering::SeqCst;
+        let b = Flaky::default();
+        let (fail, fail_connect, connects, live) = (
+            b.fail_updates.clone(),
+            b.fail_connects.clone(),
+            b.connects.clone(),
+            b.live.clone(),
+        );
+        let mut m =
+            VirtualOutputManager::new(Box::new(b)).with_retry_base(Duration::from_millis(5));
+        m.set_mode(VirtualOutputKind::Xbox360).unwrap();
+        let s = ControllerState::default();
+        m.submit(&s);
+        assert_eq!(m.take_event(), None);
+
+        fail.store(true, SeqCst);
+        fail_connect.store(true, SeqCst);
+        m.submit(&s);
+        assert!(matches!(m.take_event(), Some(OutputEvent::Failed(_))));
+        assert_eq!(live.load(SeqCst), 0, "broken device dropped");
+        assert_eq!(m.status().active, None);
+        for _ in 0..3 {
+            m.submit(&s);
+        }
+        assert_eq!(m.take_event(), None, "reported once, not every report");
+
+        // Driver healthy again: the next due retry recreates the device.
+        fail.store(false, SeqCst);
+        fail_connect.store(false, SeqCst);
+        std::thread::sleep(Duration::from_millis(80));
+        m.submit(&s);
+        assert_eq!(m.take_event(), Some(OutputEvent::Recovered));
+        assert_eq!(m.status().active, Some(VirtualOutputKind::Xbox360));
+        assert_eq!(m.status().last_error, None);
+        assert_eq!(
+            (connects.load(SeqCst), live.load(SeqCst)),
+            (2, 1),
+            "exactly one device"
+        );
+    }
+
+    #[test]
+    fn retrying_stops_when_the_driver_is_gone_and_output_off_cancels_it() {
+        use std::sync::atomic::Ordering::SeqCst;
+        let b = Flaky::default();
+        let (fail, unavailable, connects) = (
+            b.fail_updates.clone(),
+            b.unavailable.clone(),
+            b.connects.clone(),
+        );
+        let mut m =
+            VirtualOutputManager::new(Box::new(b)).with_retry_base(Duration::from_millis(1));
+        m.set_mode(VirtualOutputKind::Xbox360).unwrap();
+        fail.store(true, SeqCst);
+        unavailable.store(true, SeqCst);
+        let s = ControllerState::default();
+        m.submit(&s); // fails, schedules retry
+        std::thread::sleep(Duration::from_millis(5));
+        m.submit(&s); // retry finds the driver gone
+        assert!(m.status().last_error.unwrap().contains("driver removed"));
+        unavailable.store(false, SeqCst);
+        std::thread::sleep(Duration::from_millis(5));
+        m.submit(&s);
+        assert_eq!(
+            connects.load(SeqCst),
+            1,
+            "no more automatic retries once the driver is gone"
+        );
+
+        // Output off while a retry is pending cancels it.
+        let b = Flaky::default();
+        let (fail, connects) = (b.fail_updates.clone(), b.connects.clone());
+        let mut m =
+            VirtualOutputManager::new(Box::new(b)).with_retry_base(Duration::from_millis(1));
+        m.set_mode(VirtualOutputKind::Xbox360).unwrap();
+        fail.store(true, SeqCst);
+        m.submit(&s);
+        m.set_mode(VirtualOutputKind::Disabled).unwrap();
+        fail.store(false, SeqCst);
+        std::thread::sleep(Duration::from_millis(5));
+        m.submit(&s);
+        assert_eq!(connects.load(SeqCst), 1);
+        assert_eq!(m.status().active, None);
     }
 
     #[test]

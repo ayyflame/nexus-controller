@@ -111,6 +111,21 @@ struct Slot {
     latched: bool,
 }
 
+impl Slot {
+    /// State after a reload or resume. A trigger that is held right now is
+    /// latched: it must be released and pressed again before its macro runs
+    /// (all modes, including Repeat While Held). It stays hidden if the macro
+    /// blocks its trigger.
+    fn fresh(m: &Macro, physical: &ControllerState) -> Self {
+        let down = m.trigger.is_some_and(|t| t.is_pressed(physical));
+        Slot {
+            trigger_was_down: down,
+            latched: down,
+            ..Slot::default()
+        }
+    }
+}
+
 /// Runs macros for one physical controller. Owned by that controller's
 /// reader thread; dropping it releases every macro press because presses
 /// only ever exist in the output state computed by [`MacroRunner::process`].
@@ -150,10 +165,7 @@ impl MacroRunner {
 
         if self.library.is_suspended() {
             for (m, slot) in self.macros.iter().zip(&mut self.slots) {
-                *slot = Slot {
-                    trigger_was_down: m.trigger.is_some_and(|t| t.is_pressed(physical)),
-                    ..Slot::default()
-                };
+                *slot = Slot::fresh(m, physical);
             }
             return;
         }
@@ -244,14 +256,11 @@ impl MacroRunner {
         self.generation = Some(generation);
         self.macros = self.library.get();
         // Start from the current physical state so a trigger already held
-        // during an edit does not fire the macro by itself.
+        // during an edit or profile switch does not fire the macro by itself.
         self.slots = self
             .macros
             .iter()
-            .map(|m| Slot {
-                trigger_was_down: m.trigger.is_some_and(|t| t.is_pressed(physical)),
-                ..Slot::default()
-            })
+            .map(|m| Slot::fresh(m, physical))
             .collect();
     }
 
@@ -490,6 +499,37 @@ mod tests {
         assert!(!out.buttons.north && !out.buttons.south);
         frame(&mut r, &ControllerState::default(), at(t0, 20));
         assert!(frame(&mut r, &trig, at(t0, 30)).buttons.north);
+    }
+
+    #[test]
+    fn reload_while_held_requires_release_and_fresh_press_in_every_mode() {
+        // A profile switch reloads the macros. A trigger still held must not
+        // restart a Repeat While Held (or any) macro by itself.
+        for mode in [
+            PlaybackMode::RepeatWhileHeld,
+            PlaybackMode::Toggle,
+            PlaybackMode::Once,
+        ] {
+            let t0 = Instant::now();
+            let (lib, mut r) = runner(vec![two_step(mode)]);
+            let trig = pressed(MacroButton::RightStick);
+            assert!(frame(&mut r, &trig, t0).buttons.south, "{mode:?} starts");
+            lib.set(vec![two_step(mode)]); // same macro, new generation
+            for ms in [10, 120, 310, 620] {
+                let out = frame(&mut r, &trig, at(t0, ms));
+                assert!(
+                    !out.buttons.south,
+                    "{mode:?}: no restart while held at {ms} ms"
+                );
+                assert!(!out.buttons.right_stick, "{mode:?}: trigger stays hidden");
+            }
+            assert!(r.playing().is_empty(), "{mode:?}");
+            frame(&mut r, &ControllerState::default(), at(t0, 700));
+            assert!(
+                frame(&mut r, &trig, at(t0, 710)).buttons.south,
+                "{mode:?}: fresh press starts it"
+            );
+        }
     }
 
     #[test]

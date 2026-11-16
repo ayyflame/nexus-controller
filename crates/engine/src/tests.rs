@@ -1051,6 +1051,8 @@ impl PadLog {
 struct RecordingPad {
     log: PadLog,
     next: u64,
+    /// Simulates whether ViGEmBus is installed.
+    installed: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl VirtualControllerBackend for RecordingPad {
@@ -1058,12 +1060,21 @@ impl VirtualControllerBackend for RecordingPad {
         "recording"
     }
     fn status(&self) -> BackendStatus {
-        BackendStatus::Ready { version: None }
+        if self.installed.load(Ordering::SeqCst) {
+            BackendStatus::Ready { version: None }
+        } else {
+            BackendStatus::Unavailable {
+                reason: "not installed".into(),
+            }
+        }
     }
     fn supports(&self, kind: VirtualOutputKind) -> bool {
         kind == VirtualOutputKind::Xbox360
     }
     fn connect(&mut self, _: VirtualOutputKind) -> Result<VirtualDeviceHandle, OutputError> {
+        if !self.installed.load(Ordering::SeqCst) {
+            return Err(OutputError::Unavailable("not installed".into()));
+        }
         self.next += 1;
         self.log.0.lock().unwrap().push(Pad::Connect(self.next));
         Ok(VirtualDeviceHandle(self.next))
@@ -1097,6 +1108,15 @@ fn rapid_macro() -> Macro {
 
 /// Engine with Xbox 360 output requested and the controller connected.
 fn xbox_engine() -> (MockHidBackend, Engine, PadLog) {
+    let installed = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let (backend, e, log) = xbox_engine_with(installed);
+    log.wait("virtual controller", |p| p.contains(&Pad::Connect(1)));
+    (backend, e, log)
+}
+
+fn xbox_engine_with(
+    installed: Arc<std::sync::atomic::AtomicBool>,
+) -> (MockHidBackend, Engine, PadLog) {
     let backend = MockHidBackend::new();
     backend.plug(usb_info());
     let log = PadLog::default();
@@ -1108,6 +1128,7 @@ fn xbox_engine() -> (MockHidBackend, Engine, PadLog) {
             Box::new(RecordingPad {
                 log: factory_log.clone(),
                 next: 0,
+                installed: installed.clone(),
             })
         }),
         EngineConfig {
@@ -1116,7 +1137,6 @@ fn xbox_engine() -> (MockHidBackend, Engine, PadLog) {
         },
     );
     wait_status(&e, "connect", |s| s.devices.len() == 1);
-    log.wait("virtual controller", |p| p.contains(&Pad::Connect(1)));
     (backend, e, log)
 }
 
@@ -1285,5 +1305,247 @@ fn shutdown_mid_macro_sends_neutral_and_removes_the_virtual_controller() {
         all[n - 2..],
         [Pad::Report(1, XusbReport::default()), Pad::Disconnect(1)]
     );
+    assert_eq!(log.live(), 0);
+}
+
+// ---- M4.5: driver readiness, profile reload, rapid and concurrent macros -----
+
+const L3: (usize, u8) = (1, 0x40);
+const TRIANGLE_MARK: (usize, u8) = (0, 0x80); // reaches the pad as Y
+const SQUARE_MARK: (usize, u8) = (0, 0x10); // reaches the pad as X
+
+fn has(r: &XusbReport, bit: u16) -> bool {
+    r.buttons & bit != 0
+}
+
+fn macro_on(id: &str, trigger: MacroButton, out: MacroButton, mode: PlaybackMode) -> Macro {
+    let mut m = rapid_macro();
+    m.id = id.into();
+    m.name = id.into();
+    m.trigger = Some(trigger);
+    m.mode = mode;
+    m.steps[0].buttons = vec![out];
+    m
+}
+
+fn count_with(log: &PadLog, bit: u16) -> usize {
+    log.reports().iter().filter(|r| has(r, bit)).count()
+}
+
+/// Releases every button, waits until no macro plays, then returns the
+/// reports produced by `n` further physical reports holding Square (a marker,
+/// seen as X).
+fn settle(backend: &MockHidBackend, e: &Engine, log: &PadLog, n: usize) -> Vec<XusbReport> {
+    pump_at_250hz(backend, &[], 3); // release everything
+    wait_status(e, "macros idle", |s| s.devices[0].playing_macros.is_empty());
+    let before = log.reports().len();
+    let marked = count_with(log, xusb::X);
+    pump_at_250hz(backend, &[SQUARE_MARK], n);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while count_with(log, xusb::X) < marked + n {
+        assert!(Instant::now() < deadline, "settle timed out");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    log.reports()[before..].to_vec()
+}
+
+#[test]
+fn driver_installed_while_running_is_used_after_check_again() {
+    let installed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (backend, e, log) = xbox_engine_with(installed.clone());
+    backend.push_report(PATH, report(&[]));
+    let s = wait_status(&e, "first input", |s| s.devices[0].input.is_some());
+    assert_eq!(s.devices[0].output.active, None);
+    assert!(log.all().is_empty(), "nothing created without the driver");
+
+    installed.store(true, Ordering::SeqCst); // user installs ViGEmBus
+    e.refresh_drivers(); // "Check again"
+    backend.push_report(PATH, report(&[]));
+    log.wait("created", |p| p.contains(&Pad::Connect(1)));
+    let s = wait_status(&e, "active", |s| s.devices[0].output.active.is_some());
+    assert!(matches!(
+        s.output_backend_status,
+        BackendStatus::Ready { .. }
+    ));
+}
+
+#[test]
+fn rapid_taps_never_leave_a_button_held_in_any_mode() {
+    for mode in [
+        PlaybackMode::RepeatWhileHeld,
+        PlaybackMode::Toggle,
+        PlaybackMode::Once,
+    ] {
+        let (backend, e, log) = xbox_engine();
+        e.set_macros(vec![macro_on(
+            "tap",
+            MacroButton::RightStick,
+            MacroButton::South,
+            mode,
+        )]);
+        backend.push_report(PATH, report(&[]));
+        for _ in 0..20 {
+            pump_at_250hz(&backend, &[R3], 2);
+            pump_at_250hz(&backend, &[TRIANGLE_MARK], 2);
+        }
+        let tail = settle(&backend, &e, &log, 10);
+        let reports = log.reports();
+        if mode == PlaybackMode::RepeatWhileHeld {
+            assert!(
+                reports
+                    .iter()
+                    .filter(|r| has(r, xusb::Y))
+                    .all(|r| !has(r, xusb::A)),
+                "{mode:?}: nothing pressed while released"
+            );
+        }
+        // 20 taps: Toggle ends off; Once finishes; nothing stays held.
+        assert!(
+            tail.iter().all(|r| !has(r, xusb::A)),
+            "{mode:?}: A stuck after taps"
+        );
+        assert!(
+            reports.iter().all(|r| !has(r, xusb::RIGHT_THUMB)),
+            "{mode:?}: trigger leaked"
+        );
+    }
+}
+
+#[test]
+fn two_macros_run_together_and_stop_independently() {
+    let (backend, e, log) = xbox_engine();
+    e.set_macros(vec![
+        macro_on(
+            "a",
+            MacroButton::RightStick,
+            MacroButton::South,
+            PlaybackMode::RepeatWhileHeld,
+        ),
+        macro_on(
+            "b",
+            MacroButton::LeftStick,
+            MacroButton::East,
+            PlaybackMode::RepeatWhileHeld,
+        ),
+    ]);
+    backend.push_report(PATH, report(&[]));
+    pump_at_250hz(&backend, &[R3, L3], 50);
+    pump_at_250hz(&backend, &[L3, TRIANGLE_MARK], 50); // R3 released
+    let tail = settle(&backend, &e, &log, 10);
+    let reports = log.reports();
+    assert!(
+        reports.iter().any(|r| has(r, xusb::A)) && reports.iter().any(|r| has(r, xusb::B)),
+        "both play"
+    );
+    let only_b: Vec<_> = reports.iter().filter(|r| has(r, xusb::Y)).collect();
+    assert!(
+        only_b.iter().all(|r| !has(r, xusb::A)),
+        "A stops when its trigger is released"
+    );
+    assert!(only_b.iter().any(|r| has(r, xusb::B)), "B keeps repeating");
+    assert!(tail.iter().all(|r| !has(r, xusb::A) && !has(r, xusb::B)));
+}
+
+#[test]
+fn two_macros_pressing_the_same_button_release_it_only_when_both_stop() {
+    let (backend, e, log) = xbox_engine();
+    let mut a = macro_on(
+        "a",
+        MacroButton::RightStick,
+        MacroButton::South,
+        PlaybackMode::RepeatWhileHeld,
+    );
+    let mut b = macro_on(
+        "b",
+        MacroButton::LeftStick,
+        MacroButton::South,
+        PlaybackMode::RepeatWhileHeld,
+    );
+    a.steps[0].delay_after_ms = 0; // hold A continuously
+    b.steps[0].delay_after_ms = 0;
+    e.set_macros(vec![a, b]);
+    backend.push_report(PATH, report(&[]));
+    pump_at_250hz(&backend, &[R3, L3], 20);
+    pump_at_250hz(&backend, &[L3, TRIANGLE_MARK], 30); // only L3 still held
+    let tail = settle(&backend, &e, &log, 10);
+    let held_by_b: Vec<_> = log
+        .reports()
+        .into_iter()
+        .filter(|r| has(r, xusb::Y))
+        .collect();
+    assert!(held_by_b.len() >= 30);
+    assert!(
+        held_by_b.iter().all(|r| has(r, xusb::A)),
+        "the other macro still holds A"
+    );
+    assert!(tail.iter().all(|r| !has(r, xusb::A)));
+}
+
+#[test]
+fn profile_reload_while_held_does_not_restart_the_macro_on_the_virtual_pad() {
+    let (backend, e, log) = xbox_engine();
+    let m = macro_on(
+        "a",
+        MacroButton::RightStick,
+        MacroButton::South,
+        PlaybackMode::RepeatWhileHeld,
+    );
+    e.set_macros(vec![m.clone()]);
+    backend.push_report(PATH, report(&[]));
+    pump_at_250hz(&backend, &[R3], 30);
+    log.wait("A", |p| {
+        p.iter()
+            .any(|x| matches!(x, Pad::Report(_, r) if has(r, xusb::A)))
+    });
+
+    e.set_macros(vec![m]); // profile switch: same macro reloaded
+    pump_at_250hz(&backend, &[R3], 2);
+    wait_status(&e, "reloaded", |s| s.devices[0].playing_macros.is_empty());
+    let marked = count_with(&log, xusb::Y);
+    let before = log.reports().len();
+    pump_at_250hz(&backend, &[R3, TRIANGLE_MARK], 40); // still held, ~160 ms
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while count_with(&log, xusb::Y) < marked + 40 {
+        assert!(Instant::now() < deadline, "timed out");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    let after = log.reports()[before..].to_vec();
+    assert!(
+        after.iter().all(|r| !has(r, xusb::A)),
+        "no restart until released"
+    );
+    assert!(
+        after.iter().all(|r| !has(r, xusb::RIGHT_THUMB)),
+        "trigger stays hidden"
+    );
+
+    pump_at_250hz(&backend, &[], 2); // release
+    let before = log.reports().len();
+    pump_at_250hz(&backend, &[R3], 20); // fresh press
+    log.wait("restart", |p| {
+        p[before..]
+            .iter()
+            .any(|x| matches!(x, Pad::Report(_, r) if has(r, xusb::A)))
+    });
+}
+
+#[test]
+fn switching_to_a_profile_with_output_off_mid_macro_releases_cleanly() {
+    let (backend, e, log) = xbox_engine();
+    e.set_macros(vec![jump_macro(PlaybackMode::RepeatWhileHeld)]);
+    backend.push_report(PATH, report(&[]));
+    backend.push_report(PATH, report(&[R3]));
+    log.wait("A held", |p| {
+        p.iter()
+            .any(|x| matches!(x, Pad::Report(_, r) if has(r, xusb::A)))
+    });
+    // What apply_profile does for a profile whose output is Disabled.
+    e.set_output_mode(VirtualOutputKind::Disabled);
+    e.set_macros(vec![]);
+    backend.push_report(PATH, report(&[R3]));
+    log.wait("removed", |p| p.contains(&Pad::Disconnect(1)));
+    let all = log.all();
+    let i = all.iter().position(|p| *p == Pad::Disconnect(1)).unwrap();
+    assert_eq!(all[i - 1], Pad::Report(1, XusbReport::default()));
     assert_eq!(log.live(), 0);
 }

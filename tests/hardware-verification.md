@@ -2,7 +2,7 @@
 
 NEXUS supports the DualSense over **USB only**. Rows marked *Out of scope* concern Bluetooth and are no longer tested.
 
-NEXUS is developed in a Linux container without access to Windows or a controller. Only the owner can fill in these results. Known so far (owner report): USB input works, with 73,835 reports, 0 parse errors and about 250 Hz. Every other row is unverified until recorded here.
+NEXUS is developed in a Linux container without access to Windows or a controller. Only the owner can fill in these results. Known so far (owner reports): USB input works, with 73,835 reports, 0 parse errors and about 250 Hz. Rows marked **Pass (owner, date)** were reported by the owner. Every other row is unverified until recorded here.
 
 Setup steps: `docs/windows-setup.md`. Useful tools: **Settings → HID Devices (Sony)** (what Windows reports and how NEXUS classified it; **Copy diagnostics report**), **Raw HID Reports** (enable auto-refresh) and **Engine Log**.
 
@@ -134,19 +134,38 @@ Prerequisites:
 
 Use Windows tools and offline or single-player games only.
 
+Re-test V6–V12 on each new build that changes macro or output code. M4.5 changed: a held trigger now needs a fresh press after a profile switch; the virtual controller recovers by itself after a driver hiccup; "Check again" re-creates it after installing ViGEmBus.
+
 | # | Step | Expected | Result |
 |---|---|---|---|
 | V1 | Virtual Output tab before installing ViGEmBus | "Not installed" with install steps; Xbox 360 cannot be selected while the switch is off | |
 | V2 | Install ViGEmBus, click **Check again** | "Installed and ready" | |
-| V3 | Switch on, choose Xbox 360 | "Xbox 360 connected" | |
-| V4 | `joy.cpl` (Win+R) | **Controller (XBOX 360 For Windows)** listed. Properties: buttons, sticks and triggers follow the DualSense (Cross = button 1 / A) | |
+| V3 | Switch on, choose Xbox 360 | "Xbox 360 connected" | **Pass** (owner, 2026-11-16, build 711f0d4, CI run 43817242201) |
+| V4 | `joy.cpl` (Win+R) | **Controller (XBOX 360 For Windows)** listed. Properties: buttons, sticks and triggers follow the DualSense (Cross = button 1 / A) | **Pass**: Windows recognises the virtual Xbox 360 controller (owner, 2026-11-16, build 711f0d4, CI run 43817242201) |
 | V5 | Browser gamepad tester (e.g. a "gamepad tester" site) | An Xbox 360 controller shows input. Note whether the physical DualSense also appears (duplicate input) | |
-| V6 | Macro Studio: Repeat While Held macro (e.g. Cross, hold 50 ms, wait 50 ms) on R3 or a mapped paddle; hold the trigger 5 s in `joy.cpl` Properties | Button 1 blinks repeatedly; the trigger itself never lights | |
-| V7 | Release the trigger | Blinking stops at once; nothing stays lit | |
+| V6 | Macro Studio: Repeat While Held macro (e.g. Cross, hold 50 ms, wait 50 ms) on R3 or a mapped paddle; hold the trigger 5 s in `joy.cpl` Properties | Button 1 blinks repeatedly; the trigger itself never lights | **Pass**: repeats while held (owner, 2026-11-16, build 711f0d4, CI run 43817242201) |
+| V7 | Release the trigger | Blinking stops at once; nothing stays lit | **Pass**: release stops the macro (owner, 2026-11-16, build 711f0d4, CI run 43817242201) |
 | V8 | Tap the trigger quickly 20 times | No button stays lit afterwards; no extra repeats after release | |
 | V9 | Hold the trigger, unplug USB | Virtual controller disappears from `joy.cpl`; on re-plug it returns with nothing pressed | |
 | V10 | Hold the trigger, switch output to Disabled, then back to Xbox 360 | Removed, then re-created; nothing pressed | |
 | V11 | Hold the trigger, close NEXUS | Virtual controller disappears; nothing stays pressed | |
 | V12 | Turn the switch off | Virtual controller removed at once | |
 | V13 | Steam running (Big Picture → Controller settings) | Record which controllers Steam lists, and whether input doubles | |
-| V14 | One offline or single-player game you choose | Record the title, whether the game uses the Xbox controller, macro behaviour, and any double input | |
+| V14 | One offline or single-player game you choose | Record the title, whether the game uses the Xbox controller, macro behaviour, and any double input | **Pass**: macro output works in an offline/single-player game; title to be recorded (owner, 2026-11-16, build 711f0d4, CI run 43817242201) |
+| V15 | Two profiles with the same Repeat While Held macro. Hold the trigger, switch profile (Profiles page or game auto-switch) | Macro stops and does **not** restart while still held; releasing and pressing again starts it | |
+| V16 | Two macros on different triggers (e.g. R3 and L3), hold both, then release one | Both repeat; releasing one stops only that one; nothing stays lit | |
+| V17 | Close NEXUS, install ViGEmBus (or start with it stopped), reopen with output on; then click **Check again** | Virtual controller appears without toggling or re-plugging | |
+
+## Known limitations (current build)
+
+| Area | Limitation |
+|---|---|
+| Connection | USB only. Bluetooth is out of scope. |
+| Virtual controller | Experimental: ViGEmBus (retired upstream, user-installed, never bundled). Xbox 360 only; DualShock 4 not enabled. |
+| Xbox 360 protocol | No touchpad, gyro, mute, adaptive triggers or haptics. Use touchpad zones and gyro-to-stick mappings instead. |
+| Duplicate input | The physical DualSense stays visible to games and Steam. Some may react to both controllers. HidHide is deferred; turn off PlayStation controller support in the game or Steam if needed (V5, V13 not yet measured). |
+| Multiple controllers | Each physical controller gets its own virtual controller, but all share one profile, settings and macro set (per-controller settings are planned for M5). |
+| MZ Titan paddles | Mapped mode works as the mapped button. Independent paddles are **not** supported; no capture evidence exists yet (T1–T10). |
+| Driver installed while NEXUS runs | Click **Check again** on the Virtual Output tab. |
+| Online games | Not tested and not targeted. Many online games prohibit macros. NEXUS does not try to avoid anti-cheat detection. |
+| Installer | Not code-signed (personal use); SmartScreen shows a warning on first install. |
