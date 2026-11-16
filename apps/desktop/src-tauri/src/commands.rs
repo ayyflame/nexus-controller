@@ -53,6 +53,10 @@ pub struct AppInfo {
     pub arch: &'static str,
     pub data_dir: Option<String>,
     pub storage_warning: Option<String>,
+    /// Full path of the running NEXUS program, for HidHide's applications
+    /// list. Shown only in the UI (it contains the Windows user name), never
+    /// put in diagnostics reports.
+    pub exe_path: Option<String>,
 }
 
 #[tauri::command]
@@ -63,6 +67,9 @@ pub fn get_app_info(state: State<'_, AppState>) -> AppInfo {
         arch: std::env::consts::ARCH,
         data_dir: state.data_dir.as_ref().map(|p| p.display().to_string()),
         storage_warning: state.storage_warning.clone(),
+        exe_path: std::env::current_exe()
+            .ok()
+            .map(|p| p.display().to_string()),
     }
 }
 

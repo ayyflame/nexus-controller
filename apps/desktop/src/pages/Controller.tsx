@@ -8,6 +8,7 @@ import {
 import { useEngine, usePrimaryDevice } from "../hooks/useEngine";
 import { engineApi, errorMessage } from "../lib/engine";
 import { backendReady, outputLabel } from "../lib/format";
+import { doubleInputAdvice, HIDHIDE_RELEASES } from "../lib/hidhide";
 import { BUTTONS, pressedButtons } from "../lib/macros";
 import {
   CURVE_PRESETS, STICK_PRESETS, curvePresetId, defaultProcessing, processStick, shapeMagnitude, triggerOutput, withDefaults,
@@ -444,14 +445,81 @@ function OutputTab() {
           NEXUS never installs or bundles drivers. To remove ViGEmBus later: Windows Settings › Apps › Installed apps ›
           “Nefarius Virtual Gamepad Emulation Bus Driver” › Uninstall. NEXUS keeps working without it; games then simply don't see a virtual controller.
         </p>
-        <div className="kv-row"><span>HidHide <span className="muted small">(not used in this beta)</span></span>{presence(status?.drivers.hidhide)}</div>
-        <Advanced title="Why might games see two controllers?">
-          <p className="muted small">Games can also see your physical DualSense and react to both it and the virtual Xbox controller. If a test tool or
-            game shows double input, turn off PlayStation controller support in that game or in Steam (Settings › Controller). NEXUS does not hide
-            your physical controller in this beta.</p>
-        </Advanced>
+        <div className="kv-row"><span>HidHide <span className="muted small">(optional, see “Avoid double input” below)</span></span>{presence(status?.drivers.hidhide)}</div>
       </Panel>
+
+      <div className="span-2">
+        <DoubleInputPanel outputActive={!!active} controllerConnected={!!device} />
+      </div>
     </div>
+  );
+}
+
+function CopyText({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <span className="copy-text">
+      <code className="mono break">{text}</code>
+      <button className="btn-ghost small" onClick={async () => {
+        try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch { setCopied(false); }
+      }}>{copied ? "Copied" : "Copy"}</button>
+    </span>
+  );
+}
+
+/** Optional HidHide guide. NEXUS never installs HidHide or changes its settings. */
+function DoubleInputPanel({ outputActive, controllerConnected }: { outputActive: boolean; controllerConnected: boolean }) {
+  const { status, appInfo } = useEngine();
+  const hidhide = status?.drivers.hidhide;
+  const advice = doubleInputAdvice({ hidhide, outputActive, controllerConnected });
+  return (
+    <Panel title="Avoid double input (optional)">
+      <p className="muted small">
+        Games and Steam can see <b>both</b> your physical DualSense and the virtual Xbox controller, so a press may count twice.
+        HidHide, a free optional driver by the same developer as ViGEmBus, can hide the DualSense from games while NEXUS keeps reading it.
+        NEXUS never installs HidHide or changes its settings; you set it up once in HidHide's own app. It is not required.
+      </p>
+      <div className="kv-row"><span>HidHide</span>{presence(hidhide)}</div>
+      {advice === "suggestHidHide" && (
+        <div className="notice dev small">If a game or Steam reacts twice to one press, use HidHide (below) or turn off PlayStation controller support in that game or in Steam.</div>
+      )}
+      {advice === "checkApplicationsList" && (
+        <div className="notice warn small">
+          HidHide is installed and NEXUS sees no controller. If your DualSense is plugged in, HidHide may be hiding it from NEXUS too:
+          add NEXUS to HidHide's <b>Applications</b> list (step 2 below), or untick <b>Enable device hiding</b>.
+        </div>
+      )}
+      <div className="kv-row"><span className="muted">NEXUS program path</span>
+        {appInfo?.exePath ? <CopyText text={appInfo.exePath} /> : <span className="muted">Unknown</span>}</div>
+
+      <Advanced title="1. Install HidHide (once)">
+        <ol className="small driver-steps">
+          <li>Open the official release page: <CopyText text={HIDHIDE_RELEASES} /></li>
+          <li>Download the latest <b>HidHide_…_x64.exe</b> and run it. Windows asks for administrator approval for the driver installer; NEXUS itself never needs it.</li>
+          <li>Restart Windows if the installer asks, then click <b>Check again</b> in the Driver panel.</li>
+        </ol>
+      </Advanced>
+      <Advanced title="2. Keep NEXUS allowed, hide the DualSense from games">
+        <ol className="small driver-steps">
+          <li>Start <b>HidHide Configuration Client</b> from the Start menu.</li>
+          <li><b>Applications</b> tab: click <b>+</b> and choose the NEXUS program (path above). Only NEXUS goes here: not Steam, not games.</li>
+          <li><b>Devices</b> tab: tick <b>DualSense Wireless Controller</b>. Do <b>not</b> tick the Xbox 360 controller; that one is NEXUS's output.</li>
+          <li>Tick <b>Enable device hiding</b>.</li>
+          <li>Check: in NEXUS the DualSense stays connected. In <code>joy.cpl</code> (Win + R) only “Controller (XBOX 360 For Windows)” is listed.</li>
+        </ol>
+        <p className="muted small">
+          While hiding is on, games see <b>no</b> controller when NEXUS is closed. Untick <b>Enable device hiding</b> when you play without NEXUS.
+          Plugging into a different USB port may show the DualSense as a new device: tick it again in the Devices tab.
+        </p>
+      </Advanced>
+      <Advanced title="Undo or recover">
+        <ul className="small driver-steps">
+          <li><b>Show the DualSense to games again:</b> HidHide Configuration Client → untick <b>Enable device hiding</b>.</li>
+          <li><b>NEXUS lost the controller after setup:</b> NEXUS is missing from the Applications list (or its path changed): add it again, or untick Enable device hiding.</li>
+          <li><b>Remove HidHide completely:</b> Windows Settings › Apps › Installed apps › <b>HidHide</b> › Uninstall, then restart if asked. Every device is visible again; NEXUS keeps working.</li>
+        </ul>
+      </Advanced>
+    </Panel>
   );
 }
 

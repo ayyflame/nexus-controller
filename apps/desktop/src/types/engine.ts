@@ -167,6 +167,8 @@ export interface AppInfo {
   arch: string;
   dataDir: string | null;
   storageWarning: string | null;
+  /** Full program path (contains the user name: UI only, never in reports). */
+  exePath: string | null;
 }
 
 export interface CommandError { message: string; issues?: ValidationIssue[] }

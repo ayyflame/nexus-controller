@@ -156,6 +156,23 @@ Re-test V6–V12 on each new build that changes macro or output code. M4.5 chang
 | V16 | Two macros on different triggers (e.g. R3 and L3), hold both, then release one | Both repeat; releasing one stops only that one; nothing stays lit | |
 | V17 | Close NEXUS, install ViGEmBus (or start with it stopped), reopen with output on; then click **Check again** | Virtual controller appears without toggling or re-plugging | |
 
+## Duplicate input, with and without HidHide (optional)
+
+Virtual output must be on (Xbox 360). Run D1–D3 **before** installing HidHide. Steps are in `docs/hidhide-setup.md`. NEXUS never changes HidHide settings.
+
+| # | Step | Expected | Result |
+|---|---|---|---|
+| D1 | No HidHide. `joy.cpl` | Record which controllers are listed (expected: DualSense **and** Xbox 360) | |
+| D2 | No HidHide. Browser gamepad tester; press Cross once | Record whether both controllers register the press (double input) | |
+| D3 | No HidHide. Steam running (Settings › Controller) | Record which controllers Steam lists and whether a press counts twice | |
+| D4 | Install HidHide from the official release page; click **Check again** | Virtual Output shows HidHide **Installed**; NEXUS still works | |
+| D5 | Configuration Client: add NEXUS (path copied from the Virtual Output tab) to Applications; tick the DualSense in Devices; enable hiding | NEXUS keeps showing the DualSense connected; macros still work | |
+| D6 | Repeat D1–D3 | Only the Xbox 360 controller is visible; one press counts once | |
+| D7 | Close NEXUS with hiding on; open `joy.cpl` | No controller listed (expected, documented) | |
+| D8 | Remove NEXUS from Applications (hiding still on), restart NEXUS | NEXUS shows no controller **and** the hint "HidHide may be hiding it from NEXUS too"; adding NEXUS back restores it | |
+| D9 | Plug the DualSense into a different USB port with hiding on | Record whether it stays hidden or needs ticking again | |
+| D10 | Untick **Enable device hiding**, then uninstall HidHide | The DualSense is visible to games again; NEXUS keeps working | |
+
 ## Known limitations (current build)
 
 | Area | Limitation |
@@ -163,7 +180,7 @@ Re-test V6–V12 on each new build that changes macro or output code. M4.5 chang
 | Connection | USB only. Bluetooth is out of scope. |
 | Virtual controller | Experimental: ViGEmBus (retired upstream, user-installed, never bundled). Xbox 360 only; DualShock 4 not enabled. |
 | Xbox 360 protocol | No touchpad, gyro, mute, adaptive triggers or haptics. Use touchpad zones and gyro-to-stick mappings instead. |
-| Duplicate input | The physical DualSense stays visible to games and Steam. Some may react to both controllers. HidHide is deferred; turn off PlayStation controller support in the game or Steam if needed (V5, V13 not yet measured). |
+| Duplicate input | Without HidHide, the physical DualSense stays visible to games and Steam, and some may react to both controllers. Optional: HidHide set up by the user (`docs/hidhide-setup.md`), or turn off PlayStation controller support in the game or Steam. Rows D1–D10 not yet run. |
 | Multiple controllers | Each physical controller gets its own virtual controller, but all share one profile, settings and macro set (per-controller settings are planned for M5). |
 | MZ Titan paddles | Mapped mode works as the mapped button. Independent paddles are **not** supported; no capture evidence exists yet (T1–T10). |
 | Driver installed while NEXUS runs | Click **Check again** on the Virtual Output tab. |

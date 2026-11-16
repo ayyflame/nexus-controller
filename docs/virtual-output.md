@@ -10,7 +10,7 @@
 | **Experimental ViGEmBus backend, Xbox 360 only** (`crates/virtual-controller/src/vigem.rs`) | Implemented. Unit-tested through a mock backend; **not yet verified on Windows hardware** |
 | Consent switch "Use the experimental virtual controller" (Controller › Virtual Output) | Implemented. Off by default; stored as an app setting (no database migration) |
 | DualShock 4 output | Not enabled in this beta |
-| HidHide integration | Not implemented (deferred) |
+| HidHide (optional, user-configured) | Guided setup only: NEXUS shows the steps and its program path, never installs or configures HidHide. See [`hidhide-setup.md`](hidhide-setup.md). |
 
 ### How it works
 
@@ -26,7 +26,7 @@
   - if NEXUS crashes, Windows closes its connection to ViGEmBus and the driver removes the controller.
 - **Limitations:**
   - Xbox 360 has no touchpad, gyro, mute, adaptive triggers or haptics. Map touchpad zones and gyro-to-stick to Xbox inputs instead.
-  - The physical DualSense stays visible to games, so games with PlayStation support or Steam Input may see two controllers. HidHide is deferred.
+  - The physical DualSense stays visible to games, so games with PlayStation support or Steam Input may see two controllers. Optional fix: HidHide, set up by the user ([`hidhide-setup.md`](hidhide-setup.md)).
 
 ### Install and remove ViGEmBus (user)
 
