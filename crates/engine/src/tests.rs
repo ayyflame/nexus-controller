@@ -559,3 +559,186 @@ fn stop_all_macros_cancels_a_toggled_macro() {
         "no stuck press"
     );
 }
+
+// ---- Milestone 3: feedback, gyro calibration, diagnostics ------------------
+
+fn bt_info() -> HidDeviceInfo {
+    HidDeviceInfo {
+        path: BT_PATH.into(),
+        vendor_id: VENDOR_ID_SONY,
+        product_id: PRODUCT_ID_DUALSENSE,
+        usage_page: 1,
+        usage: 5,
+        input_report_len: 78,
+        output_report_len: 78,
+        ancestor_instance_ids: vec![
+            r"BTHENUM\{00001124-0000-1000-8000-00805F9B34FB}_VID&0002054C_PID&0CE6\x".into(),
+        ],
+        ..Default::default()
+    }
+}
+
+const BT_PATH: &str = r"\\?\hid#{00001124-0000-1000-8000-00805f9b34fb}_vid&0002054c_pid&0ce6#bt";
+
+fn wait_writes(backend: &MockHidBackend, path: &str, n: usize) -> Vec<Vec<u8>> {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let w = backend.writes(path);
+        if w.len() >= n {
+            return w;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "expected {n} writes, got {}",
+            w.len()
+        );
+        std::thread::sleep(Duration::from_millis(3));
+    }
+}
+
+fn pump(backend: &MockHidBackend, path: &str, n: usize) {
+    for _ in 0..n {
+        backend.push_report(path, Payload::neutral().usb_report());
+    }
+}
+
+#[test]
+fn nothing_is_sent_to_the_controller_unless_enabled() {
+    let (backend, e) = connected_engine();
+    pump(&backend, PATH, 20);
+    std::thread::sleep(Duration::from_millis(80));
+    assert!(
+        backend.writes(PATH).is_empty(),
+        "default profile never writes"
+    );
+    assert!(e.status().devices[0].output_reports_sent == 0);
+}
+
+#[test]
+fn lightbar_is_sent_once_when_enabled_and_again_only_on_change() {
+    let (backend, e) = connected_engine();
+    let mut cfg = e.processing();
+    cfg.feedback.lightbar_enabled = true;
+    cfg.feedback.color = [10, 20, 30];
+    e.set_processing(cfg.clone());
+    pump(&backend, PATH, 10);
+    let w = wait_writes(&backend, PATH, 1);
+    let r = &w[0];
+    assert_eq!(r[0], 0x02, "USB output report");
+    assert_eq!(r.len(), 48);
+    assert_eq!(&r[1 + 44..1 + 47], &[10, 20, 30]);
+    assert_eq!(r[1 + 41], 1 << 1, "default light released the first time");
+    pump(&backend, PATH, 20);
+    std::thread::sleep(Duration::from_millis(60));
+    assert_eq!(
+        backend.writes(PATH).len(),
+        1,
+        "unchanged settings are not resent"
+    );
+    cfg.feedback.color = [1, 2, 3];
+    e.set_processing(cfg);
+    pump(&backend, PATH, 5);
+    let w = wait_writes(&backend, PATH, 2);
+    assert_eq!(&w[1][1 + 44..1 + 47], &[1, 2, 3]);
+    assert_eq!(w[1][1 + 41], 0, "release only sent once");
+}
+
+#[test]
+fn vibration_test_starts_and_always_stops() {
+    let (backend, e) = connected_engine();
+    let mut cfg = e.processing();
+    cfg.feedback.rumble_intensity = 0.5;
+    e.set_processing(cfg);
+    e.test_vibration(1.0, 60).unwrap();
+    pump(&backend, PATH, 3);
+    let w = wait_writes(&backend, PATH, 1);
+    assert_eq!(
+        (w[0][1 + 2], w[0][1 + 3]),
+        (128, 128),
+        "scaled by intensity"
+    );
+    assert_eq!(w[0][1] & 0b11, 0b11);
+    std::thread::sleep(Duration::from_millis(80));
+    pump(&backend, PATH, 3);
+    let w = wait_writes(&backend, PATH, 2);
+    assert_eq!((w[1][1 + 2], w[1][1 + 3]), (0, 0), "motors stopped");
+}
+
+#[test]
+fn bluetooth_feedback_uses_bt_reports_with_crc_and_sequence() {
+    let backend = MockHidBackend::new();
+    backend.plug(bt_info());
+    let e = engine(&backend);
+    wait_status(&e, "bt connect", |s| s.devices.len() == 1);
+    let mut cfg = e.processing();
+    cfg.feedback.lightbar_enabled = true;
+    e.set_processing(cfg.clone());
+    backend.push_report(BT_PATH, Payload::neutral().bluetooth_report());
+    let w = wait_writes(&backend, BT_PATH, 1);
+    assert_eq!(
+        (w[0].len(), w[0][0], w[0][1], w[0][2]),
+        (78, 0x31, 0x00, 0x10)
+    );
+    let crc = u32::from_le_bytes(w[0][74..78].try_into().unwrap());
+    assert_eq!(
+        crc,
+        nexus_dualsense::bluetooth_report_crc(0xA2, &w[0][..74])
+    );
+    cfg.feedback.color = [0, 0, 255];
+    e.set_processing(cfg);
+    backend.push_report(BT_PATH, Payload::neutral().bluetooth_report());
+    let w = wait_writes(&backend, BT_PATH, 2);
+    assert_eq!(w[1][1], 0x10, "sequence advanced");
+}
+
+#[test]
+fn test_vibration_requires_a_controller() {
+    let backend = MockHidBackend::new();
+    let e = engine(&backend);
+    assert!(e.test_vibration(1.0, 100).is_err());
+}
+
+#[test]
+fn gyro_calibration_averages_resting_gyro_and_detects_movement() {
+    let (backend, e) = connected_engine();
+    e.start_gyro_calibration().unwrap();
+    assert!(e.status().gyro_calibrating);
+    for i in 0..30 {
+        let mut p = Payload::neutral();
+        p.gyro = [10 + (i % 3), -4, 7];
+        backend.push_report(PATH, p.usb_report());
+    }
+    wait_status(&e, "samples", |s| s.devices[0].total_reports >= 31);
+    let c = e.finish_gyro_calibration().unwrap();
+    assert!(c.steady && c.samples >= 30);
+    assert!((c.bias[0] - 11.0).abs() < 0.5 && c.bias[1] == -4.0 && c.bias[2] == 7.0);
+
+    e.start_gyro_calibration().unwrap();
+    for i in 0..30 {
+        let mut p = Payload::neutral();
+        p.gyro = [if i % 2 == 0 { 400 } else { -400 }, 0, 0];
+        backend.push_report(PATH, p.usb_report());
+    }
+    wait_status(&e, "samples", |s| s.devices[0].total_reports >= 61);
+    assert!(
+        !e.finish_gyro_calibration().unwrap().steady,
+        "movement detected"
+    );
+    assert!(e.finish_gyro_calibration().is_err(), "not started");
+}
+
+#[test]
+fn sequence_gaps_and_connection_stats_are_counted() {
+    let (backend, e) = connected_engine();
+    // The setup report had sequence 0; 3 and 4 go missing.
+    for seq in [1u8, 2, 5, 6] {
+        let mut p = Payload::neutral();
+        p.seq = seq;
+        backend.push_report(PATH, p.usb_report());
+    }
+    let s = wait_status(&e, "gaps", |s| s.devices[0].sequence_gaps == 2);
+    assert_eq!(s.stats.connects, 1);
+    backend.unplug(PATH);
+    let s = wait_status(&e, "disconnect", |s| s.devices.is_empty());
+    assert_eq!(s.stats.disconnects, 1);
+}

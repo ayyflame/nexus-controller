@@ -38,7 +38,8 @@ use windows_sys::Win32::Foundation::{
     INVALID_HANDLE_VALUE, WAIT_OBJECT_0, WAIT_TIMEOUT,
 };
 use windows_sys::Win32::Storage::FileSystem::{
-    CreateFileW, ReadFile, FILE_FLAG_OVERLAPPED, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
+    CreateFileW, ReadFile, WriteFile, FILE_FLAG_OVERLAPPED, FILE_SHARE_READ, FILE_SHARE_WRITE,
+    OPEN_EXISTING,
 };
 use windows_sys::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
 use windows_sys::Win32::System::IO::{
@@ -416,6 +417,27 @@ impl HidConnection for WindowsHidConnection {
         }
         let ms = timeout.as_millis().min(u32::MAX as u128) as u32;
         self.complete(&mut ov, ms)
+    }
+
+    fn write_output_report(&mut self, report: &[u8]) -> Result<usize, HidError> {
+        let mut ov = self.new_overlapped();
+        // SAFETY: `report` and `ov` outlive the operation (see `complete`).
+        let ok = unsafe {
+            WriteFile(
+                self.handle.0,
+                report.as_ptr(),
+                report.len() as u32,
+                null_mut(),
+                &mut ov,
+            )
+        } != 0;
+        if !ok {
+            let e = last_error();
+            if e != ERROR_IO_PENDING {
+                return Err(map_error(e));
+            }
+        }
+        self.complete(&mut ov, FEATURE_TIMEOUT_MS)
     }
 
     fn get_feature_report(&mut self, buf: &mut [u8]) -> Result<usize, HidError> {

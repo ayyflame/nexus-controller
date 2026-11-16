@@ -55,4 +55,10 @@ pub trait HidConnection: Send {
 
     /// Reads a feature report. `buf[0]` must hold the report ID on entry.
     fn get_feature_report(&mut self, buf: &mut [u8]) -> Result<usize, HidError>;
+
+    /// Writes an output report (`report[0]` is the report ID). Backends that
+    /// cannot write return `Unsupported`.
+    fn write_output_report(&mut self, _report: &[u8]) -> Result<usize, HidError> {
+        Err(HidError::Unsupported("output reports".into()))
+    }
 }

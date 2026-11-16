@@ -87,6 +87,11 @@ pub struct DeviceSnapshot {
     pub playing_macros: Vec<String>,
     /// Time NEXUS spends per report: processing, macros and output.
     pub pipeline_latency: LatencySummary,
+    /// Reports missing according to the controller's sequence counter
+    /// (estimate: assumes the counter advances once per report).
+    pub sequence_gaps: u64,
+    /// Output reports (lightbar, LEDs, vibration) sent to this controller.
+    pub output_reports_sent: u64,
     pub last_report_ms: Option<u64>,
     pub report_rate_hz: f64,
     pub total_reports: u64,
@@ -112,7 +117,41 @@ pub struct EngineStatus {
     pub macros: MacroRuntimeStatus,
     /// Whether ViGEmBus / HidHide are installed (read-only check).
     pub drivers: DriverStatus,
+    /// Connection history since NEXUS started.
+    pub stats: EngineStats,
+    /// Gyro calibration in progress.
+    pub gyro_calibrating: bool,
 }
+
+#[derive(Clone, Copy, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EngineStats {
+    pub connects: u64,
+    pub disconnects: u64,
+    pub connection_errors: u64,
+}
+
+/// Result of averaging the resting gyro.
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GyroCalibration {
+    /// Resting offset per axis in raw units (store in `GyroConfig::bias`).
+    pub bias: [f32; 3],
+    pub samples: u32,
+    /// `false` if the controller moved during calibration.
+    pub steady: bool,
+}
+
+#[derive(Default)]
+struct GyroCalState {
+    sum: [f64; 3],
+    min: [i16; 3],
+    max: [i16; 3],
+    count: u32,
+}
+
+/// Largest raw spread (≈3 °/s) still considered "held still".
+const GYRO_STEADY_SPREAD: i16 = 50;
 
 /// Whether macros can affect games right now, and recording progress.
 #[derive(Clone, Debug, Serialize)]
@@ -269,6 +308,9 @@ struct Shared {
     recording: Mutex<Option<RecordingState>>,
     processing: Mutex<Arc<ProcessingConfig>>,
     processing_generation: AtomicU64,
+    rumble_request: Mutex<(u64, f32, u32)>,
+    stats: Mutex<EngineStats>,
+    gyro_cal: Mutex<Option<GyroCalState>>,
     hid_backend: String,
     hid_available: bool,
     hotplug_active: std::sync::atomic::AtomicBool,
@@ -342,6 +384,9 @@ impl Engine {
             recording: Mutex::new(None),
             processing: Mutex::new(Arc::new(config.processing.sanitized())),
             processing_generation: AtomicU64::new(0),
+            rumble_request: Mutex::new((0, 0.0, 0)),
+            stats: Mutex::new(EngineStats::default()),
+            gyro_cal: Mutex::new(None),
             hid_backend: hid.name().to_owned(),
             hid_available: hid.is_available(),
             hotplug_active: std::sync::atomic::AtomicBool::new(false),
@@ -432,6 +477,8 @@ impl Engine {
         let enumeration_error = lock(&self.shared.enumeration_error).clone();
         let requested_output = *lock(&self.shared.requested_output);
         let drivers = *lock(&self.shared.drivers);
+        let stats = *lock(&self.shared.stats);
+        let gyro_calibrating = lock(&self.shared.gyro_cal).is_some();
         EngineStatus {
             revision: self.revision(),
             hid_backend: self.shared.hid_backend.clone(),
@@ -444,6 +491,8 @@ impl Engine {
             devices,
             macros,
             drivers,
+            stats,
+            gyro_calibrating,
         }
     }
 
@@ -509,6 +558,57 @@ impl Engine {
     pub fn set_macros(&self, macros: Vec<Macro>) {
         self.shared.macros.set(macros);
         self.shared.bump();
+    }
+
+    /// Vibrates every connected DualSense at `strength` (0–1, scaled by the
+    /// profile's vibration intensity) for `duration_ms`, then stops.
+    pub fn test_vibration(&self, strength: f32, duration_ms: u32) -> Result<(), String> {
+        if lock(&self.shared.devices).is_empty() {
+            return Err("Connect your controller to test vibration.".to_owned());
+        }
+        let mut r = lock(&self.shared.rumble_request);
+        *r = (
+            r.0 + 1,
+            strength.clamp(0.0, 1.0),
+            duration_ms.clamp(50, 3000),
+        );
+        Ok(())
+    }
+
+    /// Starts averaging the resting gyro. Keep the controller still on a
+    /// flat surface, then call [`Engine::finish_gyro_calibration`].
+    pub fn start_gyro_calibration(&self) -> Result<(), String> {
+        let has_motion = lock(&self.shared.devices)
+            .values()
+            .any(|d| d.input.is_some_and(|i| i.motion.is_some()));
+        if !has_motion {
+            return Err(
+                "Connect your controller (motion data is needed) to calibrate the gyro.".to_owned(),
+            );
+        }
+        *lock(&self.shared.gyro_cal) = Some(GyroCalState {
+            min: [i16::MAX; 3],
+            max: [i16::MIN; 3],
+            ..GyroCalState::default()
+        });
+        self.shared.bump();
+        Ok(())
+    }
+
+    pub fn finish_gyro_calibration(&self) -> Result<GyroCalibration, String> {
+        let state = lock(&self.shared.gyro_cal).take();
+        self.shared.bump();
+        let s = state.ok_or_else(|| "Gyro calibration was not started.".to_owned())?;
+        if s.count < 20 {
+            return Err("Not enough motion data was received. Try again.".to_owned());
+        }
+        let bias = s.sum.map(|v| (v / s.count as f64) as f32);
+        let steady = (0..3).all(|i| s.max[i].saturating_sub(s.min[i]) <= GYRO_STEADY_SPREAD);
+        Ok(GyroCalibration {
+            bias,
+            samples: s.count,
+            steady,
+        })
     }
 
     /// Immediately stops every running macro on every controller.
@@ -690,6 +790,29 @@ fn connection_label(c: ConnectionType) -> &'static str {
 
 fn handle_device_event(shared: &Shared, event: DeviceEvent) {
     match &event {
+        DeviceEvent::Connected { .. }
+        | DeviceEvent::Disconnected { .. }
+        | DeviceEvent::OpenFailed { .. } => {
+            let mut st = lock(&shared.stats);
+            match &event {
+                DeviceEvent::Connected { .. } => st.connects += 1,
+                DeviceEvent::Disconnected {
+                    reason: DisconnectReason::Error(_),
+                    ..
+                }
+                | DeviceEvent::OpenFailed { .. } => {
+                    st.connection_errors += 1;
+                    if matches!(event, DeviceEvent::Disconnected { .. }) {
+                        st.disconnects += 1;
+                    }
+                }
+                DeviceEvent::Disconnected { .. } => st.disconnects += 1,
+                _ => {}
+            }
+        }
+        _ => {}
+    }
+    match &event {
         DeviceEvent::Connected { device } => shared.log(
             LogLevel::Info,
             "device",
@@ -757,6 +880,92 @@ struct EngineSessionHandler {
     output_generation: u64,
     rate: RateCounter,
     last_rate_published: f64,
+    feedback: Feedback,
+    last_sequence: Option<u8>,
+    sequence_gaps: u64,
+}
+
+/// Physical DualSense feedback for one session: sends a report only when
+/// the wanted lightbar/LED state changes or a vibration starts or ends.
+struct Feedback {
+    usb: bool,
+    output_len: usize,
+    config: nexus_input_processing::FeedbackConfig,
+    sent_lighting: (Option<[u8; 3]>, Option<u8>, u8),
+    light_released: bool,
+    rumble_generation: u64,
+    rumble_until: Option<Instant>,
+    pending: Option<nexus_dualsense::output::OutputState>,
+    seq: u8,
+    sent: u64,
+}
+
+impl Feedback {
+    fn new(device: &ConnectedDevice, rumble_generation: u64) -> Self {
+        let usb = match device.connection {
+            ConnectionType::Usb => true,
+            ConnectionType::Bluetooth => false,
+            ConnectionType::Unknown => {
+                (device.output_report_len as usize) < nexus_dualsense::output::BT_OUTPUT_REPORT_LEN
+            }
+        };
+        Self {
+            usb,
+            output_len: device.output_report_len as usize,
+            config: Default::default(),
+            sent_lighting: (None, None, 0),
+            light_released: false,
+            rumble_generation,
+            rumble_until: None,
+            pending: None,
+            seq: 0,
+            sent: 0,
+        }
+    }
+
+    fn pending(&mut self) -> &mut nexus_dualsense::output::OutputState {
+        self.pending.get_or_insert_with(Default::default)
+    }
+
+    fn update(&mut self, shared: &Shared, now: Instant) {
+        let c = &self.config;
+        let light = c.lightbar_enabled.then(|| c.lightbar_color(self.usb));
+        let leds = c.player_leds_enabled.then_some(c.player_leds);
+        let wanted = (light, leds, c.player_led_brightness);
+        if wanted != self.sent_lighting {
+            let release = light.is_some() && !self.light_released;
+            let brightness = c.player_led_brightness;
+            let p = self.pending();
+            p.lightbar = light;
+            p.player_leds = leds;
+            p.player_led_brightness = brightness;
+            p.release_default_light = release;
+            self.light_released |= light.is_some();
+            self.sent_lighting = wanted;
+        }
+        let (generation, strength, ms) = *lock(&shared.rumble_request);
+        if generation != self.rumble_generation {
+            self.rumble_generation = generation;
+            let level = (strength * self.config.rumble_intensity * 255.0).round() as u8;
+            self.pending().rumble = Some((level, level));
+            self.rumble_until = Some(now + Duration::from_millis(ms as u64));
+        } else if self.rumble_until.is_some_and(|t| now >= t) {
+            self.rumble_until = None;
+            self.pending().rumble = Some((0, 0)); // always stop
+        }
+    }
+
+    fn take(&mut self) -> Option<Vec<u8>> {
+        let state = self.pending.take()?;
+        self.sent += 1;
+        Some(if self.usb {
+            nexus_dualsense::output::usb_output_report(&state, self.output_len)
+        } else {
+            let seq = self.seq;
+            self.seq = (self.seq + 1) & 0x0F;
+            nexus_dualsense::output::bluetooth_output_report(&state, seq)
+        })
+    }
 }
 
 fn new_session_handler(
@@ -785,6 +994,8 @@ fn new_session_handler(
             processed: None,
             playing_macros: Vec::new(),
             pipeline_latency: LatencySummary::default(),
+            sequence_gaps: 0,
+            output_reports_sent: 0,
             last_report_ms: None,
             report_rate_hz: 0.0,
             total_reports: 0,
@@ -797,6 +1008,13 @@ fn new_session_handler(
     Box::new(EngineSessionHandler {
         shared: shared.clone(),
         id: device.id.clone(),
+        feedback: {
+            let mut f = Feedback::new(device, lock(&shared.rumble_request).0);
+            f.config = lock(&shared.processing).feedback.clone();
+            f
+        },
+        last_sequence: None,
+        sequence_gaps: 0,
         pipeline: build_pipeline(&lock(&shared.processing)),
         processing_generation: shared.processing_generation.load(Ordering::Acquire),
         latency: LatencyWindow::default(),
@@ -823,11 +1041,7 @@ impl EngineSessionHandler {
         physical: &ControllerState,
     ) -> (ControllerState, Option<Vec<String>>) {
         let started = Instant::now();
-        let generation = self.shared.processing_generation.load(Ordering::Acquire);
-        if generation != self.processing_generation {
-            self.processing_generation = generation;
-            self.pipeline = build_pipeline(&lock(&self.shared.processing));
-        }
+        self.sync_processing();
         let mut out = self.pipeline.run(physical);
         let was_playing = self.macros.playing();
         self.macros.process(physical, &mut out, Instant::now());
@@ -835,6 +1049,42 @@ impl EngineSessionHandler {
         self.latency.record(started.elapsed());
         let playing = self.macros.playing();
         (out, (playing != was_playing).then_some(playing))
+    }
+
+    /// Picks up new settings (pipeline and feedback) before anything uses them.
+    fn sync_processing(&mut self) {
+        let generation = self.shared.processing_generation.load(Ordering::Acquire);
+        if generation != self.processing_generation {
+            self.processing_generation = generation;
+            let config = lock(&self.shared.processing).clone();
+            self.pipeline = build_pipeline(&config);
+            self.feedback.config = config.feedback.clone();
+        }
+    }
+
+    fn feed_gyro_calibration(&self, physical: &ControllerState) {
+        let Some(m) = physical.motion else { return };
+        if let Some(cal) = lock(&self.shared.gyro_cal).as_mut() {
+            for i in 0..3 {
+                cal.sum[i] += m.gyro_raw[i] as f64;
+                cal.min[i] = cal.min[i].min(m.gyro_raw[i]);
+                cal.max[i] = cal.max[i].max(m.gyro_raw[i]);
+            }
+            cal.count += 1;
+        }
+    }
+
+    fn track_sequence(&mut self, state: &ControllerState) {
+        if let Some(seq) = state.sequence {
+            if let Some(prev) = self.last_sequence {
+                let gap = seq.wrapping_sub(prev).wrapping_sub(1);
+                // Large jumps are resets, not losses.
+                if gap > 0 && gap < 64 {
+                    self.sequence_gaps += gap as u64;
+                }
+            }
+            self.last_sequence = Some(seq);
+        }
     }
 
     fn feed_recording(&self, physical: &ControllerState) {
@@ -883,6 +1133,13 @@ impl SessionHandler for EngineSessionHandler {
             .record_raw(&self.id.0, raw, error.clone());
 
         let physical = parsed.ok();
+        if let Some(state) = &physical {
+            self.track_sequence(state);
+            self.feed_gyro_calibration(state);
+        }
+        self.sync_processing();
+        self.feedback.update(&self.shared, Instant::now());
+        let (gaps, sent) = (self.sequence_gaps, self.feedback.sent);
         let processed = physical.map(|state| {
             self.feed_recording(&state);
             self.last_physical = Some(state);
@@ -908,6 +1165,8 @@ impl SessionHandler for EngineSessionHandler {
             s.report_rate_hz = rate;
             s.total_reports = total;
             s.parse_errors = errors;
+            s.sequence_gaps = gaps;
+            s.output_reports_sent = sent;
             match (physical, processed) {
                 (Some(input), Some((out, playing))) => {
                     s.input = Some(input);
@@ -924,6 +1183,8 @@ impl SessionHandler for EngineSessionHandler {
 
     fn on_idle(&mut self) {
         self.sync_output_mode();
+        self.sync_processing();
+        self.feedback.update(&self.shared, Instant::now());
         // Keep macro timing moving even if reports pause briefly.
         if let Some(physical) = self.last_physical {
             self.macros.refresh(&physical);
@@ -944,6 +1205,10 @@ impl SessionHandler for EngineSessionHandler {
             self.shared
                 .update_device(&self.id, |s| s.report_rate_hz = rate);
         }
+    }
+
+    fn take_output(&mut self) -> Option<Vec<u8>> {
+        self.feedback.take()
     }
 
     fn on_warning(&mut self, message: String) {

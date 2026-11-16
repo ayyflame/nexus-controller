@@ -572,3 +572,39 @@ fn milestone_2_profiles_load_with_new_defaults() {
         "no empty `also` written"
     );
 }
+
+#[test]
+fn feedback_colours_and_sanitising() {
+    let mut f = FeedbackConfig {
+        color: [200, 100, 50],
+        brightness: 0.5,
+        ..FeedbackConfig::default()
+    };
+    assert_eq!(f.lightbar_color(true), [100, 50, 25]);
+    f.connection_colors = true;
+    f.brightness = 1.0;
+    assert_eq!(f.lightbar_color(true), f.usb_color);
+    assert_eq!(f.lightbar_color(false), f.bluetooth_color);
+    let mut c = ProcessingConfig::default();
+    c.feedback = FeedbackConfig {
+        brightness: 3.0,
+        player_leds: 0xFF,
+        player_led_brightness: 7,
+        rumble_intensity: -1.0,
+        ..FeedbackConfig::default()
+    };
+    let s = c.sanitized().feedback;
+    assert_eq!(
+        (
+            s.brightness,
+            s.player_leds,
+            s.player_led_brightness,
+            s.rumble_intensity
+        ),
+        (1.0, 0x1F, 2, 0.0)
+    );
+    assert!(
+        !ProcessingConfig::default().feedback.lightbar_enabled,
+        "off unless the user enables it"
+    );
+}

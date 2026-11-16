@@ -102,6 +102,9 @@ pub struct ConnectedDevice {
     pub product_id: u16,
     pub product_name: Option<String>,
     pub serial_number: Option<String>,
+    /// Output report length reported by the OS (0 if unknown).
+    #[serde(default)]
+    pub output_report_len: u16,
 }
 
 /// Why a controller session ended.

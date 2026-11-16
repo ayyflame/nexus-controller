@@ -12,6 +12,7 @@
 mod crc;
 mod driver;
 mod identify;
+pub mod output;
 mod report;
 
 #[cfg(any(test, feature = "test-support"))]

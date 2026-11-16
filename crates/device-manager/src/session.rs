@@ -18,6 +18,11 @@ pub trait SessionHandler: Send {
     fn on_idle(&mut self) {}
     /// Non-fatal problems, such as a failed initialisation step.
     fn on_warning(&mut self, _message: String) {}
+    /// An output report to send to the controller, if one is pending.
+    /// Polled after every read; return `None` when there is nothing to send.
+    fn take_output(&mut self) -> Option<Vec<u8>> {
+        None
+    }
     /// Last call before the thread exits.
     fn on_end(&mut self, _reason: &DisconnectReason) {}
 }
@@ -59,6 +64,7 @@ pub(crate) fn run(mut ctx: SessionContext) {
     // maximum input report length.
     let mut buf = vec![0u8; (ctx.info.input_report_len as usize).max(128)];
 
+    let mut write_warned = false;
     let reason = loop {
         match ctx.stop.load(Ordering::Acquire) {
             STOP_SHUTDOWN => break DisconnectReason::Shutdown,
@@ -76,6 +82,20 @@ pub(crate) fn run(mut ctx: SessionContext) {
                 break DisconnectReason::Removed
             }
             Err(e) => break DisconnectReason::Error(e.to_string()),
+        }
+        // At most one pending output per iteration keeps writes bounded.
+        if let Some(report) = ctx.handler.take_output() {
+            match ctx.connection.write_output_report(&report) {
+                Ok(_) => write_warned = false,
+                Err(HidError::Disconnected) => break DisconnectReason::Removed,
+                Err(e) => {
+                    if !write_warned {
+                        write_warned = true;
+                        ctx.handler
+                            .on_warning(format!("Could not send settings to the controller: {e}"));
+                    }
+                }
+            }
         }
     };
 

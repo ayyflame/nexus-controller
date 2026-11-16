@@ -266,3 +266,47 @@ pub fn stop_all_macros(state: State<'_, AppState>) {
 pub fn cancel_macro_recording(state: State<'_, AppState>) {
     state.engine.cancel_recording();
 }
+
+// ---- Milestone 3: feedback, gyro calibration, conflicts ---------------------
+
+/// Vibrates the connected DualSense briefly (0–1 strength).
+#[tauri::command]
+pub fn test_vibration(
+    state: State<'_, AppState>,
+    strength: f32,
+    duration_ms: u32,
+) -> CmdResult<()> {
+    state
+        .engine
+        .test_vibration(strength, duration_ms)
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub fn start_gyro_calibration(state: State<'_, AppState>) -> CmdResult<()> {
+    state.engine.start_gyro_calibration().map_err(Into::into)
+}
+
+#[tauri::command]
+pub fn finish_gyro_calibration(
+    state: State<'_, AppState>,
+) -> CmdResult<nexus_engine::GyroCalibration> {
+    state.engine.finish_gyro_calibration().map_err(Into::into)
+}
+
+/// Mapping conflicts in `config`, including with the active profile's macros.
+#[tauri::command]
+pub fn find_conflicts(
+    state: State<'_, AppState>,
+    config: ProcessingConfig,
+) -> CmdResult<Vec<nexus_input_processing::ConfigConflict>> {
+    let store = state.store.lock().map_err(|_| "profile store poisoned")?;
+    let triggers: Vec<_> = store
+        .list_macros()
+        .map_err(profile_error)?
+        .into_iter()
+        .filter(|m| m.enabled)
+        .filter_map(|m| m.trigger)
+        .collect();
+    Ok(nexus_input_processing::find_conflicts(&config, &triggers))
+}

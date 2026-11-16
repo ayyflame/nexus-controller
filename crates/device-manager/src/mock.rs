@@ -11,6 +11,7 @@ use std::time::Duration;
 #[derive(Default)]
 struct DeviceSlot {
     info: Option<HidDeviceInfo>,
+    writes: Arc<Mutex<Vec<Vec<u8>>>>,
     enumerated: bool,
     reports: Arc<Mutex<VecDeque<Vec<u8>>>>,
     connected: Arc<AtomicBool>,
@@ -80,6 +81,16 @@ impl MockHidBackend {
         self.state.lock().unwrap().enumeration_error = error;
     }
 
+    /// Output reports written to a device, oldest first.
+    pub fn writes(&self, path: &str) -> Vec<Vec<u8>> {
+        self.state
+            .lock()
+            .unwrap()
+            .devices
+            .get(path)
+            .map_or(Vec::new(), |s| s.writes.lock().unwrap().clone())
+    }
+
     pub fn open_count(&self, path: &str) -> usize {
         self.state
             .lock()
@@ -133,6 +144,7 @@ impl HidBackend for MockHidBackend {
         slot.opens += 1;
         slot.live.fetch_add(1, Ordering::SeqCst);
         Ok(Box::new(MockConnection {
+            writes: slot.writes.clone(),
             reports: slot.reports.clone(),
             connected: slot.connected.clone(),
             live: slot.live.clone(),
@@ -141,6 +153,7 @@ impl HidBackend for MockHidBackend {
 }
 
 struct MockConnection {
+    writes: Arc<Mutex<Vec<Vec<u8>>>>,
     reports: Arc<Mutex<VecDeque<Vec<u8>>>>,
     connected: Arc<AtomicBool>,
     live: Arc<AtomicUsize>,
@@ -158,6 +171,14 @@ impl HidConnection for MockConnection {
         }
         std::thread::sleep(timeout.min(Duration::from_millis(2)));
         Ok(0)
+    }
+
+    fn write_output_report(&mut self, report: &[u8]) -> Result<usize, HidError> {
+        if !self.connected.load(Ordering::SeqCst) {
+            return Err(HidError::Disconnected);
+        }
+        self.writes.lock().unwrap().push(report.to_vec());
+        Ok(report.len())
     }
 
     fn get_feature_report(&mut self, buf: &mut [u8]) -> Result<usize, HidError> {

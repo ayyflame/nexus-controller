@@ -239,6 +239,7 @@ impl DeviceManager {
             product_id: candidate.info.product_id,
             product_name: candidate.info.product.clone(),
             serial_number: candidate.info.serial_number.clone(),
+            output_report_len: candidate.info.output_report_len,
         };
         let handler = (self.factory)(&device);
         let stop = Arc::new(AtomicU8::new(session::STOP_NONE));

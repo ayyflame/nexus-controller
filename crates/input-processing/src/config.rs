@@ -25,6 +25,64 @@ pub struct ProcessingConfig {
     pub layers: Vec<MappingLayer>,
     pub gyro: GyroConfig,
     pub touchpad: TouchpadConfig,
+    /// Lightbar, player LEDs and vibration of the physical DualSense.
+    pub feedback: FeedbackConfig,
+}
+
+/// Physical DualSense feedback. Nothing is sent to the controller unless a
+/// feature is switched on.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct FeedbackConfig {
+    /// NEXUS sets the lightbar (off = leave the controller's own light).
+    pub lightbar_enabled: bool,
+    pub color: [u8; 3],
+    /// 0–1, scales the colour.
+    pub brightness: f32,
+    /// Use a different colour for USB and Bluetooth instead of `color`.
+    pub connection_colors: bool,
+    pub usb_color: [u8; 3],
+    pub bluetooth_color: [u8; 3],
+    pub player_leds_enabled: bool,
+    /// Five LEDs as bits 0–4.
+    pub player_leds: u8,
+    /// 0 = high, 1 = medium, 2 = low.
+    pub player_led_brightness: u8,
+    /// Scales vibration NEXUS sends (0–1).
+    pub rumble_intensity: f32,
+}
+
+impl Default for FeedbackConfig {
+    fn default() -> Self {
+        Self {
+            lightbar_enabled: false,
+            color: [212, 169, 79],
+            brightness: 1.0,
+            connection_colors: false,
+            usb_color: [64, 160, 255],
+            bluetooth_color: [140, 90, 255],
+            player_leds_enabled: false,
+            player_leds: 0b00100,
+            player_led_brightness: 0,
+            rumble_intensity: 1.0,
+        }
+    }
+}
+
+impl FeedbackConfig {
+    /// Lightbar colour for a connection (USB = `true`), after brightness.
+    pub fn lightbar_color(&self, usb: bool) -> [u8; 3] {
+        let base = if self.connection_colors {
+            if usb {
+                self.usb_color
+            } else {
+                self.bluetooth_color
+            }
+        } else {
+            self.color
+        };
+        base.map(|c| (c as f32 * self.brightness).round().clamp(0.0, 255.0) as u8)
+    }
 }
 
 // ---- Sticks -----------------------------------------------------------------
@@ -491,6 +549,14 @@ impl ProcessingConfig {
             swipe_press_ms: t.swipe_press_ms.clamp(20, 1000),
             ..t.clone()
         };
+        let f = &self.feedback;
+        let feedback = FeedbackConfig {
+            brightness: clamp(f.brightness, 0.0, 1.0, 1.0),
+            player_leds: f.player_leds & 0x1F,
+            player_led_brightness: f.player_led_brightness.min(2),
+            rumble_intensity: clamp(f.rumble_intensity, 0.0, 1.0, 1.0),
+            ..f.clone()
+        };
         Self {
             left_stick: self.left_stick.sanitized(),
             right_stick: self.right_stick.sanitized(),
@@ -500,6 +566,7 @@ impl ProcessingConfig {
             layers,
             gyro,
             touchpad,
+            feedback,
         }
     }
 
