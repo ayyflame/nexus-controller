@@ -37,14 +37,14 @@ parse report → [raw history + rate/interval counters + rumble check] → proce
 - Between reports, a playing macro is advanced only on an idle tick (read timeout).
 - The UI never runs on the reader thread. A separate bridge thread copies a snapshot at 60 Hz.
 
-**Build B (`832de00`; current test build `41a4f44`, same input path):**
+**Build B (`832de00`; current test build `9d00fa2`, same input path for valid reports):**
 
 - **Order:** parse → processing → macros → virtual Xbox submit → bookkeeping (counters, raw history, vibration and lighting, UI snapshot).
 - **Allocations:** none per report.
 - **Priority:** the reader thread runs at above-normal priority.
 - **UI stream:** paused while minimised.
 - **Unchanged:** the output write (up to 1 s wait), because P3 isn't implemented.
-- **`41a4f44` adds (no latency change):** a neutral frame when a profile reload stops a macro during an input stall; idle ticks kept out of the processing-time statistics; processing time in the diagnostics report.
+- **`41a4f44` and `9d00fa2` add (no latency change):** a fail-safe after 8 unreadable reports in a row (one counter update per report); a neutral frame when a profile reload stops a macro during an input stall; idle ticks kept out of the processing-time statistics; processing time in the diagnostics report.
 
 ## 2. Baseline measurements
 
@@ -130,7 +130,7 @@ parse report → [raw history + rate/interval counters + rumble check] → proce
 Measure the **same steps on two builds**, on the same PC, with the same game and settings:
 
 - **Build A (before):** run [43907861742](https://github.com/ayyflame/nexus-controller/actions/runs/43907861742), commit `b862b6a`, artifact NEXUS-windows-x64.
-- **Build B (after):** run [43948182942](https://github.com/ayyflame/nexus-controller/actions/runs/43948182942), commit `41a4f44`, artifact NEXUS-windows-x64. It has the latency changes P2, P4, P5 and P6 exactly as in `832de00` (the earlier build B, run 43943310033), plus reliability and measurement corrections that don't touch the input path. Use this one; `832de00` is no longer needed.
+- **Build B (after):** run [43951723592](https://github.com/ayyflame/nexus-controller/actions/runs/43951723592), commit `9d00fa2`, artifact NEXUS-windows-x64. It has the latency changes P2, P4, P5 and P6 exactly as in `832de00` (the earlier build B, run 43943310033), plus reliability and measurement corrections that don't touch the input path. Use this one; `832de00` and `41a4f44` are no longer needed.
 
 **Installing:** install a build with its `-setup.exe`. Installing A after B (or B after A) replaces the program and keeps your profiles and macros.
 
@@ -163,7 +163,7 @@ Measure the **same steps on two builds**, on the same PC, with the same game and
 
 **What the two diagnostics files contain (they are not identical):**
 
-| Field | Build A file (`b862b6a`) | Build B file (`41a4f44`) |
+| Field | Build A file (`b862b6a`) | Build B file (`9d00fa2`) |
 |---|---|---|
 | Report format `version` | 1 | 2 |
 | `app.build` (source commit) | absent | present |

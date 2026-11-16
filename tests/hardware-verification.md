@@ -11,9 +11,9 @@ NEXUS is developed in a Linux container without access to Windows or a controlle
 | Status | Rows |
 |---|---|
 | Physically verified (owner) | V3, V4, V6, V7, V14 (build `711f0d4`; V14 game title pending); USB input in general |
-| Re-check on build B `41a4f44` | V6, V7 |
+| Re-check on build B `9d00fa2` | V6, V7 |
 | Outstanding (M4.5 pass, build B) | 22, 24–27, 35, 36, 53–62, V1–V2 (optional), V5, V8–V13, V15–V21, D1–D10, T1–T10 |
-| Outstanding (latency A/B) | L1–L6, on build A `b862b6a` and build B `41a4f44` |
+| Outstanding (latency A/B) | L1–L6, on build A `b862b6a` and build B `9d00fa2` |
 | Outstanding (later) | 1–5, 10–21 (1–5 and 21 are covered by 53–55, 58 and 61 when those are run), 28–34, 38–52 |
 | Out of scope (Bluetooth) | 6–9, 23, 37 |
 
