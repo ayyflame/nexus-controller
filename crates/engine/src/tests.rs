@@ -1798,6 +1798,13 @@ fn eight_unreadable_reports_stop_macros_and_send_one_neutral_frame() {
     assert_eq!(last_report(&log, 1), Some(XusbReport::default()));
     assert_eq!(log_count(&e, FAILSAFE_WARNING), 1);
 
+    // Idle ticks after the fail-safe add nothing: exactly one neutral frame
+    // follows the last frame that had A pressed.
+    std::thread::sleep(Duration::from_millis(60));
+    let reports = log.reports();
+    let last_a = reports.iter().rposition(|r| has(r, xusb::A)).unwrap();
+    assert_eq!(reports[last_a + 1..], [XusbReport::default()]);
+
     // More unreadable reports: no further output, no repeated warning, and
     // the virtual controller stays connected.
     let events = log.all().len();
@@ -1850,7 +1857,9 @@ fn recovery_restores_physical_input_and_macros_need_a_fresh_press() {
     push_unreadable(&backend, 12);
     wait_errors(&e, 12);
     wait_status(&e, "fail-safe", |s| s.devices[0].playing_macros.is_empty());
+    std::thread::sleep(Duration::from_millis(40)); // idle ticks add nothing
     let before = log.reports().len();
+    assert_eq!(log.reports()[before - 1], XusbReport::default());
 
     // First valid report: Circle, left stick fully right, R2 fully pulled,
     // and the macro trigger R3 still held.

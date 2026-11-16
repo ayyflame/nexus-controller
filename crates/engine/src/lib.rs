@@ -1228,6 +1228,9 @@ impl EngineSessionHandler {
         }
         self.unreadable_failsafe = true;
         self.macros.stop_all();
+        // The stop is published by the caller; consume the change so a later
+        // idle tick does not send a second neutral frame for it.
+        self.macros.take_playing_changed();
         self.output.submit_neutral();
         if let Some(event) = self.output.take_event() {
             self.on_output_event(event);
