@@ -155,6 +155,8 @@ Re-test V6–V12 on each new build that changes macro or output code. M4.5 chang
 | V15 | Two profiles with the same Repeat While Held macro. Hold the trigger, switch profile (Profiles page or game auto-switch) | Macro stops and does **not** restart while still held; releasing and pressing again starts it | |
 | V16 | Two macros on different triggers (e.g. R3 and L3), hold both, then release one | Both repeat; releasing one stops only that one; nothing stays lit | |
 | V17 | Close NEXUS, install ViGEmBus (or start with it stopped), reopen with output on; then click **Check again** | Virtual controller appears without toggling or re-plugging | |
+| V18 | Record a macro, then edit one action's press time and wait (Exact timing), save; hold its trigger with `joy.cpl` Properties open | Timing visibly follows the edit (e.g. 2× slower is clearly slower); no re-recording needed | |
+| V19 | Select all actions, **2× faster**, save, test again; then Ctrl+Z | Faster playback; undo restores the recorded timing | |
 
 ## Duplicate input, with and without HidHide (optional)
 

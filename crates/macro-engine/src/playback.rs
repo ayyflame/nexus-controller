@@ -532,6 +532,84 @@ mod tests {
         }
     }
 
+    /// Uneven "recorded" timing, then edited: playback follows the edited
+    /// values exactly (to the millisecond of each frame) in every mode.
+    #[test]
+    fn edited_timing_is_played_exactly_in_every_mode() {
+        let recorded = || {
+            let mut m = sample("rec", Some(MacroButton::RightStick));
+            m.steps = vec![
+                step(&[MacroButton::South], 87, 143),
+                step(&[MacroButton::East], 112, 0),
+            ];
+            m.repeat_delay_ms = 0;
+            m
+        };
+        // Edit after recording: Cross 40 ms, wait 60; Circle 30 ms; repeat pause 20.
+        let mut edited = recorded();
+        edited.steps[0].hold_ms = 40;
+        edited.steps[0].delay_after_ms = 60;
+        edited.steps[1].hold_ms = 30;
+        edited.repeat_delay_ms = 20;
+        assert_eq!(edited.duration_ms(), 130);
+
+        let trig = pressed(MacroButton::RightStick);
+        let idle = ControllerState::default();
+        // (time ms, Cross, Circle). Cycle = 130 + 20 = 150 ms.
+        let expect: [(u64, bool, bool); 9] = [
+            (0, true, false),
+            (39, true, false),
+            (40, false, false), // released after exactly 40 ms
+            (99, false, false),
+            (100, false, true), // Circle starts after the 60 ms wait
+            (129, false, true),
+            (130, false, false), // released after 30 ms
+            (149, false, false), // repeat pause
+            (150, true, false),  // next repeat (looping modes)
+        ];
+        for mode in [
+            PlaybackMode::RepeatWhileHeld,
+            PlaybackMode::Toggle,
+            PlaybackMode::Once,
+        ] {
+            let mut m = edited.clone();
+            m.mode = mode;
+            let t0 = Instant::now();
+            let (_, mut r) = runner(vec![m]);
+            for (ms, cross, circle) in expect {
+                let input = if mode == PlaybackMode::RepeatWhileHeld || ms == 0 {
+                    &trig
+                } else {
+                    &idle
+                };
+                let out = frame(&mut r, input, at(t0, ms));
+                let looping = mode != PlaybackMode::Once;
+                let (cross, circle) = if ms >= 150 && !looping {
+                    (false, false)
+                } else {
+                    (cross, circle)
+                };
+                assert_eq!(
+                    (out.buttons.south, out.buttons.east),
+                    (cross, circle),
+                    "{mode:?} at {ms} ms"
+                );
+            }
+        }
+        // The unedited recording keeps its own timing.
+        let t0 = Instant::now();
+        let mut m = recorded();
+        m.mode = PlaybackMode::RepeatWhileHeld;
+        let (_, mut r) = runner(vec![m]);
+        assert!(
+            frame(&mut r, &trig, t0).buttons.south,
+            "starts on the trigger"
+        );
+        assert!(frame(&mut r, &trig, at(t0, 86)).buttons.south);
+        assert!(!frame(&mut r, &trig, at(t0, 87)).buttons.south);
+        assert!(frame(&mut r, &trig, at(t0, 230)).buttons.east);
+    }
+
     #[test]
     fn suspension_stops_everything() {
         let t0 = Instant::now();

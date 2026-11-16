@@ -76,3 +76,21 @@ The engine status carries both states: `input` (physical) and `processed` (what 
   - `engine`: 5 end-to-end tests using synthetic DualSense reports (trigger → output, recording, interrupted recording, disconnect).
 - **Frontend:** `npm test` (Node's built-in runner) covers the preview timeline (same cases as the engine), defaults, validation, conflicts and button mapping.
 - **Not yet verified:** recording and playback with a physical DualSense, and macros reaching a game. The latter needs virtual output.
+
+## Editing timing after recording
+
+Recorded or built macros can be retimed at any time. There is no need to record again.
+
+- **One action:** click it in the timeline.
+  - The inspector shows when the action starts, and its **press time** and **wait after release**.
+  - It has presets and sliders, plus **Exact timing** for millisecond entry, including **Wait before** (for every action except the first, this edits the previous action's wait).
+  - The first action always starts as soon as the macro is triggered.
+- **Several actions:** Ctrl+click, Shift+click or Ctrl+A in the timeline, then use the panel that appears:
+  - set one press time or wait for all selected actions;
+  - or change the speed (2× faster, faster, slower, 2× slower, or any 1–1000 %) while keeping the recorded rhythm.
+  - Nothing changes until you press Enter or **Set**, and Ctrl+Z undoes.
+- **Timeline and preview:** the timeline and **Play preview** use the new values immediately.
+- **Limits:** values are always kept within the limits the engine accepts. Press time is 20–10,000 ms, wait is 0–10,000 ms, and a macro can have up to 200 actions.
+- **Saving:** timing is part of the saved macro, so it is kept by saving, duplicating, exporting and importing.
+- **Behaviour unchanged:** Play Once, Repeat While Held and Toggle work the same. Each mode simply plays the edited timing.
+- **Precision:** timing follows controller reports, about every 4 ms over USB.

@@ -8,13 +8,17 @@ interface Props {
   index: number;
   count: number;
   onChange: (s: MacroStep) => void;
+  /** Pause before this action (the previous action's wait) and when it starts. */
+  waitBefore: number;
+  startsAt: number;
+  onWaitBefore: (ms: number) => void;
   onMove: (delta: -1 | 1) => void;
   onDuplicate: () => void;
   onDelete: () => void;
 }
 
 /** Editor for the selected action block. */
-export function StepInspector({ step, index, count, onChange, onMove, onDuplicate, onDelete }: Props) {
+export function StepInspector({ step, index, count, onChange, waitBefore, startsAt, onWaitBefore, onMove, onDuplicate, onDelete }: Props) {
   const toggle = (b: MacroButton) => {
     const has = step.buttons.includes(b);
     if (has && step.buttons.length === 1) return; // an action always has a button
@@ -26,7 +30,10 @@ export function StepInspector({ step, index, count, onChange, onMove, onDuplicat
       <div className="inspector-head">
         <div>
           <h3>Action {index + 1}</h3>
-          <p className="muted small">Press <b>{buttonNames(step.buttons)}</b>, hold for {step.holdMs} ms, release, then wait {step.delayAfterMs} ms.</p>
+          <p className="muted small">
+            {index === 0 ? "Starts as soon as the macro is triggered." : <>Starts {startsAt} ms after the macro is triggered ({waitBefore} ms after the previous action).</>}{" "}
+            Press <b>{buttonNames(step.buttons)}</b>, hold for {step.holdMs} ms, release, then wait {step.delayAfterMs} ms.
+          </p>
         </div>
         <div className="row gap-sm">
           <button className="btn-icon" onClick={() => onMove(-1)} disabled={index === 0}
@@ -53,6 +60,9 @@ export function StepInspector({ step, index, count, onChange, onMove, onDuplicat
             value={step.delayAfterMs} presets={DELAY_PRESETS} min={0} max={LIMITS.maxDelayMs}
             onChange={(delayAfterMs) => onChange({ ...step, delayAfterMs })} />
           <Advanced title="Exact timing">
+            {index > 0 && (
+              <MsInput label="Wait before" value={waitBefore} min={0} max={LIMITS.maxDelayMs} onChange={onWaitBefore} />
+            )}
             <MsInput label="Press time" value={step.holdMs} min={LIMITS.minHoldMs} max={LIMITS.maxHoldMs}
               onChange={(holdMs) => onChange({ ...step, holdMs })} />
             <MsInput label="Wait after" value={step.delayAfterMs} min={0} max={LIMITS.maxDelayMs}

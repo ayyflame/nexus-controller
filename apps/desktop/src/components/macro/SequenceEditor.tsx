@@ -6,6 +6,8 @@ import { ControllerVisual } from "../ControllerVisual";
 import { ButtonPad } from "./ButtonPad";
 import { RecordPanel } from "./RecordPanel";
 import { StepInspector } from "./StepInspector";
+import { BulkTiming } from "./BulkTiming";
+import { setWaitBefore, startTimes, waitBefore } from "../../lib/macroTiming";
 import { Timeline } from "./Timeline";
 
 /** Plays the sequence on screen. Never touches the controller or games. */
@@ -207,9 +209,16 @@ export function SequenceEditor({ history, initialSource = "record", library = []
         </div>
       )}
 
-      {selected && !preview.playing && (
+      {selected_.length > 1 && !preview.playing && (
+        <BulkTiming steps={steps} ids={selected_} onChange={(next) => history.set(next)} />
+      )}
+
+      {selected && selected_.length <= 1 && !preview.playing && (
         <StepInspector
           step={selected} index={selectedIndex} count={steps.length}
+          waitBefore={waitBefore(steps, selectedIndex)}
+          startsAt={startTimes(steps)[selectedIndex] ?? 0}
+          onWaitBefore={(ms) => history.set(setWaitBefore(steps, selectedIndex, ms))}
           onChange={(s) => update((all) => all.map((x) => (x.id === s.id ? s : x)))}
           onMove={(d) => { const to = selectedIndex + d; if (to >= 0 && to < steps.length) move(selectedIndex, to); }}
           onDuplicate={() => duplicate(selectedIndex)}

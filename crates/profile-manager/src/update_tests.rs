@@ -3,6 +3,7 @@
 //! has the same or a newer schema. These tests simulate that and also check
 //! the pre-update snapshot.
 
+use crate::ImportMode;
 use crate::*;
 use nexus_controller_core::Button;
 use nexus_input_processing::{RemapRule, StickCalibration};
@@ -127,4 +128,74 @@ fn snapshot_never_overwrites_an_existing_file() {
     s.snapshot_to(&dest).unwrap();
     assert!(s.snapshot_to(&dest).is_err());
     let _ = std::fs::remove_dir_all(&d);
+}
+
+#[test]
+fn edited_macro_timing_survives_save_duplicate_export_and_import() {
+    let mut s = ProfileStore::open_in_memory().unwrap();
+    // A recorded macro with uneven timing...
+    let recorded = s
+        .save_macro(Macro {
+            id: String::new(),
+            name: "Recorded".into(),
+            description: String::new(),
+            enabled: true,
+            steps: vec![
+                MacroStep {
+                    id: String::new(),
+                    buttons: vec![MacroButton::South],
+                    hold_ms: 87,
+                    delay_after_ms: 143,
+                },
+                MacroStep {
+                    id: String::new(),
+                    buttons: vec![MacroButton::East],
+                    hold_ms: 112,
+                    delay_after_ms: 0,
+                },
+            ],
+            trigger: Some(MacroButton::RightStick),
+            mode: PlaybackMode::RepeatWhileHeld,
+            repeat_delay_ms: 50,
+            block_trigger: true,
+            created_at_ms: 0,
+            updated_at_ms: 0,
+        })
+        .unwrap();
+    // ...edited afterwards, without re-recording.
+    let mut edited = recorded.clone();
+    edited.steps[0].hold_ms = 40;
+    edited.steps[0].delay_after_ms = 60;
+    edited.steps[1].hold_ms = 30;
+    edited.repeat_delay_ms = 20;
+    s.save_macro(edited).unwrap();
+    let timing = |m: &Macro| -> Vec<(u32, u32)> {
+        m.steps
+            .iter()
+            .map(|x| (x.hold_ms, x.delay_after_ms))
+            .collect()
+    };
+    let want = vec![(40, 60), (30, 0)];
+
+    let saved = s
+        .list_macros()
+        .unwrap()
+        .into_iter()
+        .find(|m| m.id == recorded.id)
+        .unwrap();
+    assert_eq!(timing(&saved), want);
+    assert_eq!(saved.repeat_delay_ms, 20);
+    assert_eq!(saved.mode, PlaybackMode::RepeatWhileHeld, "mode untouched");
+
+    let copy = s.duplicate_macro(&recorded.id).unwrap();
+    assert_eq!(timing(&copy), want);
+
+    let json = serde_json::to_string(&s.export_bundle(None, true, "test").unwrap()).unwrap();
+    let mut other = ProfileStore::open_in_memory().unwrap();
+    other.import_bundle(&json, ImportMode::Add).unwrap();
+    let imported = other.list_macros().unwrap();
+    assert_eq!(imported.len(), 2);
+    assert!(imported
+        .iter()
+        .all(|m| timing(m) == want && m.repeat_delay_ms == 20));
 }
