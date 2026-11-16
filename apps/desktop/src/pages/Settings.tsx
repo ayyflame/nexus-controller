@@ -4,7 +4,28 @@ import { useEngine } from "../hooks/useEngine";
 import { buildDiagnosticsReport } from "../lib/diagnostics";
 import { engineApi, errorMessage } from "../lib/engine";
 import { hex, time } from "../lib/format";
+import { checkForUpdates } from "../lib/updates";
 import type { HidDiagnostic, LogEntry, RawReport } from "../types/engine";
+
+function UpdateRow({ version }: { version?: string }) {
+  const [state, setState] = useState<string | null>(null);
+  const [link, setLink] = useState<string | null>(null);
+  return (
+    <Row label="Updates">
+      <span className="row gap-sm">
+        <button className="btn-ghost" disabled={!version} onClick={async () => {
+          setState("Checking…"); setLink(null);
+          const r = await checkForUpdates(version!);
+          if (r.kind === "available") { setState(`Version ${r.latest} is available.`); setLink(r.url); }
+          else if (r.kind === "current") setState(`You have the latest version (${r.latest}).`);
+          else setState(r.reason);
+        }}>Check for updates</button>
+        {state && <span className="small">{state}</span>}
+        {link && <a className="small gold" href={link} target="_blank" rel="noreferrer">Download</a>}
+      </span>
+    </Row>
+  );
+}
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -170,6 +191,9 @@ export function Settings() {
         <div className="card">
           <h2>Application</h2>
           <Row label="Version">{appInfo?.version ?? "—"}</Row>
+          <UpdateRow version={appInfo?.version} />
+          <Row label="Your data">Profiles and macros are stored separately from the program, so updates and reinstalls keep them.</Row>
+          <Row label="Welcome guide"><button className="btn-ghost" onClick={() => { try { localStorage.removeItem("nexus.onboarding.v1"); } catch { /* ignore */ } window.location.reload(); }}>Show again</button></Row>
           <Row label="Platform">{appInfo ? `${appInfo.os} / ${appInfo.arch}` : "—"}</Row>
           <Row label="Data folder"><span className="mono small break">{appInfo?.dataDir ?? "—"}</span></Row>
           <Row label="Start with Windows"><span className="muted">Planned for a later milestone</span></Row>

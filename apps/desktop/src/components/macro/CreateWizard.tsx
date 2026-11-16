@@ -2,12 +2,28 @@ import { useState } from "react";
 import { useHistory } from "../../hooks/useHistory";
 import { engineApi, errorIssues, errorMessage } from "../../lib/engine";
 import { LIMITS, newMacro, validateMacro } from "../../lib/macros";
-import type { Macro, MacroStep, ValidationIssue } from "../../types/engine";
+import { MACRO_TEMPLATES } from "../../lib/macroTemplates";
+import type { Macro, MacroButton, MacroStep, ValidationIssue } from "../../types/engine";
+import { ButtonSelect } from "../controller/advanced";
 import { AssignPanel } from "./AssignPanel";
 import { ConfirmDialog, Issues } from "./common";
 import { SequenceEditor } from "./SequenceEditor";
 
 const STEPS = ["Name your macro", "Create the sequence", "Assign your macro"] as const;
+
+/** One-click starting points; the result is fully editable. */
+function TemplateStrip({ onPick }: { onPick: (steps: MacroStep[]) => void }) {
+  const [button, setButton] = useState<MacroButton>("south");
+  return (
+    <div className="template-strip">
+      <span className="field-label">Start from a template</span>
+      <ButtonSelect label="Template button" value={button} onChange={(b) => b && setButton(b)} />
+      {MACRO_TEMPLATES.map((t) => (
+        <button key={t.id} type="button" className="preset" data-tip={t.description} onClick={() => onPick(t.build(button))}>{t.name}</button>
+      ))}
+    </div>
+  );
+}
 const STEP_OF_FIELD: Record<string, number> = { name: 0, description: 0, steps: 1, trigger: 2, repeatDelayMs: 2 };
 
 export function CreateWizard({ others, onDone, onCancel }: {
@@ -96,7 +112,8 @@ export function CreateWizard({ others, onDone, onCancel }: {
 
         {page === 1 && (
           <>
-            <SequenceEditor history={steps} />
+            <TemplateStrip onPick={(st) => steps.set(st)} />
+            <SequenceEditor history={steps} library={others} />
             <Issues issues={issues} field="steps" />
           </>
         )}

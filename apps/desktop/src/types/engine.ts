@@ -77,6 +77,9 @@ export interface DeviceSnapshot {
   playingMacros: string[];
   /** Time NEXUS spends per report (processing, macros, output). */
   pipelineLatency: LatencySummary;
+  /** Reports missing per the controller's sequence counter (estimate). */
+  sequenceGaps: number;
+  outputReportsSent: number;
   lastReportMs: number | null;
   reportRateHz: number;
   totalReports: number;
@@ -97,7 +100,12 @@ export interface EngineStatus {
   devices: DeviceSnapshot[];
   macros: MacroRuntimeStatus;
   drivers: DriverStatus;
+  stats: EngineStats;
+  gyroCalibrating: boolean;
 }
+
+export interface EngineStats { connects: number; disconnects: number; connectionErrors: number }
+export interface GyroCalibration { bias: [number, number, number]; samples: number; steady: boolean }
 
 export interface LatencySummary { p50Us: number; p99Us: number; maxUs: number; samples: number }
 
@@ -146,6 +154,7 @@ export interface Profile {
   name: string;
   virtualOutput: VirtualOutputKind;
   processing: ProcessingConfig;
+  games: string[];
   createdAtMs: number;
   updatedAtMs: number;
 }
@@ -240,11 +249,52 @@ export interface StickConfig {
   circular: boolean;
   invertX: boolean;
   invertY: boolean;
+  sensitivityX: number;
+  sensitivityY: number;
+  squareOutput: boolean;
+  calibration: StickCalibration;
 }
 
-export interface TriggerConfig { deadzone: number; maxInput: number; outputMin: number; outputMax: number }
+export interface StickCalibration { centerX: number; centerY: number; minX: number; maxX: number; minY: number; maxY: number }
 
-export interface RemapRule { from: MacroButton; to: MacroButton | null }
+export interface TriggerConfig {
+  deadzone: number; maxInput: number; outputMin: number; outputMax: number;
+  activation: number; curve: number; rawMin: number; rawMax: number;
+}
+
+export interface RemapRule { from: MacroButton; to: MacroButton | null; also?: MacroButton[] }
+
+export type LayerMode = "hold" | "toggle";
+export interface MappingLayer { name: string; activator: MacroButton; mode: LayerMode; remap: RemapRule[] }
+
+export type GyroActivation = "always" | "whileHeld" | "toggle";
+export interface GyroConfig {
+  enabled: boolean; activation: GyroActivation; button: MacroButton | null; suppressButton: boolean;
+  fullScaleDps: number; sensitivityX: number; sensitivityY: number; invertX: boolean; invertY: boolean;
+  smoothing: number; thresholdDps: number; horizontalAxis: "yaw" | "roll"; bias: [number, number, number];
+}
+
+export type TouchLayout = "whole" | "leftRight" | "quadrants";
+export interface TouchpadConfig {
+  layout: TouchLayout; zones: [MacroButton | null, MacroButton | null, MacroButton | null, MacroButton | null];
+  swipesEnabled: boolean; swipeDistance: number; swipeMaxMs: number;
+  swipeUp: MacroButton | null; swipeDown: MacroButton | null; swipeLeft: MacroButton | null; swipeRight: MacroButton | null;
+  swipePressMs: number;
+}
+
+export interface FeedbackConfig {
+  lightbarEnabled: boolean; color: [number, number, number]; brightness: number;
+  connectionColors: boolean; usbColor: [number, number, number]; bluetoothColor: [number, number, number];
+  playerLedsEnabled: boolean; playerLeds: number; playerLedBrightness: number; rumbleIntensity: number;
+}
+
+export interface ConfigConflict { message: string }
+
+export interface ProfileTemplate { id: string; name: string; description: string }
+export interface ExportResult { path: string | null; json: string }
+export type ImportMode = "add" | "replace";
+export interface ImportPreview { profiles: string[]; macros: string[]; renamed: string[]; exportedAtMs: number; appVersion: string }
+export interface ImportReport { profilesAdded: number; macrosAdded: number; renamed: string[]; disabledForConflicts: string[] }
 
 export interface ProcessingConfig {
   leftStick: StickConfig;
@@ -252,4 +302,8 @@ export interface ProcessingConfig {
   leftTrigger: TriggerConfig;
   rightTrigger: TriggerConfig;
   remap: RemapRule[];
+  layers: MappingLayer[];
+  gyro: GyroConfig;
+  touchpad: TouchpadConfig;
+  feedback: FeedbackConfig;
 }

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { History } from "../../hooks/useHistory";
 import { LIMITS, formatMs, newStep, sequenceAt, stateWithButtons, totalDuration, uid } from "../../lib/macros";
-import type { MacroButton, MacroStep } from "../../types/engine";
+import type { Macro, MacroButton, MacroStep } from "../../types/engine";
 import { ControllerVisual } from "../ControllerVisual";
 import { ButtonPad } from "./ButtonPad";
 import { RecordPanel } from "./RecordPanel";
@@ -38,13 +38,53 @@ function usePreview(steps: MacroStep[]) {
 
 type Source = "record" | "manual";
 
-export function SequenceEditor({ history, initialSource = "record" }: {
+/** In-app clipboard shared by every editor, so actions can be copied between macros. */
+let clipboard: MacroStep[] = [];
+
+export function SequenceEditor({ history, initialSource = "record", library = [] }: {
   history: History<MacroStep[]>;
   initialSource?: Source;
+  /** Other macros whose sequences can be inserted as reusable blocks. */
+  library?: Macro[];
 }) {
   const steps = history.value;
   const [source, setSource] = useState<Source>(initialSource);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selection, setSelection] = useState<string[]>([]);
+  const [clipCount, setClipCount] = useState(clipboard.length);
+  const selected_ = selection.length ? selection : selectedId ? [selectedId] : [];
+
+  const select = (id: string, mode: "single" | "toggle" | "range") => {
+    if (mode === "single") { setSelectedId(id); setSelection([id]); return; }
+    if (mode === "toggle") {
+      setSelection((sel) => (sel.includes(id) ? sel.filter((x) => x !== id) : [...sel, id]));
+      setSelectedId(id);
+      return;
+    }
+    const a = steps.findIndex((s) => s.id === (selectedId ?? id));
+    const b = steps.findIndex((s) => s.id === id);
+    const [lo, hi] = a < b ? [a, b] : [b, a];
+    setSelection(steps.slice(lo, hi + 1).map((s) => s.id));
+    setSelectedId(id);
+  };
+  const copy = () => { clipboard = steps.filter((s) => selected_.includes(s.id)).map((s) => ({ ...s })); setClipCount(clipboard.length); };
+  const paste = () => {
+    if (!clipboard.length) return;
+    const fresh = clipboard.map((s) => ({ ...s, id: uid() }));
+    const at = selected_.length ? Math.max(...selected_.map((id) => steps.findIndex((s) => s.id === id))) + 1 : steps.length;
+    history.set([...steps.slice(0, at), ...fresh, ...steps.slice(at)].slice(0, LIMITS.maxSteps));
+    setSelection(fresh.map((s) => s.id)); setSelectedId(fresh[0]!.id);
+  };
+  const removeSelected = () => {
+    history.set(steps.filter((s) => !selected_.includes(s.id)));
+    setSelection([]); setSelectedId(null);
+  };
+  const duplicateSelected = () => { copy(); paste(); };
+  const insertFrom = (m: Macro) => {
+    const fresh = m.steps.map((s) => ({ ...s, id: uid() }));
+    history.set([...steps, ...fresh].slice(0, LIMITS.maxSteps));
+    setSelection(fresh.map((s) => s.id));
+  };
   const preview = usePreview(steps);
   const selectedIndex = steps.findIndex((s) => s.id === selectedId);
   const selected = selectedIndex >= 0 ? steps[selectedIndex]! : null;
@@ -80,8 +120,12 @@ export function SequenceEditor({ history, initialSource = "record" }: {
       const target = e.target as HTMLElement;
       if (target.closest("input, textarea")) return;
       const mod = e.ctrlKey || e.metaKey;
-      if (mod && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? history.redo() : history.undo(); }
+      if (mod && e.key.toLowerCase() === "c" && selected_.length) { e.preventDefault(); copy(); }
+      else if (mod && e.key.toLowerCase() === "v") { e.preventDefault(); paste(); }
+      else if (mod && e.key.toLowerCase() === "a") { e.preventDefault(); setSelection(steps.map((s) => s.id)); }
+      else if (mod && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? history.redo() : history.undo(); }
       else if (mod && e.key.toLowerCase() === "y") { e.preventDefault(); history.redo(); }
+      else if ((e.key === "Delete" || e.key === "Backspace") && selected_.length > 1) { e.preventDefault(); removeSelected(); }
       else if ((e.key === "Delete" || e.key === "Backspace") && selectedIndex >= 0) { e.preventDefault(); remove(selectedIndex); }
     };
     window.addEventListener("keydown", onKey);
@@ -129,6 +173,20 @@ export function SequenceEditor({ history, initialSource = "record" }: {
           )}
           <button className="btn-icon" onClick={history.undo} disabled={!history.canUndo} data-tip="Undo (Ctrl+Z)" aria-label="Undo">↶</button>
           <button className="btn-icon" onClick={history.redo} disabled={!history.canRedo} data-tip="Redo (Ctrl+Y)" aria-label="Redo">↷</button>
+          <span className="divider" />
+          <button className="btn-ghost" onClick={copy} disabled={!selected_.length} data-tip="Copy selected actions (Ctrl+C)">Copy</button>
+          <button className="btn-ghost" onClick={paste} disabled={!clipCount} data-tip="Paste after the selection (Ctrl+V)">Paste{clipCount ? ` (${clipCount})` : ""}</button>
+          {selected_.length > 1 && <>
+            <button className="btn-ghost" onClick={duplicateSelected} data-tip="Duplicate the selected group">Duplicate {selected_.length}</button>
+            <button className="btn-ghost danger" onClick={removeSelected} data-tip="Delete the selected group">Delete {selected_.length}</button>
+          </>}
+          {library.length > 0 && (
+            <select className="select insert-select" value="" aria-label="Insert another macro's sequence"
+              onChange={(e) => { const m = library.find((x) => x.id === e.target.value); if (m) insertFrom(m); }}>
+              <option value="">Insert from macro…</option>
+              {library.map((m) => <option key={m.id} value={m.id}>{m.name} ({m.steps.length})</option>)}
+            </select>
+          )}
         </div>
         <span className="muted small">
           {steps.length} action{steps.length === 1 ? "" : "s"} · {formatMs(total)}
@@ -139,7 +197,7 @@ export function SequenceEditor({ history, initialSource = "record" }: {
         <div className="preview-progress"><div style={{ width: `${(preview.elapsed / Math.max(total, 1)) * 100}%` }} /></div>
       )}
 
-      <Timeline steps={steps} selectedId={selectedId} onSelect={setSelectedId} onMove={move}
+      <Timeline steps={steps} selectedId={selectedId} selection={selection} onSelect={select} onMove={move}
         playing={preview.point ? { step: preview.point.step, pressed: preview.point.pressed } : null} />
 
       {preview.playing && (

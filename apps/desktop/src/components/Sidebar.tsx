@@ -53,6 +53,11 @@ export function Sidebar({ page, onNavigate }: { page: PageId; onNavigate: (p: Pa
         ))}
       </nav>
 
+      <button className="search-button" onClick={() => window.dispatchEvent(new Event("nexus:search"))}
+        aria-label="Search settings (Ctrl+K)">
+        <span>Search settings</span><kbd>Ctrl K</kbd>
+      </button>
+
       <div className="sidebar-footer">
         <div className={`mini-status tone-${phase.tone}`}>
           <span className="dot" />

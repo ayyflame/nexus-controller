@@ -6,14 +6,16 @@ import { ButtonCombo } from "./ButtonChip";
 interface Props {
   steps: MacroStep[];
   selectedId: string | null;
-  onSelect: (id: string) => void;
+  /** Additional selected actions (multi-select). */
+  selection?: string[];
+  onSelect: (id: string, mode: "single" | "toggle" | "range") => void;
   onMove: (from: number, to: number) => void;
   /** Index of the step being previewed, and whether it is pressed. */
   playing: { step: number | null; pressed: boolean } | null;
 }
 
 /** Horizontal sequence of action blocks with the waits between them. */
-export function Timeline({ steps, selectedId, onSelect, onMove, playing }: Props) {
+export function Timeline({ steps, selectedId, selection = [], onSelect, onMove, playing }: Props) {
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dropAt, setDropAt] = useState<number | null>(null);
 
@@ -34,8 +36,8 @@ export function Timeline({ steps, selectedId, onSelect, onMove, playing }: Props
           <div key={s.id} className="tl-item" role="listitem">
             <button
               type="button"
-              className={`tl-block${selectedId === s.id ? " selected" : ""}${isPlaying && playing?.pressed ? " playing" : ""}${dropAt === i && dragFrom !== null && dragFrom !== i ? " drop-target" : ""}`}
-              onClick={() => onSelect(s.id)}
+              className={`tl-block${selectedId === s.id ? " selected" : ""}${selection.includes(s.id) && selectedId !== s.id ? " multi" : ""}${isPlaying && playing?.pressed ? " playing" : ""}${dropAt === i && dragFrom !== null && dragFrom !== i ? " drop-target" : ""}`}
+              onClick={(e) => onSelect(s.id, e.shiftKey ? "range" : e.ctrlKey || e.metaKey ? "toggle" : "single")}
               draggable
               onDragStart={(e) => { setDragFrom(i); e.dataTransfer.effectAllowed = "move"; }}
               onDragOver={(e) => { e.preventDefault(); setDropAt(i); }}
@@ -46,7 +48,7 @@ export function Timeline({ steps, selectedId, onSelect, onMove, playing }: Props
                 setDragFrom(null); setDropAt(null);
               }}
               onDragEnd={() => { setDragFrom(null); setDropAt(null); }}
-              data-tip="Click to edit · drag to reorder"
+              data-tip="Click to edit · Ctrl/Shift-click to select several · drag to reorder"
               aria-label={`Action ${i + 1}`}
             >
               <span className="tl-index">{i + 1}</span>

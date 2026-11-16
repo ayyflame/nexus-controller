@@ -77,7 +77,7 @@ export function MacroEditor({ initial, others, allMacros, onSaved, onBack }: {
       <div className="editor-grid">
         <div className="card">
           <h2>Sequence</h2>
-          <SequenceEditor history={steps} initialSource="record" />
+          <SequenceEditor history={steps} initialSource="record" library={others} />
           <Issues issues={issues} field="steps" />
         </div>
         <div className="editor-side">

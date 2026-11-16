@@ -20,6 +20,9 @@ interface EngineContextValue {
   profile: Profile | null;
   deviceEvents: TimedDeviceEvent[];
   setProfile: (p: Profile) => void;
+  /** Controller shown on Dashboard / Controller pages (multi-controller). */
+  selectedDeviceId: string | null;
+  setSelectedDeviceId: (id: string | null) => void;
 }
 
 const EngineContext = createContext<EngineContextValue | null>(null);
@@ -34,6 +37,7 @@ export function EngineProvider({ children }: { children: ReactNode }) {
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [deviceEvents, setDeviceEvents] = useState<TimedDeviceEvent[]>([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!desktop) return;
@@ -48,6 +52,8 @@ export function EngineProvider({ children }: { children: ReactNode }) {
           // Status events can be reordered with the initial fetch; keep the newest.
           setStatus((prev) => (prev && prev.revision > s.revision ? prev : s));
         }));
+        // Automatic per-game switching changes the profile from the backend.
+        unlisten.push(await engineApi.onProfileChanged((p) => setProfile(p)));
         unlisten.push(await engineApi.onEngineEvent((e) => {
           if (e.kind !== "device") return;
           setDeviceEvents((prev) => [{ at: Date.now(), event: e.data }, ...prev].slice(0, MAX_EVENTS));
@@ -73,8 +79,8 @@ export function EngineProvider({ children }: { children: ReactNode }) {
 
   const set = useCallback((p: Profile) => setProfile(p), []);
   const value = useMemo(
-    () => ({ connection, status, appInfo, profile, deviceEvents, setProfile: set }),
-    [connection, status, appInfo, profile, deviceEvents, set],
+    () => ({ connection, status, appInfo, profile, deviceEvents, setProfile: set, selectedDeviceId, setSelectedDeviceId }),
+    [connection, status, appInfo, profile, deviceEvents, set, selectedDeviceId],
   );
   return <EngineContext.Provider value={value}>{children}</EngineContext.Provider>;
 }
@@ -85,8 +91,9 @@ export function useEngine(): EngineContextValue {
   return ctx;
 }
 
-/** The controller the dashboard focuses on (first connected one). */
+/** The controller the UI focuses on: the selected one, else the first. */
 export function usePrimaryDevice() {
-  const { status } = useEngine();
-  return status?.devices[0] ?? null;
+  const { status, selectedDeviceId } = useEngine();
+  const devices = status?.devices ?? [];
+  return devices.find((d) => d.device.id === selectedDeviceId) ?? devices[0] ?? null;
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ButtonChip } from "../components/macro/ButtonChip";
 import { ConfirmDialog, Switch } from "../components/macro/common";
 import { CreateWizard } from "../components/macro/CreateWizard";
@@ -10,6 +10,36 @@ import { MODES, formatMs, totalDuration } from "../lib/macros";
 import type { Macro } from "../types/engine";
 
 type View = { kind: "list" } | { kind: "create" } | { kind: "edit"; id: string };
+
+/** Export the macro library / import macros from a file (adds, never overwrites). */
+function MacroTransfer({ onImported }: { onImported: () => void }) {
+  const file = useRef<HTMLInputElement>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [pending, setPending] = useState<{ json: string; names: string[]; renamed: string[] } | null>(null);
+  return (
+    <>
+      <button className="btn-ghost" data-tip="Save all macros to a file in Documents\\NEXUS"
+        onClick={async () => { try { const r = await engineApi.exportMacros(); setMsg(r.path ? `Saved to ${r.path}` : "Couldn't write the file."); } catch (e) { setMsg(errorMessage(e)); } }}>Export</button>
+      <button className="btn-ghost" data-tip="Add macros from a NEXUS file" onClick={() => file.current?.click()}>Import</button>
+      <input ref={file} type="file" accept=".json,application/json" hidden onChange={async (e) => {
+        const f = e.target.files?.[0]; e.target.value = "";
+        if (!f) return;
+        try {
+          const json = await f.text();
+          const p = await engineApi.previewImport(json, "add");
+          setPending({ json, names: p.macros, renamed: p.renamed });
+        } catch (err) { setMsg(errorMessage(err)); }
+      }} />
+      {msg && <div className="toast" role="status" onClick={() => setMsg(null)}>{msg}</div>}
+      {pending && (
+        <ConfirmDialog title={`Import ${pending.names.length} macro(s)?`} confirmLabel="Import"
+          body={<><p>{pending.names.join(", ") || "No macros in this file."}</p>{pending.renamed.length > 0 && <p>Renamed: {pending.renamed.join(", ")}</p>}<p>Imported macros start switched off. Nothing you have is changed.</p></>}
+          onCancel={() => setPending(null)}
+          onConfirm={async () => { const p = pending; setPending(null); try { await engineApi.importConfig(p.json, "add"); onImported(); setMsg("Imported."); } catch (e) { setMsg(errorMessage(e)); } }} />
+      )}
+    </>
+  );
+}
 
 export function MacroStudio() {
   const { connection, status, profile } = useEngine();
@@ -96,6 +126,7 @@ function MacroList({ macros, loaded, error, gamesCanReceive, blockedReason, onCr
               ■ Stop all macros
             </button>
           )}
+          <MacroTransfer onImported={() => void onReload()} />
           <button className="btn-primary btn-create" onClick={onCreate}>
             <span aria-hidden="true">＋</span> Create Macro
           </button>

@@ -2,11 +2,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   AppInfo, CommandError, EngineEvent, HidDiagnostic, EngineStatus, LogEntry, Macro, Profile, RawReport,
-  DriverStatus, ProcessingConfig, RecordingResult, ValidationIssue, VirtualOutputKind,
+  ConfigConflict, DriverStatus, ExportResult, GyroCalibration, ImportMode, ImportPreview, ImportReport, ProcessingConfig,
+  ProfileTemplate, RecordingResult, ValidationIssue, VirtualOutputKind,
 } from "../types/engine";
 
 export const EVENT_STATUS = "nexus://status";
 export const EVENT_ENGINE = "nexus://engine-event";
+export const EVENT_PROFILE_CHANGED = "nexus://profile-changed";
 
 /** True only inside the NEXUS desktop shell, where the Rust engine exists. */
 export function isDesktopShell(): boolean {
@@ -48,6 +50,20 @@ export const engineApi = {
   setProcessing: (config: ProcessingConfig) => invoke<Profile>("set_processing", { config }),
   stopAllMacros: () => invoke<void>("stop_all_macros"),
   refreshDrivers: () => invoke<DriverStatus>("refresh_drivers"),
+  testVibration: (strength: number, durationMs: number) => invoke<void>("test_vibration", { strength, durationMs }),
+  startGyroCalibration: () => invoke<void>("start_gyro_calibration"),
+  finishGyroCalibration: () => invoke<GyroCalibration>("finish_gyro_calibration"),
+  findConflicts: (config: ProcessingConfig) => invoke<ConfigConflict[]>("find_conflicts", { config }),
+  setProfileGames: (id: number, games: string[]) => invoke<Profile>("set_profile_games", { id, games }),
+  getAutoSwitch: () => invoke<boolean>("get_auto_switch"),
+  setAutoSwitch: (enabled: boolean) => invoke<void>("set_auto_switch", { enabled }),
+  listTemplates: () => invoke<ProfileTemplate[]>("list_templates"),
+  createProfileFromTemplate: (name: string, template: string) => invoke<Profile>("create_profile_from_template", { name, template }),
+  exportConfig: (profileIds: number[], includeAllMacros: boolean) => invoke<ExportResult>("export_config", { profileIds, includeAllMacros }),
+  exportMacros: () => invoke<ExportResult>("export_macros"),
+  previewImport: (json: string, mode: ImportMode) => invoke<ImportPreview>("preview_import", { json, mode }),
+  importConfig: (json: string, mode: ImportMode) => invoke<ImportReport>("import_config", { json, mode }),
+  createBackup: () => invoke<ExportResult>("create_backup"),
 
   listMacros: () => invoke<Macro[]>("list_macros"),
   saveMacro: (definition: Macro) => invoke<Macro>("save_macro", { definition }),
@@ -60,6 +76,8 @@ export const engineApi = {
 
   onStatus: (cb: (s: EngineStatus) => void): Promise<UnlistenFn> =>
     listen<EngineStatus>(EVENT_STATUS, (e) => cb(e.payload)),
+  onProfileChanged: (cb: (p: Profile) => void): Promise<UnlistenFn> =>
+    listen<Profile>(EVENT_PROFILE_CHANGED, (e) => cb(e.payload)),
   onEngineEvent: (cb: (e: EngineEvent) => void): Promise<UnlistenFn> =>
     listen<EngineEvent>(EVENT_ENGINE, (e) => cb(e.payload)),
 };

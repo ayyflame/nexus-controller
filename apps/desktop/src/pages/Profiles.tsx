@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { ConfirmDialog } from "../components/macro/common";
+import { AutoSwitchToggle, GamesEditor, PortabilityPanel, TemplatePicker } from "../components/profiles/Portability";
 import { useEngine } from "../hooks/useEngine";
 import { engineApi, errorMessage } from "../lib/engine";
 import { outputLabel } from "../lib/format";
@@ -17,6 +18,7 @@ export function Profiles() {
   const { profile: active, setProfile, connection } = useEngine();
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [renaming, setRenaming] = useState<{ id: number; name: string } | null>(null);
   const [toDelete, setToDelete] = useState<Profile | null>(null);
@@ -52,6 +54,16 @@ export function Profiles() {
         </div>
       </header>
 
+      <div className="card panel">
+        <div className="card-title-row"><h2>Games</h2><AutoSwitchToggle /></div>
+        <p className="muted small">Add a game's program name (for example eldenring.exe) to a profile below. When that game is in front, NEXUS switches to the profile, and switches back when you leave the game. NEXUS only looks at which program is in front; it never reads or changes game memory.</p>
+      </div>
+
+      <section className="card panel">
+        <h2>Start from a template</h2>
+        <TemplatePicker onCreated={() => void reload()} />
+      </section>
+
       <form className="card new-profile" onSubmit={(e) => {
         e.preventDefault();
         const name = newName;
@@ -63,6 +75,7 @@ export function Profiles() {
       </form>
 
       {error && <div className="notice error">{error}</div>}
+      {notice && <div className="notice dev" role="status">{notice} <button className="btn-ghost" onClick={() => setNotice(null)}>OK</button></div>}
 
       <div className="profile-list">
         {profiles.map((p) => {
@@ -93,6 +106,7 @@ export function Profiles() {
                   </div>
                 )}
                 <p className="muted small">{summary(p)}</p>
+                <GamesEditor profile={p} onSaved={(np) => { if (isActive) setProfile(np); void reload(); }} />
               </div>
               <div className="row gap-sm">
                 {!isActive && (
@@ -100,6 +114,8 @@ export function Profiles() {
                     onClick={() => void run(async () => setProfile(await engineApi.setActiveProfile(p.id)))}>Use</button>
                 )}
                 <button className="btn-ghost" onClick={() => setRenaming({ id: p.id, name: p.name })}>Rename</button>
+                <button className="btn-ghost" data-tip="Save this profile to a file you can share"
+                  onClick={() => void run(async () => { const r = await engineApi.exportConfig([p.id], false); setNotice(r.path ? `“${p.name}” saved to ${r.path}` : "Couldn't write the file."); })}>Export</button>
                 <button className="btn-ghost" data-tip="Copy all settings and macro choices"
                   onClick={() => void run(async () => { await engineApi.duplicateProfile(p.id); })}>Duplicate</button>
                 <button className="btn-ghost danger" disabled={profiles.length <= 1}
@@ -110,6 +126,8 @@ export function Profiles() {
           );
         })}
       </div>
+
+      <PortabilityPanel onChanged={() => { void reload(); void engineApi.getActiveProfile().then(setProfile); }} />
 
       {toDelete && (
         <ConfirmDialog title={`Delete “${toDelete.name}”?`}

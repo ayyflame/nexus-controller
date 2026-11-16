@@ -10,17 +10,23 @@ import { engineApi, errorMessage } from "../lib/engine";
 import { backendReady, outputLabel } from "../lib/format";
 import { BUTTONS, pressedButtons } from "../lib/macros";
 import {
-  CURVE_PRESETS, STICK_PRESETS, curvePresetId, defaultProcessing, processStick, shapeMagnitude, triggerOutput,
+  CURVE_PRESETS, STICK_PRESETS, curvePresetId, defaultProcessing, processStick, shapeMagnitude, triggerOutput, withDefaults,
 } from "../lib/processing";
+import {
+  ButtonSelect, DeviceSelector, GyroTab, LayersPanel, LightingTab, StickCalibrationWizard, TouchpadTab,
+  TriggerCalibrationWizard,
+} from "../components/controller/advanced";
 import type {
   DriverPresence, MacroButton, ProcessingConfig, StickConfig, TriggerConfig, VirtualOutputKind,
 } from "../types/engine";
 
-type Tab = "live" | "sticks" | "triggers" | "buttons" | "output" | "lighting";
+type Tab = "live" | "sticks" | "triggers" | "gyro" | "touchpad" | "buttons" | "output" | "lighting";
 const TABS: Array<{ id: Tab; label: string }> = [
   { id: "live", label: "Live" },
   { id: "sticks", label: "Sticks" },
   { id: "triggers", label: "Triggers" },
+  { id: "gyro", label: "Gyro" },
+  { id: "touchpad", label: "Touchpad" },
   { id: "buttons", label: "Buttons" },
   { id: "output", label: "Virtual Output" },
   { id: "lighting", label: "Lighting & Haptics" },
@@ -31,16 +37,16 @@ type Save = "saved" | "saving" | { error: string };
 /** Editing state for the active profile's processing settings, auto-saved. */
 function useProcessingDraft() {
   const { profile, setProfile, connection } = useEngine();
-  const [draft, setDraft] = useState<ProcessingConfig>(profile?.processing ?? defaultProcessing());
+  const [draft, setDraft] = useState<ProcessingConfig>(withDefaults(profile?.processing));
   const [save, setSave] = useState<Save>("saved");
-  const lastSaved = useRef(JSON.stringify(profile?.processing ?? null));
+  const lastSaved = useRef(JSON.stringify(withDefaults(profile?.processing)));
   const profileId = profile?.id;
 
   // Switching profile loads its settings.
   useEffect(() => {
     if (!profile) return;
-    setDraft(profile.processing);
-    lastSaved.current = JSON.stringify(profile.processing);
+    setDraft(withDefaults(profile.processing));
+    lastSaved.current = JSON.stringify(withDefaults(profile.processing));
     setSave("saved");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profileId]);
@@ -64,8 +70,8 @@ function useProcessingDraft() {
   return { draft, setDraft, save };
 }
 
-export function Controller() {
-  const [tab, setTab] = useState<Tab>("live");
+export function Controller({ initialTab }: { initialTab?: string }) {
+  const [tab, setTab] = useState<Tab>(TABS.some((t) => t.id === initialTab) ? (initialTab as Tab) : "live");
   const { profile, connection } = useEngine();
   const { draft, setDraft, save } = useProcessingDraft();
   const ready = connection.kind === "ready";
@@ -84,6 +90,8 @@ export function Controller() {
         )}
       </header>
 
+      <DeviceSelector />
+
       <nav className="tabs" role="tablist" aria-label="Controller settings">
         {TABS.map((t) => (
           <button key={t.id} role="tab" aria-selected={tab === t.id} className={tab === t.id ? "selected" : ""}
@@ -97,9 +105,11 @@ export function Controller() {
         {tab === "live" && <LiveTab config={draft} />}
         {tab === "sticks" && <SticksTab config={draft} onChange={setDraft} />}
         {tab === "triggers" && <TriggersTab config={draft} onChange={setDraft} />}
-        {tab === "buttons" && <ButtonsTab config={draft} onChange={setDraft} />}
+        {tab === "gyro" && <GyroTab config={draft} onChange={setDraft} />}
+        {tab === "touchpad" && <TouchpadTab config={draft} onChange={setDraft} />}
+        {tab === "buttons" && <><ButtonsTab config={draft} onChange={setDraft} /><LayersPanel config={draft} onChange={setDraft} /></>}
         {tab === "output" && <OutputTab />}
-        {tab === "lighting" && <LightingTab />}
+        {tab === "lighting" && <LightingTab config={draft} onChange={setDraft} />}
       </div>
     </div>
   );
@@ -174,6 +184,11 @@ function SticksTab({ config, onChange }: { config: ProcessingConfig; onChange: (
           </div>
         </Panel>
 
+        <Panel title="Calibration">
+          <p className="muted small">If your stick doesn't rest exactly at the centre or can't reach the edge, calibrate it.</p>
+          <StickCalibrationWizard side={side} calibration={c.calibration} onSave={(calibration) => set({ calibration })} />
+        </Panel>
+
         <Panel title="Deadzone and sensitivity">
           <Slider label="Deadzone" tip="Small movements below this are ignored (hides stick drift)"
             value={c.deadzone} max={0.5} onChange={(deadzone) => set({ deadzone })} />
@@ -189,8 +204,16 @@ function SticksTab({ config, onChange }: { config: ProcessingConfig; onChange: (
               <Segmented label="Deadzone shape" value={c.shape} onChange={(shape) => set({ shape })}
                 options={[{ value: "radial", label: "Radial" }, { value: "axial", label: "Axial" }]} />
             </div>
-            <Switch checked={c.circular} onChange={(circular) => set({ circular })} label="Circular output"
-              tip="Diagonals are not faster than straight directions" />
+            <Slider label="Left/right sensitivity" tip="Extra multiplier for horizontal movement" value={c.sensitivityX}
+              min={0.1} max={3} step={0.05} format={(v) => `${v.toFixed(2)}×`} onChange={(sensitivityX) => set({ sensitivityX })} />
+            <Slider label="Up/down sensitivity" tip="Extra multiplier for vertical movement" value={c.sensitivityY}
+              min={0.1} max={3} step={0.05} format={(v) => `${v.toFixed(2)}×`} onChange={(sensitivityY) => set({ sensitivityY })} />
+            <div className="field-row">
+              <span className="field-label" data-tip="Circle: diagonals aren't faster. Square: full range on diagonals for games that expect it.">Output shape</span>
+              <Segmented label="Output shape" value={c.squareOutput ? "square" : c.circular ? "circle" : "raw"}
+                onChange={(v) => set({ squareOutput: v === "square", circular: v === "circle" })}
+                options={[{ value: "circle", label: "Circle" }, { value: "square", label: "Square" }, { value: "raw", label: "Unchanged" }]} />
+            </div>
             <Switch checked={c.invertX} onChange={(invertX) => set({ invertX })} label="Invert left/right" />
             <Switch checked={c.invertY} onChange={(invertY) => set({ invertY })} label="Invert up/down" />
           </Advanced>
@@ -244,6 +267,11 @@ function TriggersTab({ config, onChange }: { config: ProcessingConfig; onChange:
           onChange={(deadzone) => set({ deadzone })} />
         <Slider label="Full press at" tip="Counts as fully pressed from this point (shorter trigger travel)"
           value={c.maxInput} min={0.1} max={1} onChange={(maxInput) => set({ maxInput })} />
+        <Slider label="Click point" tip="How far you pull before the trigger counts as a button press (for remapping and digital games)"
+          value={c.activation} min={0.01} max={1} onChange={(activation) => set({ activation })} />
+        <Slider label="Sensitivity" tip="Below 1: reaches full output sooner. Above 1: more control at the start."
+          value={c.curve} min={0.3} max={3} step={0.05} format={(v) => v.toFixed(2)} onChange={(curve) => set({ curve })} />
+        <TriggerCalibrationWizard side={key} rawMin={c.rawMin} rawMax={c.rawMax} onSave={(rawMin, rawMax) => set({ rawMin, rawMax })} />
         <Advanced title="Output range">
           <Slider label="Minimum output" tip="Output as soon as the trigger passes its deadzone" value={c.outputMin}
             onChange={(outputMin) => set({ outputMin })} />
@@ -274,8 +302,17 @@ function ButtonsTab({ config, onChange }: { config: ProcessingConfig; onChange: 
   const device = usePrimaryDevice();
   const target = (b: MacroButton) => config.remap.find((r) => r.from === b);
   const setTarget = (from: MacroButton, value: string) => {
+    const prev = config.remap.find((r) => r.from === from);
     const rest = config.remap.filter((r) => r.from !== from);
-    const remap = value === "same" ? rest : [...rest, { from, to: value === "off" ? null : (value as MacroButton) }];
+    const remap = value === "same" && !prev?.also?.length ? rest
+      : [...rest, { from, to: value === "same" ? from : value === "off" ? null : (value as MacroButton), also: prev?.also ?? [] }];
+    onChange({ ...config, remap });
+  };
+  const setAlso = (from: MacroButton, b: MacroButton | null) => {
+    const prev = config.remap.find((r) => r.from === from);
+    const rest = config.remap.filter((r) => r.from !== from);
+    const to = prev ? prev.to : from;
+    const remap = !b && to === from ? rest : [...rest, { from, to, also: b ? [b] : [] }];
     onChange({ ...config, remap });
   };
   const pressed = new Set(pressedButtons(device?.input));
@@ -283,11 +320,11 @@ function ButtonsTab({ config, onChange }: { config: ProcessingConfig; onChange: 
     <Panel title="Button remapping" aside={
       config.remap.length > 0 && <button className="btn-ghost" onClick={() => onChange({ ...config, remap: [] })}>Reset all</button>
     }>
-      <p className="muted small">Choose what each button sends to the game. Press a button on your controller to find it in the list. Macros are always started by the physical button.</p>
+      <p className="muted small">Choose what each button sends to the game, and optionally a second button pressed at the same time. Press a button on your controller to find it in the list. Macros are always started by the physical button.</p>
       <div className="remap-list">
         {BUTTON_ORDER.map((b) => {
           const rule = target(b);
-          const value = !rule ? "same" : rule.to === null ? "off" : rule.to;
+          const value = !rule || rule.to === b ? "same" : rule.to === null ? "off" : rule.to;
           return (
             <div key={b} className={`remap-row${pressed.has(b) ? " lit" : ""}${rule ? " changed" : ""}`}>
               <ButtonChip button={b} size="lg" active={pressed.has(b)} />
@@ -299,6 +336,8 @@ function ButtonsTab({ config, onChange }: { config: ProcessingConfig; onChange: 
                 <option value="off">Disabled</option>
                 {BUTTON_ORDER.filter((x) => x !== b).map((x) => <option key={x} value={x}>{BUTTONS[x].name}</option>)}
               </select>
+              <ButtonSelect label={`${BUTTONS[b].name} also presses`} value={rule?.also?.[0] ?? null} noneLabel="+ also press…"
+                onChange={(x) => setAlso(b, x)} />
             </div>
           );
         })}
@@ -362,27 +401,3 @@ function OutputTab() {
   );
 }
 
-// ---- Lighting & Haptics ----------------------------------------------------
-
-function LightingTab() {
-  const rows = [
-    ["Lightbar colour", "Needs DualSense output reports (USB 0x02 / Bluetooth 0x31) verified on real hardware."],
-    ["Player LEDs", "Same output-report path as the lightbar."],
-    ["Rumble strength", "Rumble comes from games through the virtual controller, which isn't enabled yet."],
-    ["Adaptive triggers", "Effect parameters need protocol research and hardware verification."],
-  ];
-  return (
-    <Panel title="Lighting & Haptics">
-      <p className="muted">These DualSense features aren't available yet. NEXUS doesn't send any commands to your controller until they can be verified on real hardware.</p>
-      <div className="feature-list">
-        {rows.map(([name, why]) => (
-          <div key={name} className="feature-row">
-            <strong>{name}</strong>
-            <span className="badge dev">Not available yet</span>
-            <span className="muted small">{why}</span>
-          </div>
-        ))}
-      </div>
-    </Panel>
-  );
-}

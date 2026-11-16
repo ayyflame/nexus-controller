@@ -62,3 +62,23 @@ test("preview state presses exactly the given buttons", () => {
   assert.deepEqual(pressedButtons(stateWithButtons([])), []);
   assert.deepEqual(pressedButtons(null), []);
 });
+
+import { MACRO_TEMPLATES } from "./macroTemplates.ts";
+import { isNewer } from "./updates.ts";
+
+test("macro templates produce valid, editable sequences", () => {
+  for (const t of MACRO_TEMPLATES) {
+    const steps = t.build("north");
+    assert.ok(steps.length > 0, t.id);
+    assert.equal(new Set(steps.map((s) => s.id)).size, steps.length, "unique ids");
+    assert.equal(validateMacro({ ...newMacro(), name: t.name, steps }, []).length, 0, t.id);
+    assert.ok(steps.every((s) => s.buttons[0] === "north"));
+  }
+});
+
+test("update version comparison", () => {
+  assert.ok(isNewer("v0.2.0", "0.1.0"));
+  assert.ok(isNewer("0.10.0", "0.9.9"));
+  assert.ok(!isNewer("v0.1.0", "0.1.0"));
+  assert.ok(!isNewer("0.0.9", "0.1.0"));
+});

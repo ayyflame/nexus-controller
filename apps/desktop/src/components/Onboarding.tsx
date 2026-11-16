@@ -1,0 +1,47 @@
+import { useState } from "react";
+import { useControllerPhase } from "./StatusPill";
+
+const KEY = "nexus.onboarding.v1";
+
+function done(): boolean {
+  try { return localStorage.getItem(KEY) === "done"; } catch { return true; }
+}
+function markDone() {
+  try { localStorage.setItem(KEY, "done"); } catch { /* storage unavailable: show again next time */ }
+}
+
+/** First-launch walkthrough. Shown once; can be reopened from Settings. */
+export function Onboarding({ forceOpen, onClose, onNavigate }: {
+  forceOpen?: boolean; onClose?: () => void; onNavigate: (page: string) => void;
+}) {
+  const [open, setOpen] = useState(() => forceOpen || !done());
+  const [step, setStep] = useState(0);
+  const phase = useControllerPhase();
+  if (!open && !forceOpen) return null;
+  const close = () => { markDone(); setOpen(false); onClose?.(); };
+  const steps = [
+    { title: "Welcome to NEXUS", body: <>NEXUS reads your DualSense, lets you tune sticks and triggers, remap buttons, add gyro aiming and record macros, and saves everything in profiles.</> },
+    { title: "Connect your controller", body: <>
+      Plug in a USB-C cable, or pair over Bluetooth: hold <b>Create + PS</b> until the light flashes, then add it in Windows Settings › Bluetooth.
+      <div className={`onb-status tone-${phase.tone}`}><span className="dot" /> {phase.label}: {phase.detail}</div></> },
+    { title: "Make it yours", body: <>Open <b>Controller</b> to tune sticks, triggers, gyro and the touchpad, or start from a template in <b>Profiles</b>. Changes save automatically.</> },
+    { title: "Find anything fast", body: <>Press <kbd>Ctrl</kbd> + <kbd>K</kbd> anywhere to search every setting. Hover any control for an explanation.</> },
+  ];
+  const s = steps[step]!;
+  return (
+    <div className="modal-backdrop">
+      <div className="modal onboarding" role="dialog" aria-modal="true" aria-labelledby="onb-title">
+        <div className="onb-dots" aria-hidden="true">{steps.map((_, i) => <span key={i} className={i === step ? "on" : ""} />)}</div>
+        <h2 id="onb-title">{s.title}</h2>
+        <div className="modal-body">{s.body}</div>
+        <div className="modal-actions">
+          <button className="btn-ghost" onClick={close}>Skip</button>
+          {step > 0 && <button className="btn-ghost" onClick={() => setStep(step - 1)}>Back</button>}
+          {step < steps.length - 1
+            ? <button className="btn-primary" autoFocus onClick={() => setStep(step + 1)}>Next</button>
+            : <button className="btn-primary" autoFocus onClick={() => { close(); onNavigate("controller"); }}>Open Controller</button>}
+        </div>
+      </div>
+    </div>
+  );
+}
