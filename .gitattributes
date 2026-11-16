@@ -6,3 +6,5 @@
 *.png binary
 *.ico binary
 *.icns binary
+# Signed test fixtures must be byte-exact on every platform
+crates/updates/tests/fixtures/* binary
