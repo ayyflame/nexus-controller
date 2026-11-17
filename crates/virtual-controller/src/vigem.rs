@@ -106,6 +106,15 @@ impl VirtualControllerBackend for ViGEmBackend {
             .map_err(|e| OutputError::Backend(describe(e)))
     }
 
+    fn player_index(&mut self, handle: VirtualDeviceHandle) -> Option<u8> {
+        let target = self.targets.get_mut(&handle.0)?;
+        target
+            .get_user_index()
+            .ok()
+            .and_then(|i| u8::try_from(i).ok())
+            .filter(|i| *i < 4)
+    }
+
     fn disconnect(&mut self, handle: VirtualDeviceHandle) -> Result<(), OutputError> {
         if let Some(mut target) = self.targets.remove(&handle.0) {
             // Neutral first (the manager also does this), then unplug.

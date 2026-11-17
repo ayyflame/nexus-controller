@@ -2289,3 +2289,504 @@ fn the_fail_safe_stops_every_active_macro() {
         .all(|r| !has(r, xusb::A) && !has(r, xusb::B)));
     assert!(e.status().devices[0].playing_macros.is_empty());
 }
+
+// ---- Game output: physical DualSense → processing → virtual Xbox 360 pad ----
+// Everything a game receives is what the mock driver records here, already
+// translated to the XInput report. These tests follow one input at a time from
+// the USB report to that report.
+
+use nexus_input_processing::{LayerMode, MappingLayer, ProcessingConfig, RemapRule, ResponseCurve};
+
+/// Xbox output with processing switched to plain passthrough.
+fn passthrough_xbox() -> (MockHidBackend, Engine, PadLog) {
+    let (backend, e, log) = xbox_engine();
+    e.set_processing(ProcessingConfig::passthrough());
+    (backend, e, log)
+}
+
+/// Sends one physical report and waits until the virtual pad shows `want`.
+fn expect_pad(backend: &MockHidBackend, log: &PadLog, p: &Payload, want: XusbReport, what: &str) {
+    backend.push_report(PATH, p.usb_report());
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while log.reports().last() != Some(&want) {
+        assert!(
+            Instant::now() < deadline,
+            "{what}: virtual pad shows {:?}, expected {want:?}",
+            log.reports().last()
+        );
+        std::thread::sleep(Duration::from_millis(2));
+    }
+}
+
+fn pad(buttons: u16) -> XusbReport {
+    XusbReport {
+        buttons,
+        ..Default::default()
+    }
+}
+
+fn held(byte: usize, mask: u8) -> Payload {
+    let mut p = Payload::neutral();
+    p.buttons[byte] |= mask;
+    p
+}
+
+fn dpad(hat: u8) -> Payload {
+    let mut p = Payload::neutral();
+    p.buttons[0] = hat;
+    p
+}
+
+#[test]
+fn every_physical_button_reaches_the_virtual_pad_as_its_xbox_button() {
+    let (backend, _e, log) = passthrough_xbox();
+    let cases: [(&str, Payload, u16); 19] = [
+        ("Cross", held(0, 0x20), xusb::A),
+        ("Circle", held(0, 0x40), xusb::B),
+        ("Square", held(0, 0x10), xusb::X),
+        ("Triangle", held(0, 0x80), xusb::Y),
+        ("L1", held(1, 0x01), xusb::LEFT_SHOULDER),
+        ("R1", held(1, 0x02), xusb::RIGHT_SHOULDER),
+        ("Create", held(1, 0x10), xusb::BACK),
+        ("Options", held(1, 0x20), xusb::START),
+        ("L3", held(1, 0x40), xusb::LEFT_THUMB),
+        ("R3", held(1, 0x80), xusb::RIGHT_THUMB),
+        ("PS", held(2, 0x01), xusb::GUIDE),
+        ("D-pad up", dpad(0), xusb::DPAD_UP),
+        ("D-pad up-right", dpad(1), xusb::DPAD_UP | xusb::DPAD_RIGHT),
+        ("D-pad right", dpad(2), xusb::DPAD_RIGHT),
+        ("D-pad down", dpad(4), xusb::DPAD_DOWN),
+        (
+            "D-pad down-left",
+            dpad(5),
+            xusb::DPAD_DOWN | xusb::DPAD_LEFT,
+        ),
+        ("D-pad left", dpad(6), xusb::DPAD_LEFT),
+        // No Xbox 360 equivalent: nothing is sent unless remapped.
+        ("Touchpad click", held(2, 0x02), 0),
+        ("Mute", held(2, 0x04), 0),
+    ];
+    for (name, p, bits) in cases {
+        expect_pad(&backend, &log, &p, pad(bits), name);
+        // Releasing returns the pad to exactly neutral: nothing stays held.
+        expect_pad(&backend, &log, &Payload::neutral(), pad(0), "release");
+    }
+    // Several at once.
+    let mut p = held(0, 0x20 | 0x80);
+    p.buttons[1] |= 0x01 | 0x80;
+    expect_pad(
+        &backend,
+        &log,
+        &p,
+        pad(xusb::A | xusb::Y | xusb::LEFT_SHOULDER | xusb::RIGHT_THUMB),
+        "four buttons",
+    );
+}
+
+#[test]
+fn sticks_reach_the_virtual_pad_with_full_range_and_xinput_directions() {
+    let (backend, _e, log) = passthrough_xbox();
+    let stick = |lx: u8, ly: u8, rx: u8, ry: u8| {
+        let mut p = Payload::neutral();
+        (p.lx, p.ly, p.rx, p.ry) = (lx, ly, rx, ry);
+        p
+    };
+    let want = |lx: i16, ly: i16, rx: i16, ry: i16| XusbReport {
+        thumb_lx: lx,
+        thumb_ly: ly,
+        thumb_rx: rx,
+        thumb_ry: ry,
+        ..Default::default()
+    };
+    // DualSense: 0 = left / up, 255 = right / down. XInput: up is positive.
+    expect_pad(
+        &backend,
+        &log,
+        &stick(255, 128, 128, 128),
+        want(32767, 0, 0, 0),
+        "left right",
+    );
+    expect_pad(
+        &backend,
+        &log,
+        &stick(0, 128, 128, 128),
+        want(-32768, 0, 0, 0),
+        "left left",
+    );
+    expect_pad(
+        &backend,
+        &log,
+        &stick(128, 0, 128, 128),
+        want(0, 32767, 0, 0),
+        "left up",
+    );
+    expect_pad(
+        &backend,
+        &log,
+        &stick(128, 255, 128, 128),
+        want(0, -32768, 0, 0),
+        "left down",
+    );
+    // Diagonals: radial shaping keeps the stick on the unit circle (a real
+    // stick's gate is round), so a corner arrives as 0.7071 on each axis.
+    expect_pad(
+        &backend,
+        &log,
+        &stick(128, 128, 255, 0),
+        want(0, 0, 23170, 23170),
+        "right up-right",
+    );
+    expect_pad(
+        &backend,
+        &log,
+        &stick(128, 128, 0, 255),
+        want(0, 0, -23170, -23170),
+        "right down-left",
+    );
+    expect_pad(
+        &backend,
+        &log,
+        &stick(128, 128, 128, 128),
+        want(0, 0, 0, 0),
+        "centre is exactly 0",
+    );
+    // Half deflection stays proportional (64/127 of full).
+    backend.push_report(PATH, stick(192, 128, 128, 128).usb_report());
+    log.wait("half right", |_| {
+        log.reports()
+            .last()
+            .is_some_and(|r| (r.thumb_lx - 16512).abs() <= 2)
+    });
+}
+
+#[test]
+fn analog_triggers_reach_the_virtual_pad_exactly() {
+    let (backend, _e, log) = passthrough_xbox();
+    for (l2, r2) in [
+        (0u8, 0u8),
+        (1, 254),
+        (100, 37),
+        (128, 128),
+        (255, 255),
+        (0, 0),
+    ] {
+        let mut p = Payload::neutral();
+        (p.l2, p.r2) = (l2, r2);
+        let want = XusbReport {
+            left_trigger: l2,
+            right_trigger: r2,
+            ..Default::default()
+        };
+        expect_pad(&backend, &log, &p, want, "triggers");
+    }
+}
+
+#[test]
+fn remaps_reach_the_virtual_pad() {
+    let (backend, e, log) = xbox_engine();
+    let mut cfg = ProcessingConfig::passthrough();
+    cfg.remap = vec![
+        RemapRule::new(MacroButton::South, Some(MacroButton::East)), // Cross → B
+        RemapRule::new(MacroButton::West, Some(MacroButton::RightTrigger)), // Square → RT
+        RemapRule::new(MacroButton::North, None),                    // Triangle off
+        RemapRule::new(MacroButton::Touchpad, Some(MacroButton::Select)), // Touchpad → Back
+        RemapRule::new(MacroButton::LeftTrigger, Some(MacroButton::RightTrigger)),
+    ];
+    e.set_processing(cfg);
+    expect_pad(
+        &backend,
+        &log,
+        &held(0, 0x20),
+        pad(xusb::B),
+        "Cross sends B, not A",
+    );
+    expect_pad(
+        &backend,
+        &log,
+        &held(0, 0x80),
+        pad(0),
+        "disabled button sends nothing",
+    );
+    expect_pad(
+        &backend,
+        &log,
+        &held(2, 0x02),
+        pad(xusb::BACK),
+        "touchpad click sends Back",
+    );
+    let full_rt = XusbReport {
+        right_trigger: 255,
+        ..Default::default()
+    };
+    expect_pad(
+        &backend,
+        &log,
+        &held(0, 0x10),
+        full_rt,
+        "button on a trigger pulls it fully",
+    );
+    // A trigger mapped to the other trigger keeps its analog value.
+    let mut p = Payload::neutral();
+    p.l2 = 90;
+    let moved = XusbReport {
+        right_trigger: 90,
+        ..Default::default()
+    };
+    expect_pad(&backend, &log, &p, moved, "L2 travel arrives on RT");
+    expect_pad(&backend, &log, &Payload::neutral(), pad(0), "release");
+}
+
+#[test]
+fn deadzone_and_curve_shape_what_the_virtual_pad_receives() {
+    let (backend, e, log) = xbox_engine();
+    let mut cfg = ProcessingConfig::passthrough();
+    cfg.left_stick.deadzone = 0.25;
+    cfg.left_stick.curve = ResponseCurve::Power { exponent: 2.0 };
+    cfg.right_trigger.deadzone = 0.5;
+    e.set_processing(cfg);
+    let mut p = Payload::neutral();
+    p.lx = 150; // ≈0.17: inside the deadzone
+    p.r2 = 100; // ≈0.39: inside the trigger deadzone
+    expect_pad(&backend, &log, &p, pad(0), "inside both deadzones");
+    p.lx = 255;
+    p.r2 = 255;
+    let full = XusbReport {
+        thumb_lx: 32767,
+        right_trigger: 255,
+        ..Default::default()
+    };
+    expect_pad(&backend, &log, &p, full, "full deflection is still full");
+    // Halfway through the usable range, a squared curve gives a quarter.
+    let mut p = Payload::neutral();
+    p.lx = 128 + 79; // ≈0.622 → (0.622-0.25)/0.75 ≈ 0.496 → ² ≈ 0.246
+    backend.push_report(PATH, p.usb_report());
+    log.wait("curved half", |_| {
+        log.reports()
+            .last()
+            .is_some_and(|r| (r.thumb_lx as f32 / 32767.0 - 0.246).abs() < 0.01 && r.thumb_ly == 0)
+    });
+}
+
+#[test]
+fn shift_layers_change_what_the_virtual_pad_receives() {
+    let (backend, e, log) = xbox_engine();
+    let mut cfg = ProcessingConfig::passthrough();
+    cfg.layers = vec![MappingLayer {
+        name: "Shift".into(),
+        activator: MacroButton::LeftShoulder,
+        mode: LayerMode::Hold,
+        remap: vec![RemapRule::new(MacroButton::West, Some(MacroButton::DpadUp))],
+    }];
+    e.set_processing(cfg);
+    expect_pad(
+        &backend,
+        &log,
+        &held(0, 0x10),
+        pad(xusb::X),
+        "Square alone is X",
+    );
+    expect_pad(
+        &backend,
+        &log,
+        &held(1, 0x01),
+        pad(0),
+        "the layer button itself is hidden",
+    );
+    let mut both = held(0, 0x10);
+    both.buttons[1] |= 0x01;
+    expect_pad(
+        &backend,
+        &log,
+        &both,
+        pad(xusb::DPAD_UP),
+        "L1 + Square is D-pad up",
+    );
+    // Other buttons keep working while the layer is held.
+    let mut plus = both;
+    plus.buttons[0] |= 0x20;
+    expect_pad(
+        &backend,
+        &log,
+        &plus,
+        pad(xusb::DPAD_UP | xusb::A),
+        "plus Cross",
+    );
+    expect_pad(
+        &backend,
+        &log,
+        &held(0, 0x10),
+        pad(xusb::X),
+        "layer released: X again",
+    );
+    expect_pad(&backend, &log, &Payload::neutral(), pad(0), "release");
+}
+
+#[test]
+fn macro_presses_combine_with_physical_buttons_sticks_and_triggers() {
+    let (backend, e, log) = passthrough_xbox();
+    e.set_macros(vec![jump_macro(PlaybackMode::RepeatWhileHeld)]); // R3 → A for 2 s
+    backend.push_report(PATH, report(&[]));
+    // Hold the macro trigger, Circle, the left stick right and half RT.
+    let mut p = held(1, 0x80);
+    p.buttons[0] |= 0x40;
+    p.lx = 255;
+    p.r2 = 128;
+    let want = XusbReport {
+        buttons: xusb::A | xusb::B, // macro's A + physical B; R3 hidden
+        thumb_lx: 32767,
+        right_trigger: 128,
+        ..Default::default()
+    };
+    expect_pad(
+        &backend,
+        &log,
+        &p,
+        want,
+        "macro and physical input together",
+    );
+    // Physical changes pass through while the macro keeps playing.
+    p.buttons[0] &= !0x40;
+    p.lx = 128;
+    let want = XusbReport {
+        buttons: xusb::A,
+        right_trigger: 128,
+        ..Default::default()
+    };
+    expect_pad(
+        &backend,
+        &log,
+        &p,
+        want,
+        "physical released, macro still pressing",
+    );
+    // Releasing the trigger stops the macro; only physical input remains.
+    let mut p = Payload::neutral();
+    p.r2 = 128;
+    let want = XusbReport {
+        right_trigger: 128,
+        ..Default::default()
+    };
+    expect_pad(&backend, &log, &p, want, "macro stopped");
+    // A physical press of the macro's own output button is not cancelled by it.
+    expect_pad(
+        &backend,
+        &log,
+        &held(0, 0x20),
+        pad(xusb::A),
+        "physical Cross",
+    );
+}
+
+#[test]
+fn switching_profiles_keeps_the_same_virtual_pad_and_applies_the_new_mapping() {
+    let (backend, e, log) = passthrough_xbox();
+    expect_pad(
+        &backend,
+        &log,
+        &held(0, 0x20),
+        pad(xusb::A),
+        "profile 1: Cross is A",
+    );
+    // What apply_profile does when both profiles use Xbox 360 output.
+    let mut cfg = ProcessingConfig::passthrough();
+    cfg.remap = vec![RemapRule::new(MacroButton::South, Some(MacroButton::North))];
+    e.set_output_mode(VirtualOutputKind::Xbox360);
+    e.set_processing(cfg);
+    e.set_macros(vec![]);
+    expect_pad(
+        &backend,
+        &log,
+        &held(0, 0x20),
+        pad(xusb::Y),
+        "profile 2: Cross is Y",
+    );
+    let all = log.all();
+    assert_eq!(
+        connects(&all),
+        1,
+        "the game keeps seeing the same controller"
+    );
+    assert!(!all.iter().any(|p| matches!(p, Pad::Disconnect(_))));
+    // No frame in between had both the old and the new button, or a stray one.
+    assert!(log
+        .reports()
+        .iter()
+        .all(|r| [0, xusb::A, xusb::Y].contains(&r.buttons)));
+}
+
+#[test]
+fn turning_output_off_and_on_again_gives_a_fresh_working_pad() {
+    let (backend, e, log) = passthrough_xbox();
+    expect_pad(&backend, &log, &held(0, 0x20), pad(xusb::A), "before");
+    e.set_output_mode(VirtualOutputKind::Disabled);
+    log.wait("removed", |p| p.contains(&Pad::Disconnect(1)));
+    let all = log.all();
+    let i = all.iter().position(|p| *p == Pad::Disconnect(1)).unwrap();
+    assert_eq!(
+        all[i - 1],
+        Pad::Report(1, XusbReport::default()),
+        "neutral first"
+    );
+    // While off, input produces no virtual reports at all.
+    backend.push_report(PATH, held(0, 0x40).usb_report());
+    wait_status(&e, "report seen", |s| {
+        s.devices[0].input.is_some_and(|i| i.buttons.east)
+    });
+    assert_eq!(log.all().len(), i + 1);
+    assert_eq!(e.status().devices[0].output.active, None);
+
+    e.set_output_mode(VirtualOutputKind::Xbox360);
+    log.wait("created again", |p| connects(p) == 2);
+    expect_pad(
+        &backend,
+        &log,
+        &held(0, 0x10),
+        pad(xusb::X),
+        "after re-enabling",
+    );
+    assert_eq!(log.live(), 1);
+    assert_eq!(
+        e.status().devices[0].output.active,
+        Some(VirtualOutputKind::Xbox360)
+    );
+}
+
+#[test]
+fn closing_and_restarting_nexus_leaves_no_pad_behind_and_works_again() {
+    let (backend, e, log) = passthrough_xbox();
+    expect_pad(&backend, &log, &held(0, 0x20), pad(xusb::A), "first run");
+    e.shutdown();
+    drop(e);
+    assert_eq!(log.live(), 0, "no virtual controller left behind");
+    let all = log.all();
+    let n = all.len();
+    assert_eq!(
+        all[n - 2..],
+        [Pad::Report(1, XusbReport::default()), Pad::Disconnect(1)]
+    );
+
+    // Second run: same controller still plugged in.
+    let log2 = PadLog::default();
+    let factory_log = log2.clone();
+    let e2 = Engine::start(
+        Arc::new(backend.clone()),
+        vec![Arc::new(DualSenseDriver)],
+        Arc::new(move || {
+            Box::new(RecordingPad {
+                log: factory_log.clone(),
+                next: 0,
+                installed: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            })
+        }),
+        EngineConfig {
+            initial_output: VirtualOutputKind::Xbox360,
+            processing: ProcessingConfig::passthrough(),
+            ..config()
+        },
+    );
+    wait_status(&e2, "reconnect", |s| s.devices.len() == 1);
+    log2.wait("virtual controller", |p| p.contains(&Pad::Connect(1)));
+    expect_pad(&backend, &log2, &held(0, 0x40), pad(xusb::B), "second run");
+    e2.shutdown();
+    assert_eq!(log2.live(), 0);
+}

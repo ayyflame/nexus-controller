@@ -65,6 +65,11 @@ pub trait VirtualControllerBackend: Send {
         state: &ControllerState,
     ) -> Result<(), OutputError>;
     fn disconnect(&mut self, handle: VirtualDeviceHandle) -> Result<(), OutputError>;
+    /// Which player slot Windows gave the device (0 = player 1), if the
+    /// backend can tell. Games that only listen to player 1 need slot 0.
+    fn player_index(&mut self, _handle: VirtualDeviceHandle) -> Option<u8> {
+        None
+    }
 }
 
 /// The backend for this platform: experimental ViGEmBus on Windows.
@@ -124,6 +129,10 @@ pub struct OutputStatus {
     pub backend: String,
     pub backend_status: BackendStatus,
     pub last_error: Option<String>,
+    /// XInput player slot of the virtual device (0 = player 1), if known.
+    pub player_index: Option<u8>,
+    /// The device failed and creating it again is being retried by itself.
+    pub retrying: bool,
 }
 
 /// Something the engine should log and show (returned once per change).
@@ -150,6 +159,7 @@ pub struct VirtualOutputManager {
     backend: Box<dyn VirtualControllerBackend>,
     requested: VirtualOutputKind,
     active: Option<(VirtualOutputKind, VirtualDeviceHandle)>,
+    player: Option<u8>,
     last_error: Option<String>,
     retry: Option<Retry>,
     retry_base: Duration,
@@ -162,6 +172,7 @@ impl VirtualOutputManager {
             backend,
             requested: VirtualOutputKind::Disabled,
             active: None,
+            player: None,
             last_error: None,
             retry: None,
             retry_base: RETRY_BASE,
@@ -197,6 +208,8 @@ impl VirtualOutputManager {
             backend: self.backend.name().to_owned(),
             backend_status: self.backend.status(),
             last_error: self.last_error.clone(),
+            player_index: self.player.filter(|_| self.active.is_some()),
+            retrying: self.active.is_none() && self.retry.is_some(),
         }
     }
 
@@ -236,6 +249,7 @@ impl VirtualOutputManager {
         }
         let handle = self.backend.connect(self.requested)?;
         self.active = Some((self.requested, handle));
+        self.player = self.backend.player_index(handle);
         Ok(())
     }
 
@@ -516,6 +530,10 @@ mod tests {
             self.live.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
             Ok(())
         }
+        /// Each new device lands in the next player slot.
+        fn player_index(&mut self, h: VirtualDeviceHandle) -> Option<u8> {
+            Some((h.0 - 1) as u8)
+        }
     }
 
     #[test]
@@ -534,6 +552,8 @@ mod tests {
         let s = ControllerState::default();
         m.submit(&s);
         assert_eq!(m.take_event(), None);
+        let st = m.status();
+        assert_eq!((st.player_index, st.retrying), (Some(0), false), "player 1");
 
         fail.store(true, SeqCst);
         fail_connect.store(true, SeqCst);
@@ -541,6 +561,12 @@ mod tests {
         assert!(matches!(m.take_event(), Some(OutputEvent::Failed(_))));
         assert_eq!(live.load(SeqCst), 0, "broken device dropped");
         assert_eq!(m.status().active, None);
+        let st = m.status();
+        assert_eq!(
+            (st.player_index, st.retrying),
+            (None, true),
+            "shown as retrying"
+        );
         for _ in 0..3 {
             m.submit(&s);
         }
@@ -554,6 +580,12 @@ mod tests {
         assert_eq!(m.take_event(), Some(OutputEvent::Recovered));
         assert_eq!(m.status().active, Some(VirtualOutputKind::Xbox360));
         assert_eq!(m.status().last_error, None);
+        let st = m.status();
+        assert_eq!(
+            (st.player_index, st.retrying),
+            (Some(1), false),
+            "new slot shown"
+        );
         assert_eq!(
             (connects.load(SeqCst), live.load(SeqCst)),
             (2, 1),

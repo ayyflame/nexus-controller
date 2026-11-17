@@ -1,0 +1,47 @@
+# Checks NEXUS's virtual Xbox 360 controller against Windows' real XInput API.
+#
+# Run manually (Actions tab → "XInput loopback check" → Run workflow).
+#
+# This is the only place a driver is installed by automation, and it is a
+# throwaway GitHub-hosted virtual machine, never a user's PC: ViGEmBus is
+# installed from its official release so the test can create a virtual
+# controller through NEXUS's real backend and read it back with
+# XInputGetState. The NEXUS app itself never installs or bundles any driver,
+# and the release build workflow does not run this.
+name: XInput loopback check
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  loopback:
+    name: Virtual Xbox 360 controller through XInput
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install ViGEmBus 1.22.0 on this test machine (official release)
+        shell: pwsh
+        run: |
+          $url = "https://github.com/nefarius/ViGEmBus/releases/download/v1.22.0/ViGEmBus_1.22.0_x64_x86_arm64.exe"
+          $exe = Join-Path $env:RUNNER_TEMP "ViGEmBus_1.22.0.exe"
+          Invoke-WebRequest -Uri $url -OutFile $exe
+          $sig = Get-AuthenticodeSignature $exe
+          Write-Host "Signature: $($sig.Status) / $($sig.SignerCertificate.Subject)"
+          if ($sig.Status -ne "Valid") { throw "ViGEmBus installer signature is not valid" }
+          $p = Start-Process -FilePath $exe -ArgumentList "/exenoui", "/qn", "/norestart" -Wait -PassThru
+          Write-Host "Installer exit code: $($p.ExitCode)"
+          Get-PnpDevice -PresentOnly | Where-Object { $_.FriendlyName -like "*Virtual Gamepad Emulation*" } | Format-List FriendlyName, Status, Class
+
+      - name: Read the virtual controller back through XInput
+        run: cargo test -p nexus-virtual-controller --locked --test xinput_loopback -- --ignored --nocapture
