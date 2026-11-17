@@ -156,6 +156,38 @@ fn virtual_xbox_controller_is_read_back_exactly_through_xinput() {
         "exactly one new controller"
     );
 
+    // Diagnostics: what XInput shows before and after the first updates.
+    let raw = |slot: u32| {
+        let mut s = XInputState::default();
+        // SAFETY: valid, writable XINPUT_STATE.
+        let code = unsafe { XInputGetState(slot, &mut s) };
+        format!("code {code} packet {} {:?}", s.packet, s.gamepad)
+    };
+    println!("LOOPBACK before any update: {}", raw(slot));
+    for (name, state) in [
+        ("neutral", ControllerState::default()),
+        ("A", pressed(&[Button::South])),
+        ("neutral again", ControllerState::default()),
+    ] {
+        m.submit(&state);
+        std::thread::sleep(Duration::from_millis(300));
+        println!(
+            "LOOPBACK after {name}: sent {:?} -> {}",
+            to_xusb(&state),
+            raw(slot)
+        );
+    }
+    let mut s = ControllerState::default();
+    s.left_stick = StickState::from_u8(255, 0);
+    s.right_trigger = TriggerState::from_u8(200, true);
+    m.submit(&s);
+    std::thread::sleep(Duration::from_millis(300));
+    println!(
+        "LOOPBACK after stick+trigger: sent {:?} -> {}",
+        to_xusb(&s),
+        raw(slot)
+    );
+
     // 2. A new controller starts neutral.
     expect(&mut m, slot, &ControllerState::default(), "neutral");
 
