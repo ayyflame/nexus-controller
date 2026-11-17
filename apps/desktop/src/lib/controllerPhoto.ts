@@ -53,6 +53,11 @@ export const TRIGGER_METERS = {
   rightTrigger: { x: 258, y: 101, w: 40, h: 12 },
 } as const;
 
+/** Part of the photo shown once its background is removed: the controller
+ *  plus the L2/R2 meters, without the empty margins. Image and overlay use
+ *  the same box, so they stay aligned. */
+export const VIEW = { x: 70, y: 92, w: 264, h: 206 } as const;
+
 /** Touch coordinates are drawn inside this box (the touchpad's bounds). */
 export const TOUCH_BOX = { x: 156, y: 134, w: 92, h: 45 };
 
@@ -89,6 +94,20 @@ export function savePhoto(dataUrl: string | null): boolean {
   }
   try { window.dispatchEvent(new Event(EVENT)); } catch { /* not in a browser */ }
   return true;
+}
+
+/** The chosen photo with its white background removed (null while working). */
+export function useCutoutPhoto(photo: string | null): string | null {
+  const [out, setOut] = useState<{ src: string; cut: string } | null>(null);
+  useEffect(() => {
+    if (!photo) return;
+    let alive = true;
+    import("./photoBackground").then(({ cutOutBackground }) => cutOutBackground(photo))
+      .then((cut) => { if (alive) setOut({ src: photo, cut }); })
+      .catch(() => { if (alive) setOut({ src: photo, cut: photo }); });
+    return () => { alive = false; };
+  }, [photo]);
+  return photo && out?.src === photo ? out.cut : null;
 }
 
 /** The chosen photo as a data URL, or null for the drawn controller. */

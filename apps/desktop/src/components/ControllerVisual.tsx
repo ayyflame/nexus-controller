@@ -1,6 +1,6 @@
 import { useId, type KeyboardEvent, type ReactNode } from "react";
 import type { ButtonMark } from "../lib/buttonMapping";
-import { HOTSPOTS, PHOTO, STICK_TRAVEL, TOUCH_BOX, TRIGGER_METERS, useControllerPhoto, type Hotspot } from "../lib/controllerPhoto";
+import { HOTSPOTS, PHOTO, STICK_TRAVEL, TOUCH_BOX, TRIGGER_METERS, VIEW, useControllerPhoto, useCutoutPhoto, type Hotspot } from "../lib/controllerPhoto";
 import { describeState, dpadLit, stickOffset, touchPosition, triggerFill } from "../lib/controllerView";
 import type { ControllerState, MacroButton } from "../types/engine";
 
@@ -30,7 +30,9 @@ interface VisualProps {
  */
 export function ControllerVisual(props: VisualProps) {
   const photo = useControllerPhoto();
-  return photo ? <PhotoController photo={photo} {...props} /> : <DrawnController {...props} />;
+  const cutout = useCutoutPhoto(photo);
+  if (photo && !cutout) return <div className="controller-photo" style={{ aspectRatio: `${VIEW.w} / ${VIEW.h}` }} />;
+  return cutout ? <PhotoController photo={cutout} {...props} /> : <DrawnController {...props} />;
 }
 
 /** Common props for every pressable part (selection, keyboard, labels). */
@@ -145,9 +147,13 @@ function PhotoController({ photo, state, live, selected = null, onSelect, marks 
 
   return (
     <div className={`controller-photo${live ? " live" : " idle"}${onSelect ? " interactive" : ""}`}
-      style={{ aspectRatio: `${PHOTO.width} / ${PHOTO.height}` }}>
-      <img src={photo} alt="" draggable={false} />
-      <svg className="controller controller-overlay" viewBox={`0 0 ${PHOTO.width} ${PHOTO.height}`} role="group"
+      style={{ aspectRatio: `${VIEW.w} / ${VIEW.h}` }}>
+      {/* Whole photo, scaled so the VIEW box fills the frame (only empty, now transparent, margins fall outside). */}
+      <img src={photo} alt="" draggable={false} style={{
+        width: `${(PHOTO.width / VIEW.w) * 100}%`, height: `${(PHOTO.height / VIEW.h) * 100}%`,
+        left: `${(-VIEW.x / VIEW.w) * 100}%`, top: `${(-VIEW.y / VIEW.h) * 100}%`,
+      }} />
+      <svg className="controller controller-overlay" viewBox={`${VIEW.x} ${VIEW.y} ${VIEW.w} ${VIEW.h}`} role="group"
         aria-label={live ? `Live controller input. ${describeState(s)}` : "Controller (no live input)"}>
         {meter("leftTrigger", s?.leftTrigger.value ?? 0, s?.leftTrigger.digital)}
         {meter("rightTrigger", s?.rightTrigger.value ?? 0, s?.rightTrigger.digital)}
