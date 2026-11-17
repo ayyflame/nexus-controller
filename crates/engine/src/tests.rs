@@ -1222,8 +1222,10 @@ enum Pad {
     Disconnect(u64),
 }
 
+/// Everything the mock driver was asked to do, plus how often it was asked
+/// to keep its last state alive (those are not new reports).
 #[derive(Clone, Default)]
-struct PadLog(Arc<Mutex<Vec<Pad>>>);
+struct PadLog(Arc<Mutex<Vec<Pad>>>, Arc<std::sync::atomic::AtomicUsize>);
 
 impl PadLog {
     fn all(&self) -> Vec<Pad> {
@@ -1237,6 +1239,9 @@ impl PadLog {
                 _ => None,
             })
             .collect()
+    }
+    fn keep_alives(&self) -> usize {
+        self.1.load(Ordering::SeqCst)
     }
     fn live(&self) -> usize {
         let all = self.all();
@@ -1302,6 +1307,10 @@ impl VirtualControllerBackend for RecordingPad {
     }
     fn disconnect(&mut self, h: VirtualDeviceHandle) -> Result<(), OutputError> {
         self.log.0.lock().unwrap().push(Pad::Disconnect(h.0));
+        Ok(())
+    }
+    fn keep_alive(&mut self, _: VirtualDeviceHandle) -> Result<(), OutputError> {
+        self.log.1.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
 }
@@ -2789,4 +2798,71 @@ fn closing_and_restarting_nexus_leaves_no_pad_behind_and_works_again() {
     expect_pad(&backend, &log2, &held(0, 0x40), pad(xusb::B), "second run");
     e2.shutdown();
     assert_eq!(log2.live(), 0);
+}
+
+// ---- Keep-alive: one-off frames must reach the driver -----------------------
+// A real driver can lose a single update. While reports flow, the next report
+// repairs it. When nothing follows (a stall, unreadable reports), the engine
+// asks the driver backend to make sure its last state stands.
+
+fn wait_keep_alives(log: &PadLog, more_than: usize) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while log.keep_alives() <= more_than {
+        assert!(Instant::now() < deadline, "no keep-alive");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+}
+
+#[test]
+fn the_last_frame_is_kept_alive_while_no_reports_arrive() {
+    let (backend, _e, log) = passthrough_xbox();
+    expect_pad(&backend, &log, &held(0, 0x20), pad(xusb::A), "Cross held");
+    // The controller goes quiet: no new virtual reports, only keep-alives.
+    let (reports, alive) = (log.all().len(), log.keep_alives());
+    wait_keep_alives(&log, alive + 3);
+    assert_eq!(log.all().len(), reports, "keep-alives are not new reports");
+    assert_eq!(log.reports().last(), Some(&pad(xusb::A)));
+}
+
+#[test]
+fn the_neutral_frame_after_a_stall_reload_is_kept_alive() {
+    let (backend, e, log) = xbox_engine();
+    stall_mid_macro(&backend, &e);
+    e.set_macros(vec![jump_macro(PlaybackMode::RepeatWhileHeld)]);
+    log.wait("neutral frame", |_| {
+        last_report(&log, 1) == Some(XusbReport::default())
+    });
+    let alive = log.keep_alives();
+    wait_keep_alives(&log, alive + 3);
+    assert_eq!(last_report(&log, 1), Some(XusbReport::default()));
+}
+
+#[test]
+fn the_fail_safe_neutral_frame_is_kept_alive_by_every_unreadable_report() {
+    let (backend, e, log) = xbox_engine();
+    holding_macro(&backend, &e, &log);
+    push_unreadable(&backend, 8);
+    wait_status(&e, "fail-safe", |s| s.devices[0].playing_macros.is_empty());
+    let alive = log.keep_alives();
+    push_unreadable(&backend, 20);
+    wait_errors(&e, 28);
+    assert!(
+        log.keep_alives() >= alive + 20,
+        "one keep-alive per unreadable report: {} -> {}",
+        alive,
+        log.keep_alives()
+    );
+    assert_eq!(last_report(&log, 1), Some(XusbReport::default()));
+}
+
+#[test]
+fn no_keep_alive_while_output_is_off() {
+    let (backend, e, log) = xbox_engine();
+    e.set_output_mode(VirtualOutputKind::Disabled);
+    log.wait("removed", |p| p.contains(&Pad::Disconnect(1)));
+    backend.push_report(PATH, report(&[CROSS]));
+    wait_status(&e, "report", |s| s.devices[0].input.is_some());
+    let alive = log.keep_alives();
+    std::thread::sleep(Duration::from_millis(60));
+    assert_eq!(log.keep_alives(), alive);
 }

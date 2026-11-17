@@ -19,6 +19,7 @@ use nexus_controller_core::{Button, ControllerState, StickState, TriggerState, V
 use nexus_virtual_controller::translate::{to_xusb, xusb, XusbReport};
 use nexus_virtual_controller::vigem::ViGEmBackend;
 use nexus_virtual_controller::{BackendStatus, VirtualControllerBackend, VirtualOutputManager};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
 #[repr(C)]
@@ -88,6 +89,14 @@ fn as_game_sees(r: XusbReport) -> XInputGamepad {
     }
 }
 
+/// Updates that did not show up in XInput after one submit and were only
+/// delivered by the keep-alive (what the app does while input is quiet).
+static REPAIRED: AtomicU32 = AtomicU32::new(0);
+static SENT: AtomicU32 = AtomicU32::new(0);
+
+/// Sends `s` once, as the app does for a one-off frame. If XInput does not
+/// show it within 50 ms the update was lost in the driver; the keep-alive
+/// must then deliver it.
 fn expect(m: &mut VirtualOutputManager, slot: u32, s: &ControllerState, what: &str) {
     let want = as_game_sees(to_xusb(s));
     m.submit(s);
@@ -96,17 +105,32 @@ fn expect(m: &mut VirtualOutputManager, slot: u32, s: &ControllerState, what: &s
         None,
         "{what}: the driver rejected the update"
     );
+    SENT.fetch_add(1, Ordering::Relaxed);
+    let first = Instant::now();
+    while first.elapsed() < Duration::from_millis(50) {
+        if read(slot) == Some(want) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    println!(
+        "LOOPBACK lost update ({what}): XInput still shows {:?}",
+        read(slot)
+    );
+    REPAIRED.fetch_add(1, Ordering::Relaxed);
     let deadline = Instant::now() + Duration::from_secs(2);
     loop {
+        m.keep_alive();
+        assert_eq!(m.take_event(), None, "{what}: keep-alive failed");
+        std::thread::sleep(Duration::from_millis(4));
         let got = read(slot);
         if got == Some(want) {
             return;
         }
         assert!(
             Instant::now() < deadline,
-            "{what}: XInput reports {got:?}, expected {want:?}"
+            "{what}: XInput reports {got:?}, expected {want:?}, even after keep-alives"
         );
-        std::thread::sleep(Duration::from_millis(1));
     }
 }
 
@@ -156,39 +180,13 @@ fn virtual_xbox_controller_is_read_back_exactly_through_xinput() {
         "exactly one new controller"
     );
 
-    // Diagnostics: what XInput shows before and after the first updates.
-    let raw = |slot: u32| {
-        let mut s = XInputState::default();
-        // SAFETY: valid, writable XINPUT_STATE.
-        let code = unsafe { XInputGetState(slot, &mut s) };
-        format!("code {code} packet {} {:?}", s.packet, s.gamepad)
-    };
-    println!("LOOPBACK before any update: {}", raw(slot));
-    for (name, state) in [
-        ("neutral", ControllerState::default()),
-        ("A", pressed(&[Button::South])),
-        ("neutral again", ControllerState::default()),
-    ] {
-        m.submit(&state);
-        std::thread::sleep(Duration::from_millis(300));
-        println!(
-            "LOOPBACK after {name}: sent {:?} -> {}",
-            to_xusb(&state),
-            raw(slot)
-        );
-    }
-    let mut s = ControllerState::default();
-    s.left_stick = StickState::from_u8(255, 0);
-    s.right_trigger = TriggerState::from_u8(200, true);
-    m.submit(&s);
-    std::thread::sleep(Duration::from_millis(300));
-    println!(
-        "LOOPBACK after stick+trigger: sent {:?} -> {}",
-        to_xusb(&s),
-        raw(slot)
+    // 2. A new controller is neutral before NEXUS has sent any input (the
+    //    backend primes it; unprimed, the sticks read about 10 % off-centre).
+    assert_eq!(
+        read(slot),
+        Some(XInputGamepad::default()),
+        "a new virtual controller must start neutral"
     );
-
-    // 2. A new controller starts neutral.
     expect(&mut m, slot, &ControllerState::default(), "neutral");
 
     // 3. Every button, alone, then released.
@@ -320,6 +318,12 @@ fn virtual_xbox_controller_is_read_back_exactly_through_xinput() {
         slot2,
         &pressed(&[Button::West]),
         "X after re-enabling",
+    );
+
+    println!(
+        "LOOPBACK one-off updates: {} sent, {} lost by the driver and repaired by keep-alive",
+        SENT.load(Ordering::Relaxed),
+        REPAIRED.load(Ordering::Relaxed)
     );
 
     // 9. Dropping the manager (app exit) leaves nothing behind.

@@ -9,6 +9,7 @@ import { useEngine, usePrimaryDevice } from "../hooks/useEngine";
 import { engineApi, errorMessage } from "../lib/engine";
 import { backendReady, outputLabel } from "../lib/format";
 import { doubleInputAdvice, HIDHIDE_RELEASES } from "../lib/hidhide";
+import { outputSummary } from "../lib/outputStatus";
 import { BUTTONS, pressedButtons } from "../lib/macros";
 import {
   CURVE_PRESETS, STICK_PRESETS, curvePresetId, defaultProcessing, processStick, shapeMagnitude, triggerOutput, withDefaults,
@@ -371,6 +372,7 @@ function OutputTab() {
   const backend = status?.outputBackendStatus;
   const driverReady = !!backend && backendReady(backend);
   const outputError = device?.output.lastError ?? null;
+  const summary = outputSummary({ output: device?.output ?? null, requested, consent, driverReady });
 
   useEffect(() => {
     if (ready) engineApi.getOutputConsent().then((c) => setConsent(c.enabled)).catch(() => setConsent(false));
@@ -413,8 +415,8 @@ function OutputTab() {
         </div>
         <div className="kv-row"><span className="muted">Saved in this profile</span><span>{outputLabel[saved]}</span></div>
         <div className="kv-row"><span className="muted">Virtual controller now</span>
-          <span>{active ? <span className="ok-text">{outputLabel[active]} connected</span>
-            : !consent ? "Off" : !device ? "Waiting for your DualSense (USB)" : !driverReady ? "Waiting for ViGEmBus" : "Not connected"}</span></div>
+          <span className={summary.tone === "ok" ? "ok-text" : summary.tone === "warn" ? "warn-text" : undefined}>{summary.text}</span></div>
+        {summary.detail && <div className={summary.tone === "warn" ? "notice warn small" : "muted small"}>{summary.detail}</div>}
         {outputError && <div className="notice error">{outputError}</div>}
         {error && <div className="notice error">{error}</div>}
         {active && (

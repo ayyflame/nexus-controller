@@ -12,6 +12,7 @@
 //!   depends on ViGEm.
 
 use std::collections::HashMap;
+use std::time::Duration;
 
 use nexus_controller_core::{ControllerState, VirtualOutputKind};
 use vigem_client::{Client, Error as VigemError, TargetId, XButtons, XGamepad, Xbox360Wired};
@@ -34,10 +35,40 @@ fn describe(e: VigemError) -> String {
     }
 }
 
+struct Pad {
+    target: Xbox360Wired<Client>,
+    /// The state most recently sent, for [`ViGEmBackend::keep_alive`].
+    last: XGamepad,
+}
+
 #[derive(Default)]
 pub struct ViGEmBackend {
-    targets: HashMap<u64, Xbox360Wired<Client>>,
+    targets: HashMap<u64, Pad>,
     next: u64,
+}
+
+/// Pause between the priming reports of a new controller.
+const PRIME_GAP: Duration = Duration::from_millis(4);
+
+/// Brings a new virtual controller to a true neutral state.
+///
+/// Measured through XInput on Windows 11 with ViGEmBus 1.22: a new Xbox 360
+/// device reports non-zero stick values (about 10 % deflection) until its
+/// first report, and the driver ignores a report equal to its own initial
+/// all-zero state. So an all-zero first report changes nothing. A report
+/// that differs by the smallest possible amount, followed by zeros, does.
+/// It is sent twice because a single update can be lost (see `keep_alive`).
+fn prime(target: &mut Xbox360Wired<Client>) {
+    let nudge = XGamepad {
+        thumb_lx: 1,
+        ..XGamepad::default()
+    };
+    for _ in 0..2 {
+        let _ = target.update(&nudge);
+        std::thread::sleep(PRIME_GAP);
+        let _ = target.update(&XGamepad::default());
+        std::thread::sleep(PRIME_GAP);
+    }
 }
 
 impl ViGEmBackend {
@@ -77,8 +108,15 @@ impl VirtualControllerBackend for ViGEmBackend {
         target
             .wait_ready()
             .map_err(|e| OutputError::Backend(describe(e)))?;
+        prime(&mut target);
         self.next += 1;
-        self.targets.insert(self.next, target);
+        self.targets.insert(
+            self.next,
+            Pad {
+                target,
+                last: XGamepad::default(),
+            },
+        );
         Ok(VirtualDeviceHandle(self.next))
     }
 
@@ -87,7 +125,7 @@ impl VirtualControllerBackend for ViGEmBackend {
         handle: VirtualDeviceHandle,
         state: &ControllerState,
     ) -> Result<(), OutputError> {
-        let target = self
+        let pad_entry = self
             .targets
             .get_mut(&handle.0)
             .ok_or_else(|| OutputError::Backend("virtual controller no longer exists".into()))?;
@@ -101,14 +139,31 @@ impl VirtualControllerBackend for ViGEmBackend {
             thumb_rx: r.thumb_rx,
             thumb_ry: r.thumb_ry,
         };
-        target
+        pad_entry.last = pad;
+        pad_entry
+            .target
             .update(&pad)
             .map_err(|e| OutputError::Backend(describe(e)))
     }
 
+    /// ViGEmBus hands a report to Windows only if the Xbox driver is waiting
+    /// for one at that instant; otherwise the update is dropped without an
+    /// error (measured through XInput). The driver also keeps its previous
+    /// state in that case, so sending the same state again delivers it, and
+    /// a state that did arrive is recognised as unchanged and ignored.
+    fn keep_alive(&mut self, handle: VirtualDeviceHandle) -> Result<(), OutputError> {
+        let Some(p) = self.targets.get_mut(&handle.0) else {
+            return Ok(());
+        };
+        let last = p.last;
+        p.target
+            .update(&last)
+            .map_err(|e| OutputError::Backend(describe(e)))
+    }
+
     fn player_index(&mut self, handle: VirtualDeviceHandle) -> Option<u8> {
-        let target = self.targets.get_mut(&handle.0)?;
-        target
+        let p = self.targets.get_mut(&handle.0)?;
+        p.target
             .get_user_index()
             .ok()
             .and_then(|i| u8::try_from(i).ok())
@@ -116,7 +171,7 @@ impl VirtualControllerBackend for ViGEmBackend {
     }
 
     fn disconnect(&mut self, handle: VirtualDeviceHandle) -> Result<(), OutputError> {
-        if let Some(mut target) = self.targets.remove(&handle.0) {
+        if let Some(Pad { mut target, .. }) = self.targets.remove(&handle.0) {
             // Neutral first (the manager also does this), then unplug.
             let _ = target.update(&XGamepad::default());
             target

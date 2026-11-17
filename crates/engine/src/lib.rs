@@ -1292,6 +1292,13 @@ impl EngineSessionHandler {
         }
     }
 
+    fn keep_output_alive(&mut self) {
+        self.output.keep_alive();
+        if let Some(event) = self.output.take_event() {
+            self.on_output_event(event);
+        }
+    }
+
     /// Rare: the virtual controller failed or came back (logged once each).
     fn on_output_event(&mut self, event: OutputEvent) {
         match event {
@@ -1339,6 +1346,11 @@ impl SessionHandler for EngineSessionHandler {
             self.run_pipeline(&state, Some(now))
         });
         let failsafe_started = self.track_unreadable(physical.is_some());
+        if physical.is_none() {
+            // Nothing new to send: make sure the last frame (possibly the
+            // fail-safe's neutral frame) really reached the driver.
+            self.keep_output_alive();
+        }
 
         self.rate.record(now, parsed.is_ok());
         self.intervals.record(now);
@@ -1438,6 +1450,10 @@ impl SessionHandler for EngineSessionHandler {
                 });
             }
         }
+        // No report arrived: the last frame sent is the one that must stand
+        // (it may be a one-off neutral frame), and a failed virtual
+        // controller keeps being re-created although no input comes in.
+        self.keep_output_alive();
         self.rate.roll(Instant::now());
         let rate = self.rate.rate_hz();
         if rate != self.last_rate_published {

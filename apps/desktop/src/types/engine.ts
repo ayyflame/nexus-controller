@@ -64,6 +64,10 @@ export interface OutputStatus {
   backend: string;
   backendStatus: BackendStatus;
   lastError: string | null;
+  /** XInput player slot of the virtual controller (0 = player 1), if known. */
+  playerIndex: number | null;
+  /** The virtual controller failed and NEXUS is creating it again. */
+  retrying: boolean;
 }
 
 export interface DeviceSnapshot {

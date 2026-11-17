@@ -70,6 +70,12 @@ pub trait VirtualControllerBackend: Send {
     fn player_index(&mut self, _handle: VirtualDeviceHandle) -> Option<u8> {
         None
     }
+    /// Called while no new input arrives. A backend whose driver can lose an
+    /// update sends its last state again here, so the device cannot stay on
+    /// an older state. Sending an identical state must be harmless.
+    fn keep_alive(&mut self, _handle: VirtualDeviceHandle) -> Result<(), OutputError> {
+        Ok(())
+    }
 }
 
 /// The backend for this platform: experimental ViGEmBus on Windows.
@@ -160,6 +166,8 @@ pub struct VirtualOutputManager {
     requested: VirtualOutputKind,
     active: Option<(VirtualOutputKind, VirtualDeviceHandle)>,
     player: Option<u8>,
+    /// The state most recently submitted (resent after a recovery).
+    last: ControllerState,
     last_error: Option<String>,
     retry: Option<Retry>,
     retry_base: Duration,
@@ -173,6 +181,7 @@ impl VirtualOutputManager {
             requested: VirtualOutputKind::Disabled,
             active: None,
             player: None,
+            last: neutral(),
             last_error: None,
             retry: None,
             retry_base: RETRY_BASE,
@@ -261,17 +270,11 @@ impl VirtualOutputManager {
     /// ("unavailable"), retrying stops until the user checks again.
     pub fn submit(&mut self, state: &ControllerState) {
         let now = Instant::now();
+        self.last = *state;
         match self.active {
             Some((_, handle)) => {
                 if let Err(e) = self.backend.update(handle, state) {
-                    let _ = self.backend.disconnect(handle);
-                    self.active = None;
-                    let msg = format!(
-                        "The virtual controller stopped working ({e}). NEXUS will try again."
-                    );
-                    self.last_error = Some(msg.clone());
-                    self.event = Some(OutputEvent::Failed(msg));
-                    self.schedule_retry(now);
+                    self.device_failed(handle, &e, now);
                 }
             }
             None => {
@@ -300,6 +303,37 @@ impl VirtualOutputManager {
                     }
                 }
             }
+        }
+    }
+
+    fn device_failed(&mut self, handle: VirtualDeviceHandle, e: &OutputError, now: Instant) {
+        let _ = self.backend.disconnect(handle);
+        self.active = None;
+        let msg = format!("The virtual controller stopped working ({e}). NEXUS will try again.");
+        self.last_error = Some(msg.clone());
+        self.event = Some(OutputEvent::Failed(msg));
+        self.schedule_retry(now);
+    }
+
+    /// Call while no new input arrives (idle ticks, unreadable reports).
+    ///
+    /// - With a device: lets the backend make sure its last state really
+    ///   reached the driver (some drivers can lose a single update, which
+    ///   matters when nothing is sent after it, such as a final neutral frame).
+    /// - After a failure: keeps the automatic re-creation going even though
+    ///   no input is coming in, and restores the last state.
+    pub fn keep_alive(&mut self) {
+        match self.active {
+            Some((_, handle)) => {
+                if let Err(e) = self.backend.keep_alive(handle) {
+                    self.device_failed(handle, &e, Instant::now());
+                }
+            }
+            None if self.retry.is_some() => {
+                let last = self.last;
+                self.submit(&last);
+            }
+            None => {}
         }
     }
 
@@ -490,6 +524,7 @@ mod tests {
         unavailable: Arc<std::sync::atomic::AtomicBool>,
         connects: Arc<std::sync::atomic::AtomicUsize>,
         live: Arc<std::sync::atomic::AtomicUsize>,
+        keep_alives: Arc<std::sync::atomic::AtomicUsize>,
         next: u64,
     }
 
@@ -534,6 +569,63 @@ mod tests {
         fn player_index(&mut self, h: VirtualDeviceHandle) -> Option<u8> {
             Some((h.0 - 1) as u8)
         }
+        fn keep_alive(&mut self, _: VirtualDeviceHandle) -> Result<(), OutputError> {
+            self.keep_alives
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if self.fail_updates.load(std::sync::atomic::Ordering::SeqCst) {
+                return Err(OutputError::Backend("device gone".into()));
+            }
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn keep_alive_reaches_the_backend_and_drives_recovery_without_new_input() {
+        use std::sync::atomic::Ordering::SeqCst;
+        let b = Flaky::default();
+        let (fail, keep_alives, connects, live) = (
+            b.fail_updates.clone(),
+            b.keep_alives.clone(),
+            b.connects.clone(),
+            b.live.clone(),
+        );
+        let mut m =
+            VirtualOutputManager::new(Box::new(b)).with_retry_base(Duration::from_millis(5));
+        // Output off: nothing to keep alive.
+        m.keep_alive();
+        assert_eq!(keep_alives.load(SeqCst), 0);
+
+        m.set_mode(VirtualOutputKind::Xbox360).unwrap();
+        m.submit(&ControllerState::default());
+        m.keep_alive();
+        m.keep_alive();
+        assert_eq!(
+            keep_alives.load(SeqCst),
+            2,
+            "the backend may resend its last state"
+        );
+        assert_eq!(m.take_event(), None);
+
+        // The device breaks while no input arrives: noticed by the keep-alive,
+        // reported once, and re-created by later keep-alives alone.
+        fail.store(true, SeqCst);
+        m.keep_alive();
+        assert!(matches!(m.take_event(), Some(OutputEvent::Failed(_))));
+        assert_eq!(live.load(SeqCst), 0);
+        assert!(m.status().retrying);
+        fail.store(false, SeqCst);
+        std::thread::sleep(Duration::from_millis(40));
+        m.keep_alive();
+        assert_eq!(m.take_event(), Some(OutputEvent::Recovered));
+        assert_eq!((connects.load(SeqCst), live.load(SeqCst)), (2, 1));
+        assert!(!m.status().retrying);
+
+        // Switching output off stops everything.
+        m.set_mode(VirtualOutputKind::Disabled).unwrap();
+        let n = keep_alives.load(SeqCst);
+        m.keep_alive();
+        assert_eq!(keep_alives.load(SeqCst), n);
+        assert_eq!(live.load(SeqCst), 0);
     }
 
     #[test]
