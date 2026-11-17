@@ -19,7 +19,8 @@ use nexus_controller_core::{Button, ControllerState, StickState, TriggerState, V
 use nexus_virtual_controller::translate::{to_xusb, xusb, XusbReport};
 use nexus_virtual_controller::vigem::ViGEmBackend;
 use nexus_virtual_controller::{BackendStatus, VirtualControllerBackend, VirtualOutputManager};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 #[repr(C)]
@@ -256,30 +257,57 @@ fn virtual_xbox_controller_is_read_back_exactly_through_xinput() {
         expect(&mut m, slot, &s, &format!("triggers {v}"));
     }
 
-    // 6. Sustained output at the controller's rate: 2,500 updates (10 s of
-    //    play at 250 Hz, sent back to back), alternating A with a moving stick.
-    let started = Instant::now();
-    let mut slowest = Duration::ZERO;
-    let n = 2500u32;
-    for i in 0..n {
-        let mut s = if i % 2 == 0 {
-            pressed(&[Button::South])
-        } else {
-            ControllerState::default()
-        };
-        s.left_stick = StickState::from_u8((i % 256) as u8, 128);
-        let t = Instant::now();
-        m.submit(&s);
-        slowest = slowest.max(t.elapsed());
-        assert_eq!(m.take_event(), None, "update {i} failed");
+    // 6. How long does one update take, and does it depend on whether a game
+    //    is reading the controller? Measured with and without a game-like
+    //    reader (XInputGetState every millisecond), back to back and at the
+    //    DualSense's own pace (one update every 4 ms).
+    for (reader, paced) in [(true, true), (false, true), (true, false), (false, false)] {
+        let stop = Arc::new(AtomicBool::new(false));
+        let polls = Arc::new(AtomicU32::new(0));
+        let handle = reader.then(|| {
+            let (stop, polls) = (stop.clone(), polls.clone());
+            std::thread::spawn(move || {
+                while !stop.load(Ordering::Relaxed) {
+                    let _ = read(slot);
+                    polls.fetch_add(1, Ordering::Relaxed);
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+            })
+        });
+        let n = 500u32;
+        let mut times = Vec::with_capacity(n as usize);
+        let started = Instant::now();
+        for i in 0..n {
+            let mut s = if i % 2 == 0 {
+                pressed(&[Button::South])
+            } else {
+                ControllerState::default()
+            };
+            s.left_stick = StickState::from_u8((i % 256) as u8, 128);
+            let t = Instant::now();
+            m.submit(&s);
+            times.push(t.elapsed());
+            assert_eq!(m.take_event(), None, "update {i} failed");
+            if paced {
+                std::thread::sleep(Duration::from_millis(4).saturating_sub(t.elapsed()));
+            }
+        }
+        let total = started.elapsed();
+        stop.store(true, Ordering::Relaxed);
+        if let Some(h) = handle {
+            h.join().unwrap();
+        }
+        times.sort();
+        let us = |d: Duration| d.as_secs_f64() * 1e6;
+        println!(
+            "LOOPBACK timing reader={reader} paced_4ms={paced}: {n} updates in {:.0} ms; per update p50 {:.0} us, p99 {:.0} us, max {:.0} us; reader polls {}",
+            total.as_secs_f64() * 1e3,
+            us(times[times.len() / 2]),
+            us(times[times.len() * 99 / 100]),
+            us(times[times.len() - 1]),
+            polls.load(Ordering::Relaxed)
+        );
     }
-    let total = started.elapsed();
-    println!(
-        "LOOPBACK {n} updates in {:.1} ms: average {:.1} us per update, slowest {:.1} us",
-        total.as_secs_f64() * 1e3,
-        total.as_secs_f64() * 1e6 / f64::from(n),
-        slowest.as_secs_f64() * 1e6
-    );
     assert_eq!(
         m.status().active,
         Some(VirtualOutputKind::Xbox360),
