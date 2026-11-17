@@ -11,6 +11,7 @@ import { backendReady, outputLabel } from "../lib/format";
 import { doubleInputAdvice, HIDHIDE_RELEASES } from "../lib/hidhide";
 import { outputSummary } from "../lib/outputStatus";
 import { buttonMapping, buttonMarks, describeMapping } from "../lib/buttonMapping";
+import { isCalibratedPhoto, savePhoto, useControllerPhoto } from "../lib/controllerPhoto";
 import { BUTTONS, pressedButtons } from "../lib/macros";
 import {
   CURVE_PRESETS, STICK_PRESETS, curvePresetId, defaultProcessing, processStick, shapeMagnitude, triggerOutput, withDefaults,
@@ -148,6 +149,7 @@ function LiveTab({ config }: { config: ProcessingConfig }) {
           <span><i className="l-disabled" />Disabled</span>
           <span><i className="l-special" />Layer or gyro</span>
         </div>
+        <PhotoPicker />
         {mapping && (
           <div className="mapping-card" aria-live="polite">
             <h4>{BUTTONS[mapping.button].name}<span className="mapping-kind">{mapping.kind}</span></h4>
@@ -173,6 +175,45 @@ function LiveTab({ config }: { config: ProcessingConfig }) {
         <TriggerMeter label="R2" raw={input.rightTrigger.value} processed={out.rightTrigger.value}
           deadzone={config.rightTrigger.deadzone} maxInput={config.rightTrigger.maxInput} />
       </Panel>
+    </div>
+  );
+}
+
+/**
+ * Optional: show your own controller photo instead of the drawing. The file
+ * stays on this PC (webview storage); NEXUS accepts only the image its
+ * overlay was aligned to.
+ */
+function PhotoPicker() {
+  const photo = useControllerPhoto();
+  const input = useRef<HTMLInputElement>(null);
+  const [message, setMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
+  const choose = async (file: File | undefined) => {
+    if (!file) return;
+    setMessage(null);
+    const bytes = await file.arrayBuffer();
+    if (!(await isCalibratedPhoto(bytes))) {
+      setMessage({ tone: "error", text: "This isn't the picture the overlay positions were measured on, so buttons wouldn't line up. NEXUS keeps the drawn controller." });
+      return;
+    }
+    const url = await new Promise<string>((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result));
+      r.onerror = () => reject(r.error);
+      r.readAsDataURL(file);
+    });
+    setMessage(savePhoto(url)
+      ? { tone: "ok", text: "Photo set. It is kept on this PC only." }
+      : { tone: "error", text: "Couldn't store the photo on this PC." });
+  };
+  return (
+    <div className="photo-picker">
+      <span className="muted">Controller picture: {photo ? "your photo" : "drawn"}</span>
+      <input ref={input} type="file" accept="image/jpeg,image/png" hidden
+        onChange={(e) => { void choose(e.target.files?.[0]); e.target.value = ""; }} />
+      <button className="btn-ghost small" onClick={() => input.current?.click()}>Use my photo…</button>
+      {photo && <button className="btn-ghost small" onClick={() => { savePhoto(null); setMessage(null); }}>Use drawing</button>}
+      {message && <span className={message.tone === "ok" ? "ok-text" : "warn-text"}>{message.text}</span>}
     </div>
   );
 }

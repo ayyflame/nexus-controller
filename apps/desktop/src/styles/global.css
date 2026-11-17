@@ -120,33 +120,31 @@ p { margin: 0; }
 
 /* Controller visual */
 .controller { width: 100%; max-width: 640px; height: auto; display: block; margin: 0 auto; transition: opacity 250ms; overflow: visible;
-  --c-gold: #d6a54b; --c-gold-glow: rgba(214, 165, 75, 0.55); --c-teal: #4fa8b8; --c-blue: #4f6bff; --c-blue-glow: rgba(79, 107, 255, 0.85);
-  --c-key-edge: #2c2f36; --c-symbol: #6e737d; }
+  --c-gold: #d6a54b; --c-gold-glow: rgba(214, 165, 75, 0.55); --c-teal: #4fa8b8; --c-blue: #3d3ea9; --c-blue-glow: rgba(61, 62, 169, 0.8);
+  --c-key-edge: #34363c; --c-symbol: #8a8d94; }
 .controller.idle { opacity: 0.45; filter: saturate(0.3); }
 /* Matte black shell: a faint rim keeps the outline readable on the dark page. */
-.controller .shell { stroke: #3a3d45; stroke-width: 1.4; }
-.controller .rim { fill: none; stroke: rgba(255, 255, 255, 0.09); stroke-width: 1.5; pointer-events: none; }
-.controller .deck { stroke: rgba(255, 255, 255, 0.035); stroke-width: 1.5; pointer-events: none; }
-.controller .seam { fill: none; stroke: rgba(255, 255, 255, 0.05); stroke-width: 2; }
+.controller .shell { stroke: #3b3d43; stroke-width: 1.2; }
+.controller .deck { stroke: rgba(255, 255, 255, 0.04); stroke-width: 1; pointer-events: none; }
 .controller .key { stroke: var(--c-key-edge); stroke-width: 1.2; transition: fill 50ms, stroke 50ms, filter 50ms; }
 .controller .key-shadow { fill: #000; opacity: 0.55; }
-.controller .key.touchpad { stroke: #26282e; stroke-width: 1.4; }
-.controller .touchpad-edge { stroke: rgba(255, 255, 255, 0.06); stroke-width: 1.5; pointer-events: none; }
+.controller .key.touchpad { stroke: #1d1e22; stroke-width: 1.2; }
+.controller .key.shoulder { fill: #494c52; stroke: #5a5d63; }
 .controller .key.home { stroke: #3a3d45; }
 .controller .key.mute { fill: #1d1f24; stroke: #33363d; }
-.controller .lightbar path { fill: none; stroke: var(--c-blue); stroke-width: 3.5; stroke-linecap: round; opacity: 0.55; }
+.controller .lightbar path { fill: none; stroke: var(--c-blue); stroke-width: 4; stroke-linecap: round; opacity: 0.75; }
 .controller.live .lightbar path { opacity: 1; }
 .controller .arrow { fill: var(--c-symbol); pointer-events: none; }
 .controller .symbol { fill: none; stroke: var(--c-symbol); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
 .controller .part-label { fill: #80858f; font: 700 12px var(--font); text-anchor: middle; pointer-events: none; }
 .controller .part-value { fill: var(--c-gold); font: 600 10px var(--mono); text-anchor: middle; pointer-events: none; }
-.controller .speaker circle { fill: #2b2e35; }
-.controller .stick-well { fill: #070708; stroke: #24262c; stroke-width: 1.5; }
+.controller .speaker rect { fill: #3a3c43; }
+.controller .stick-well { fill: #15161a; stroke: #2c2e34; stroke-width: 1.2; }
 .controller .stick-range { fill: none; stroke: rgba(255, 255, 255, 0.06); stroke-dasharray: 2 4; }
 .controller .stick-vector { stroke: var(--c-gold); stroke-width: 2.5; stroke-linecap: round; opacity: 0.85; }
-.controller .stick-shadow { fill: #000; opacity: 0.6; }
-.controller .stick-cap { stroke: #3a3d45; stroke-width: 1.5; }
-.controller .stick-top { stroke: #26282e; stroke-width: 1.2; }
+.controller .stick-shadow { fill: #000; opacity: 0.45; }
+.controller .stick-cap { stroke: #42454d; stroke-width: 1.2; }
+.controller .stick-top { stroke: #2a2d35; stroke-width: 1.5; }
 .controller .stick-ring { fill: none; stroke: transparent; stroke-width: 3; }
 .controller .trigger-body { stroke: #2f323a; stroke-width: 1.2; }
 .controller .trigger-fill { fill: var(--c-gold); opacity: 0.9; }
@@ -723,3 +721,28 @@ input[type="color"]:disabled { opacity: 0.4; cursor: not-allowed; }
 .driver-steps { margin: 8px 0 10px 18px; display: flex; flex-direction: column; gap: 6px; }
 .tl-wait.risky .tl-wait-line { background: repeating-linear-gradient(90deg, #e3aa4a 0 6px, transparent 6px 10px); height: 3px; }
 .tl-wait.risky .tl-wait-label { color: #f0cf96; }
+/* Photo mode: the user's own controller photo, unchanged, with overlays on top. */
+.controller-photo { position: relative; width: 100%; max-width: 560px; margin: 0 auto; }
+.controller-photo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; user-select: none; pointer-events: none; }
+.controller-photo .controller-overlay { position: absolute; inset: 0; width: 100%; height: 100%; max-width: none; margin: 0; }
+.controller-overlay .hit { fill: transparent; stroke: transparent; stroke-width: 1.4; transition: fill 40ms, stroke 40ms; }
+.controller-overlay .press-ring { fill: none; stroke: transparent; stroke-width: 1.8; pointer-events: none; }
+.controller-overlay .part.on .hit { fill: rgba(214, 165, 75, 0.5); stroke: #f3cd7f; filter: drop-shadow(0 0 2.5px rgba(214, 165, 75, 0.9)); }
+.controller-overlay .part.on .press-ring { stroke: #d6a54b; filter: drop-shadow(0 0 2.5px rgba(214, 165, 75, 0.9)); }
+.controller-overlay .part.on[data-button="leftStick"] .hit, .controller-overlay .part.on[data-button="rightStick"] .hit { fill: rgba(214, 165, 75, 0.18); }
+.controller-overlay .part.selected .hit, .controller-overlay .part.selected .meter-outline { stroke: #4fa8b8; stroke-width: 1.6; }
+.controller-overlay.interactive .pickable, .controller-photo.interactive .pickable { cursor: pointer; outline: none; }
+.controller-photo.interactive .pickable:hover .hit, .controller-photo.interactive .pickable:hover .meter-outline { stroke: rgba(79, 168, 184, 0.75); }
+.controller-photo .pickable:focus-visible .hit { stroke: #4fa8b8; stroke-dasharray: 2 1.5; }
+.controller-overlay .stick-vector { stroke: #d6a54b; stroke-width: 1.4; stroke-linecap: round; opacity: 0.95; }
+.controller-overlay .stick-dot { fill: #d6a54b; stroke: #fff4d8; stroke-width: 0.6; filter: drop-shadow(0 0 2px rgba(214, 165, 75, 0.9)); pointer-events: none; }
+.controller-overlay .touch-point { fill: #d6a54b; stroke: #fff4d8; stroke-width: 0.6; filter: drop-shadow(0 0 2px rgba(214, 165, 75, 0.9)); }
+.controller-overlay .meter-track { fill: rgba(30, 32, 36, 0.12); }
+.controller-overlay .meter-fill { fill: #d6a54b; }
+.controller-overlay .meter-outline { fill: none; stroke: rgba(30, 32, 36, 0.35); stroke-width: 0.6; }
+.controller-overlay .part.on .meter-outline { stroke: #b0802c; }
+.controller-overlay .meter-label { fill: #5d6068; font: 700 5px var(--font); pointer-events: none; }
+.controller-overlay .meter-value { fill: #9a7128; font: 600 4.5px var(--mono); pointer-events: none; }
+.controller-overlay .mark-remapped, .controller-overlay .mark-macro, .controller-overlay .mark-disabled, .controller-overlay .mark-special { stroke-width: 0.7; }
+.controller-overlay .part.disabled .hit { stroke: rgba(226, 106, 106, 0.6); stroke-dasharray: 1.5 1.5; }
+.photo-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; font-size: 12.5px; }
