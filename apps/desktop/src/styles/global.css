@@ -120,42 +120,44 @@ p { margin: 0; }
 
 /* Controller visual */
 .controller { width: 100%; max-width: 640px; height: auto; display: block; margin: 0 auto; transition: opacity 250ms; overflow: visible;
-  --c-gold: #d6a54b; --c-gold-glow: rgba(214, 165, 75, 0.55); --c-teal: #4fa8b8; --c-key: #1d2026; --c-key-edge: #3a3e47; --c-symbol: #a7adb8; }
-.controller.idle { opacity: 0.4; filter: saturate(0.35); }
-.controller .shell { stroke: #b7bcc5; stroke-width: 1.2; }
-.controller .plate { stroke: #0c0d10; stroke-width: 1; }
-.controller .seam { fill: none; stroke: rgba(0, 0, 0, 0.08); stroke-width: 2; }
-.controller .key { fill: var(--c-key); stroke: var(--c-key-edge); stroke-width: 1.2; transition: fill 50ms, stroke 50ms, filter 50ms; }
-.controller .key.round { fill: #191b20; }
-.controller .key.shoulder { fill: #22252b; }
-.controller .key.touchpad { fill: #1b1d22; stroke: #2e323a; }
-.controller .key.home { fill: #14161a; stroke: #4a4f59; }
-.controller .key.mute { fill: #2a2d34; }
-.controller .lightbar { fill: none; stroke: rgba(79, 168, 184, 0.25); stroke-width: 3; stroke-linecap: round; }
-.controller.live .lightbar { stroke: rgba(79, 168, 184, 0.55); }
-.controller .arrow { fill: #8d939e; pointer-events: none; }
-.controller .symbol { fill: none; stroke: var(--c-symbol); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
-.controller .part-label { fill: #d5d8de; font: 700 13px var(--font); text-anchor: middle; pointer-events: none; }
-.controller .part-label.light { fill: #c9ccd2; font-size: 12px; }
+  --c-gold: #d6a54b; --c-gold-glow: rgba(214, 165, 75, 0.55); --c-teal: #4fa8b8; --c-blue: #4f6bff; --c-blue-glow: rgba(79, 107, 255, 0.85);
+  --c-key-edge: #2c2f36; --c-symbol: #6e737d; }
+.controller.idle { opacity: 0.45; filter: saturate(0.3); }
+/* Matte black shell: a faint rim keeps the outline readable on the dark page. */
+.controller .shell { stroke: #3a3d45; stroke-width: 1.4; }
+.controller .rim { fill: none; stroke: rgba(255, 255, 255, 0.09); stroke-width: 1.5; pointer-events: none; }
+.controller .deck { stroke: rgba(255, 255, 255, 0.035); stroke-width: 1.5; pointer-events: none; }
+.controller .seam { fill: none; stroke: rgba(255, 255, 255, 0.05); stroke-width: 2; }
+.controller .key { stroke: var(--c-key-edge); stroke-width: 1.2; transition: fill 50ms, stroke 50ms, filter 50ms; }
+.controller .key-shadow { fill: #000; opacity: 0.55; }
+.controller .key.touchpad { stroke: #26282e; stroke-width: 1.4; }
+.controller .touchpad-edge { stroke: rgba(255, 255, 255, 0.06); stroke-width: 1.5; pointer-events: none; }
+.controller .key.home { stroke: #3a3d45; }
+.controller .key.mute { fill: #1d1f24; stroke: #33363d; }
+.controller .lightbar path { fill: none; stroke: var(--c-blue); stroke-width: 3.5; stroke-linecap: round; opacity: 0.55; }
+.controller.live .lightbar path { opacity: 1; }
+.controller .arrow { fill: var(--c-symbol); pointer-events: none; }
+.controller .symbol { fill: none; stroke: var(--c-symbol); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+.controller .part-label { fill: #80858f; font: 700 12px var(--font); text-anchor: middle; pointer-events: none; }
 .controller .part-value { fill: var(--c-gold); font: 600 10px var(--mono); text-anchor: middle; pointer-events: none; }
-.controller .part-caption { fill: #6b7079; font: 600 9.5px var(--font); text-anchor: middle; letter-spacing: 0.04em; pointer-events: none; }
-.controller .speaker circle { fill: #3a3e46; }
-.controller .stick-well { fill: #0e0f12; stroke: #2a2d33; }
-.controller .stick-range { fill: none; stroke: rgba(255, 255, 255, 0.07); stroke-dasharray: 2 4; }
+.controller .speaker circle { fill: #2b2e35; }
+.controller .stick-well { fill: #070708; stroke: #24262c; stroke-width: 1.5; }
+.controller .stick-range { fill: none; stroke: rgba(255, 255, 255, 0.06); stroke-dasharray: 2 4; }
 .controller .stick-vector { stroke: var(--c-gold); stroke-width: 2.5; stroke-linecap: round; opacity: 0.85; }
-.controller .stick-cap { fill: #202329; stroke: #454a54; stroke-width: 1.5; }
-.controller .stick-top { fill: #15171b; stroke: #2f333b; }
+.controller .stick-shadow { fill: #000; opacity: 0.6; }
+.controller .stick-cap { stroke: #3a3d45; stroke-width: 1.5; }
+.controller .stick-top { stroke: #26282e; stroke-width: 1.2; }
 .controller .stick-ring { fill: none; stroke: transparent; stroke-width: 3; }
-.controller .trigger-body { fill: #22252b; stroke: #3a3e47; stroke-width: 1.2; }
+.controller .trigger-body { stroke: #2f323a; stroke-width: 1.2; }
 .controller .trigger-fill { fill: var(--c-gold); opacity: 0.9; }
 .controller .touch-point { fill: var(--c-gold); stroke: #fff4d8; stroke-width: 1.5; filter: drop-shadow(0 0 6px var(--c-gold-glow)); pointer-events: none; }
 /* Pressed: gold */
 .controller .part.on .key { fill: var(--c-gold); stroke: #f3cd7f; filter: drop-shadow(0 0 7px var(--c-gold-glow)); }
+.controller .part.on .trigger-body { stroke: #f3cd7f; }
 .controller .part.on .symbol { stroke: #24190a; }
 .controller .part.on .arrow { fill: #24190a; }
 .controller .part.on .part-label { fill: #24190a; }
 .controller .part.on .stick-ring { stroke: var(--c-gold); filter: drop-shadow(0 0 7px var(--c-gold-glow)); }
-.controller .part.on .trigger-body { stroke: #f3cd7f; }
 /* Selected (mapping shown): teal */
 .controller.interactive .pickable { cursor: pointer; outline: none; }
 .controller.interactive .pickable:hover .key, .controller.interactive .pickable:hover .trigger-body, .controller.interactive .pickable:hover .stick-cap { stroke: var(--c-teal); }
