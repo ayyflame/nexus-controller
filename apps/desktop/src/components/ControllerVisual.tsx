@@ -121,7 +121,7 @@ function PhotoController({ photo, state, live, selected = null, onSelect, marks 
         <circle cx={h.cx} cy={h.cy} r={h.r} className="hit" />
         <circle cx={h.cx} cy={h.cy} r={h.r} className="press-ring" />
         {live && moved && <line x1={h.cx} y1={h.cy} x2={h.cx + dx} y2={h.cy + dy} className="stick-vector" />}
-        {live && moved && <circle cx={h.cx + dx} cy={h.cy + dy} r={2.6} className="stick-dot" />}
+        {live && moved && <circle cx={h.cx + dx} cy={h.cy + dy} r={3.6} className="stick-dot" />}
         {markDots(marks?.[id], ...hotspotCorner(h), 1.8)}
       </g>
     );
@@ -223,7 +223,9 @@ function DrawnController({ state, live, selected = null, onSelect, marks }: Visu
   const FACE = { x: 621, y: 157, gap: 47, r: 24 };
   const LS = { x: 286, y: 255 };
   const RS = { x: 514, y: 255 };
-  const TRAVEL = 12;
+  const TRAVEL = 20;
+  /** Length of the direction line at full deflection. */
+  const REACH = 58;
   const TP = { x: 262, y: 36, w: 276, h: 139 };
   const SHELL = "M400 36L548 36C590 34 640 32 664 42C684 54 698 84 704 107C716 150 730 182 739 214C748 248 756 290 758 330C760 370 758 410 752 440C746 468 734 486 718 496C704 504 688 508 672 507C660 506 652 500 648 488C642 470 638 460 634 450C624 426 614 402 606 388C598 372 592 354 582 344C574 338 566 336 556 336L400 338L244 336C234 336 226 338 218 344C208 354 202 372 194 388C186 402 176 426 166 450C162 460 158 470 152 488C148 500 140 506 128 507C112 508 96 504 82 496C66 486 54 468 48 440C42 410 40 370 42 330C44 290 52 248 61 214C70 182 84 150 96 107C102 84 116 54 136 42C160 32 210 34 252 36L400 36Z";
   /** Touchpad: flush with the top edge, narrowing slightly to a rounded bottom. */
@@ -234,16 +236,19 @@ function DrawnController({ state, live, selected = null, onSelect, marks }: Visu
 
   const stick = (id: MacroButton, c: { x: number; y: number }, x: number, y: number, pressed: boolean | undefined, label: string) => {
     const [dx, dy] = stickOffset(x, y, TRAVEL);
+    const [vx, vy] = stickOffset(x, y, REACH);
     const moved = Math.hypot(dx, dy) > 1.5;
     return (
       <g {...part(id, pressed, label)}>
         <circle cx={c.x} cy={c.y} r={46} className="stick-well" />
         <circle cx={c.x} cy={c.y} r={TRAVEL} className="stick-range" />
-        {moved && <line x1={c.x} y1={c.y} x2={c.x + dx} y2={c.y + dy} className="stick-vector" />}
+        {moved && <line x1={c.x} y1={c.y} x2={c.x + vx} y2={c.y + vy} className="stick-vector" />}
         <circle cx={c.x + dx} cy={c.y + dy + 2} r={41} className="stick-shadow" />
         <circle cx={c.x + dx} cy={c.y + dy} r={41} className="stick-cap" fill={`url(#${uid}-cap)`} />
         <circle cx={c.x + dx} cy={c.y + dy} r={29} className="stick-top" fill={`url(#${uid}-dish)`} />
         <circle cx={c.x + dx} cy={c.y + dy} r={41} className="stick-ring" />
+        {moved && <line x1={c.x + dx} y1={c.y + dy} x2={c.x + vx} y2={c.y + vy} className="stick-vector front" />}
+        {moved && <circle cx={c.x + vx} cy={c.y + vy} r={7} className="stick-dot" />}
         {badge(id, c.x + 36, c.y - 42)}
       </g>
     );
@@ -251,19 +256,19 @@ function DrawnController({ state, live, selected = null, onSelect, marks }: Visu
 
   /** L2/R2 peek out above the bumpers; real pressure fills them from the bottom. */
   const trigger = (id: MacroButton, x: number, value: number, digital: boolean | undefined, label: string) => {
-    const h = 30;
-    const top = 2;
+    const h = 78;
+    const top = -60;
     const fill = triggerFill(value, h);
     const clip = `${uid}-${id}`;
-    const shape = `M${x + 8} ${top + h}V${top + 16}Q${x + 8} ${top} ${x + 26} ${top}H${x + 90}Q${x + 108} ${top} ${x + 108} ${top + 16}V${top + h}Z`;
+    const shape = `M${x + 4} ${top + h}V${top + 18}Q${x + 4} ${top} ${x + 24} ${top}H${x + 92}Q${x + 112} ${top} ${x + 112} ${top + 18}V${top + h}Z`;
     return (
       <g {...part(id, digital, `${label}, ${Math.round(Math.max(0, Math.min(1, value)) * 100)}%`)}>
         <clipPath id={clip}><path d={shape} /></clipPath>
         <path d={shape} className="trigger-body" fill={`url(#${uid}-key)`} />
         <rect x={x} y={top + h - fill} width={116} height={fill} clipPath={`url(#${clip})`} className="trigger-fill" />
-        <text x={x + 58} y={top + 17} className="part-label">{label}</text>
-        {value > 0.005 && <text x={x + 88} y={top + 17} className="part-value">{Math.round(value * 100)}%</text>}
-        {badge(id, x + 96, top + 6)}
+        <text x={x + 58} y={top + 26} className="part-label trigger-label">{label}</text>
+        <text x={x + 58} y={top + 52} className="part-value trigger-value">{Math.round(Math.max(0, Math.min(1, value)) * 100)}%</text>
+        {badge(id, x + 100, top + 8)}
       </g>
     );
   };
@@ -294,7 +299,7 @@ function DrawnController({ state, live, selected = null, onSelect, marks }: Visu
 
   return (
     <svg className={`controller dualsense${live ? " live" : " idle"}${onSelect ? " interactive" : ""}`}
-      viewBox="0 0 800 520" role="group"
+      viewBox="0 -64 800 584" role="group"
       aria-label={live ? `Live controller input. ${describeState(s)}` : "Controller (no live input)"}>
       <defs>
         <linearGradient id={`${uid}-shell`} x1="0" y1="0" x2="0" y2="1">

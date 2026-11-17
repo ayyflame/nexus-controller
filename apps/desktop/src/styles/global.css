@@ -141,7 +141,11 @@ p { margin: 0; }
 .controller .speaker rect { fill: #3a3c43; }
 .controller .stick-well { fill: #15161a; stroke: #2c2e34; stroke-width: 1.2; }
 .controller .stick-range { fill: none; stroke: rgba(255, 255, 255, 0.06); stroke-dasharray: 2 4; }
-.controller .stick-vector { stroke: var(--c-gold); stroke-width: 2.5; stroke-linecap: round; opacity: 0.85; }
+.controller .stick-vector { stroke: var(--c-gold); stroke-width: 5; stroke-linecap: round; opacity: 0.9; pointer-events: none; }
+.controller .stick-dot { fill: var(--c-gold); stroke: #fff4d8; stroke-width: 1.5; filter: drop-shadow(0 0 6px var(--c-gold-glow)); pointer-events: none; }
+.controller .trigger-label { font-size: 15px; }
+.controller .trigger-value { font-size: 15px; font-weight: 700; }
+.controller .part.on .trigger-value { fill: #24190a; }
 .controller .stick-shadow { fill: #000; opacity: 0.45; }
 .controller .stick-cap { stroke: #42454d; stroke-width: 1.2; }
 .controller .stick-top { stroke: #2a2d35; stroke-width: 1.5; }
@@ -734,15 +738,15 @@ input[type="color"]:disabled { opacity: 0.4; cursor: not-allowed; }
 .controller-overlay.interactive .pickable, .controller-photo.interactive .pickable { cursor: pointer; outline: none; }
 .controller-photo.interactive .pickable:hover .hit, .controller-photo.interactive .pickable:hover .meter-outline { stroke: rgba(79, 168, 184, 0.75); }
 .controller-photo .pickable:focus-visible .hit { stroke: #4fa8b8; stroke-dasharray: 2 1.5; }
-.controller-overlay .stick-vector { stroke: #d6a54b; stroke-width: 1.4; stroke-linecap: round; opacity: 0.95; }
+.controller-overlay .stick-vector { stroke: #d6a54b; stroke-width: 2.2; stroke-linecap: round; opacity: 0.95; }
 .controller-overlay .stick-dot { fill: #d6a54b; stroke: #fff4d8; stroke-width: 0.6; filter: drop-shadow(0 0 2px rgba(214, 165, 75, 0.9)); pointer-events: none; }
 .controller-overlay .touch-point { fill: #d6a54b; stroke: #fff4d8; stroke-width: 0.6; filter: drop-shadow(0 0 2px rgba(214, 165, 75, 0.9)); }
 .controller-overlay .meter-track { fill: rgba(30, 32, 36, 0.12); }
 .controller-overlay .meter-fill { fill: #d6a54b; }
 .controller-overlay .meter-outline { fill: none; stroke: rgba(30, 32, 36, 0.35); stroke-width: 0.6; }
 .controller-overlay .part.on .meter-outline { stroke: #b0802c; }
-.controller-overlay .meter-label { fill: #5d6068; font: 700 5px var(--font); pointer-events: none; }
-.controller-overlay .meter-value { fill: #9a7128; font: 600 4.5px var(--mono); pointer-events: none; }
+.controller-overlay .meter-label { fill: #5d6068; font: 700 7px var(--font); pointer-events: none; }
+.controller-overlay .meter-value { fill: #9a7128; font: 700 7px var(--mono); pointer-events: none; }
 .controller-overlay .mark-remapped, .controller-overlay .mark-macro, .controller-overlay .mark-disabled, .controller-overlay .mark-special { stroke-width: 0.7; }
 .controller-overlay .part.disabled .hit { stroke: rgba(226, 106, 106, 0.6); stroke-dasharray: 1.5 1.5; }
 .photo-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; font-size: 12.5px; }

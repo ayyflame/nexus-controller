@@ -44,13 +44,13 @@ export const HOTSPOTS: Partial<Record<MacroButton, Hotspot>> = {
 };
 
 /** How far a stick indicator moves at full deflection (image pixels). */
-export const STICK_TRAVEL = 7;
+export const STICK_TRAVEL = 12;
 
 /** L2 and R2 are hidden behind L1/R1 in this front view: their pressure is
  *  shown as meters in the empty space just above the shoulders. */
 export const TRIGGER_METERS = {
-  leftTrigger: { x: 112, y: 113, w: 30, h: 7 },
-  rightTrigger: { x: 262, y: 113, w: 30, h: 7 },
+  leftTrigger: { x: 106, y: 101, w: 40, h: 12 },
+  rightTrigger: { x: 258, y: 101, w: 40, h: 12 },
 } as const;
 
 /** Touch coordinates are drawn inside this box (the touchpad's bounds). */
