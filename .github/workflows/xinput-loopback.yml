@@ -19,7 +19,13 @@ permissions:
 jobs:
   loopback:
     name: Virtual Xbox 360 controller through XInput
-    runs-on: windows-latest
+    # Windows Server (windows-latest) may lack the Xbox 360 controller driver
+    # that every Windows 10/11 PC has; the Windows 11 runner is the closer match.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-11-arm, windows-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -42,6 +48,13 @@ jobs:
           $p = Start-Process -FilePath $exe -ArgumentList "/exenoui", "/qn", "/norestart" -Wait -PassThru
           Write-Host "Installer exit code: $($p.ExitCode)"
           Get-PnpDevice -PresentOnly | Where-Object { $_.FriendlyName -like "*Virtual Gamepad Emulation*" } | Format-List FriendlyName, Status, Class
+
+      - name: Show Windows edition and Xbox 360 controller driver
+        shell: pwsh
+        run: |
+          (Get-CimInstance Win32_OperatingSystem) | Format-List Caption, Version, OSArchitecture
+          Write-Host "xusb22.inf present: $(Test-Path C:\Windows\INF\xusb22.inf)"
+          Write-Host "xusb22.sys present: $(Test-Path C:\Windows\System32\drivers\xusb22.sys)"
 
       - name: Read the virtual controller back through XInput
         run: cargo test -p nexus-virtual-controller --locked --test xinput_loopback -- --ignored --nocapture
