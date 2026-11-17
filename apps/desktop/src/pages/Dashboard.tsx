@@ -93,7 +93,7 @@ export function Dashboard() {
           value={activeOutput ? `${outputLabel[activeOutput]}` : device?.output.retrying ? "Reconnecting…" : "Not connected"}
           sub={activeOutput
             ? (device?.output.playerIndex != null ? `Connected · player ${device.output.playerIndex + 1}` : "Connected")
-            : requested === "disabled" ? "Turned off" : driverReady ? "Waiting for controller" : "Not available yet"}
+            : device?.output.retrying ? "Trying again automatically" : requested === "disabled" ? "Turned off" : driverReady ? "Waiting for controller" : "Not available yet"}
         />
         <StatCard label="Output type" value={outputLabel[requested]} sub="Controller › Virtual Output" />
         <StatCard

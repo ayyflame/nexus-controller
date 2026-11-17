@@ -53,6 +53,7 @@ See *Known limitations* in [`tests/hardware-verification.md`](../tests/hardware-
 - settings are shared across multiple controllers;
 - MZ Titan independent paddles are unsupported until capture evidence exists;
 - the installer is not code-signed;
+- games get no vibration, adaptive triggers, touchpad or gyro through the Xbox 360 output, and may show double input without HidHide (see `docs/game-output.md`);
 - the stall-reload fix and the unreadable-report fail-safe can't be reproduced by hand on real hardware (a USB DualSense doesn't stop sending or send unreadable reports on demand), so both are verified by simulation only;
 - up to 7 unreadable reports in a row (about 28 ms at 250 Hz) leave the virtual controller on its last state, by design, so an isolated bad report never interrupts output;
 - if a connected controller goes completely silent without disconnecting, a macro that is playing keeps playing on the last known input (a silence rule was considered and left out of scope).

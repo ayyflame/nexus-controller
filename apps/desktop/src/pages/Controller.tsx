@@ -416,7 +416,7 @@ function OutputTab() {
         <div className="kv-row"><span className="muted">Saved in this profile</span><span>{outputLabel[saved]}</span></div>
         <div className="kv-row"><span className="muted">Virtual controller now</span>
           <span className={summary.tone === "ok" ? "ok-text" : summary.tone === "warn" ? "warn-text" : undefined}>{summary.text}</span></div>
-        {summary.detail && <div className={summary.tone === "warn" ? "notice warn small" : "muted small"}>{summary.detail}</div>}
+        {summary.detail && !outputError && <div className={summary.tone === "warn" ? "notice warn small" : "muted small"}>{summary.detail}</div>}
         {outputError && <div className="notice error">{outputError}</div>}
         {error && <div className="notice error">{error}</div>}
         {active && (
