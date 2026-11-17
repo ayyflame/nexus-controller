@@ -117,3 +117,40 @@ export function parseMs(text: string, min: number, max: number): number | null {
   const n = Math.round(Number(text));
   return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : null;
 }
+
+/** Result of checking what was typed in a millisecond field. */
+export type MsCheck = { ok: true; value: number } | { ok: false; error: string };
+
+/**
+ * Checks a typed millisecond value against the engine limits. Only whole
+ * numbers are accepted (an optional "ms" suffix is allowed). Nothing is
+ * rounded or limited: a value outside the limits is reported, not changed.
+ */
+export function checkMs(text: string, min: number, max: number, unit = "ms"): MsCheck {
+  const t = text.trim().replace(new RegExp(`\\s*${unit === "%" ? "%" : "ms"}$`, "i"), "");
+  if (t === "") return { ok: false, error: `Enter a number of ${unit === "%" ? "percent" : "milliseconds"}.` };
+  if (!/^\d+$/.test(t)) return { ok: false, error: `Use whole numbers only (${min}–${max} ${unit}).` };
+  const value = Number(t);
+  if (value < min || value > max) return { ok: false, error: `Must be ${min}–${max} ${unit}.` };
+  return { ok: true, value };
+}
+
+/**
+ * What a millisecond field does when you press Enter or leave it.
+ * - Not edited since focus: nothing (tabbing through never changes a value).
+ * - Valid and different: store it (one undo step).
+ * - Valid and the same: nothing (no empty undo step).
+ * - Invalid on Enter: keep the typed text and show why.
+ * - Invalid on leaving: put the stored value back and say it was not changed.
+ */
+export function msFieldCommit(
+  text: string, stored: number | null, edited: boolean, min: number, max: number,
+  how: "enter" | "leave", unit = "ms",
+): { store: number | null; text: string; error: string | null } {
+  const shown = stored === null ? "" : String(stored);
+  if (!edited) return { store: null, text: shown, error: null };
+  const c = checkMs(text, min, max, unit);
+  if (c.ok) return { store: c.value === stored ? null : c.value, text: String(c.value), error: null };
+  if (how === "enter") return { store: null, text, error: c.error };
+  return { store: null, text: shown, error: `${c.error} Not changed${stored === null ? "" : `: kept ${stored} ${unit}`}.` };
+}

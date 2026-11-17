@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
 import { LIMITS } from "../../lib/macros";
 import { commonValue, scaleTiming, setTiming } from "../../lib/macroTiming";
 import type { MacroStep } from "../../types/engine";
+import { useMsField } from "./common";
 
 const SCALES = [
   { label: "2× faster", percent: 50 },
@@ -11,27 +11,27 @@ const SCALES = [
 ];
 
 /**
- * A number field that changes nothing until you type a value and press
- * Enter or "Set": tabbing through it never alters the selected actions.
- * Shows "varies" when the selected actions differ.
+ * A typed field for several actions at once. Changes nothing until you type
+ * a value and press Enter, Set, or leave the field: tabbing through it never
+ * alters the selected actions. Shows "varies" when the selected actions differ.
  */
-function BulkField({ label, current, unit, onApply, apply = "Set" }: {
-  label: string; current: number | null; unit: string; onApply: (n: number) => void; apply?: string;
+function BulkField({ label, current, unit, min, max, onApply, apply = "Set" }: {
+  label: string; current: number | null; unit: string; min: number; max: number;
+  onApply: (n: number) => void; apply?: string;
 }) {
-  const [text, setText] = useState(current === null ? "" : String(current));
-  useEffect(() => setText(current === null ? "" : String(current)), [current]);
-  const n = Number(text);
-  const valid = text.trim() !== "" && Number.isFinite(n);
-  const changed = valid && n !== current;
-  const commit = () => { if (changed) onApply(n); };
+  const f = useMsField({ value: current, min, max, unit, onCommit: onApply });
   return (
-    <label className="ms-input">
-      <span>{label}</span>
-      <input className="text-input mono" inputMode="numeric" value={text} placeholder={current === null ? "varies" : undefined}
-        onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") commit(); }} aria-label={label} />
-      <span className="muted small">{unit}</span>
-      <button type="button" className="btn-ghost small" disabled={!changed} onClick={commit}>{apply}</button>
-    </label>
+    <span className="ms-field">
+      <label className="ms-input">
+        <span>{label}</span>
+        <input {...f.input} className="text-input mono" placeholder={current === null ? "varies" : undefined} aria-label={`${label} (${unit})`} />
+        <span className="muted small">{unit}</span>
+        {/* Keeps focus in the field so Set applies exactly once. */}
+        <button type="button" className="btn-ghost small" onMouseDown={(e) => e.preventDefault()}
+          onClick={f.apply}>{apply}</button>
+      </label>
+      {f.error && <span className="ms-error small" role="alert">{f.error}</span>}
+    </span>
   );
 }
 
@@ -48,13 +48,13 @@ export function BulkTiming({ steps, ids, onChange }: {
           <h3>{ids.length} actions selected</h3>
           <p className="muted small">
             Change their timing together. Press time {hold === null ? "varies" : `${hold} ms`} · wait after {wait === null ? "varies" : `${wait} ms`}.
-            Nothing changes until you press Enter or Set; Ctrl+Z undoes.
+            Nothing changes until you press Enter or Set, or leave a field you typed in; Ctrl+Z undoes.
           </p>
         </div>
       </div>
       <div className="inspector-timing bulk-timing">
-        <BulkField label="Press time" current={hold} unit="ms" onApply={(holdMs) => onChange(setTiming(steps, ids, { holdMs }))} />
-        <BulkField label="Wait after" current={wait} unit="ms" onApply={(delayAfterMs) => onChange(setTiming(steps, ids, { delayAfterMs }))} />
+        <BulkField label="Press time" current={hold} unit="ms" min={LIMITS.minHoldMs} max={LIMITS.maxHoldMs} onApply={(holdMs) => onChange(setTiming(steps, ids, { holdMs }))} />
+        <BulkField label="Wait after" current={wait} unit="ms" min={0} max={LIMITS.maxDelayMs} onApply={(delayAfterMs) => onChange(setTiming(steps, ids, { delayAfterMs }))} />
         <div>
           <span className="field-label" data-tip="Multiplies press times and waits, keeping the rhythm of a recording">Speed</span>
           <div className="preset-row">
@@ -62,9 +62,9 @@ export function BulkTiming({ steps, ids, onChange }: {
               <button key={s.percent} className="chip" onClick={() => onChange(scaleTiming(steps, ids, s.percent))}>{s.label}</button>
             ))}
           </div>
-          <BulkField label="Scale" current={100} unit="%" apply="Apply" onApply={(p) => onChange(scaleTiming(steps, ids, p))} />
+          <BulkField label="Scale" current={100} unit="%" min={1} max={1000} apply="Apply" onApply={(p) => onChange(scaleTiming(steps, ids, p))} />
         </div>
-        <p className="muted small">Press time {LIMITS.minHoldMs}–{LIMITS.maxHoldMs} ms · wait 0–{LIMITS.maxDelayMs} ms · scale 1–1000 %. Values outside are limited automatically.</p>
+        <p className="muted small">Press time {LIMITS.minHoldMs}–{LIMITS.maxHoldMs} ms · wait 0–{LIMITS.maxDelayMs} ms · scale 1–1000 %. A value outside these limits is not applied.</p>
       </div>
     </div>
   );

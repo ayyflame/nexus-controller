@@ -63,7 +63,8 @@ export function StepInspector({ step, index, count, onChange, waitBefore, starts
           )}
           <DurationPicker label="Wait after release" tip="Pause before the next action starts"
             value={step.delayAfterMs} presets={DELAY_PRESETS} min={0} max={LIMITS.maxDelayMs}
-            onChange={(delayAfterMs) => onChange({ ...step, delayAfterMs })} />
+            onChange={(delayAfterMs) => onChange({ ...step, delayAfterMs })}
+            note={index === count - 1 ? "Last action: in Repeat While Held and Toggle, this wait runs before the sequence starts again (then the pause between repeats, if any)." : undefined} />
           <Advanced title="Exact timing">
             {index > 0 && (
               <MsInput label="Wait before" value={waitBefore} min={0} max={LIMITS.maxDelayMs} onChange={onWaitBefore} />
@@ -72,7 +73,7 @@ export function StepInspector({ step, index, count, onChange, waitBefore, starts
               onChange={(holdMs) => onChange({ ...step, holdMs })} />
             <MsInput label="Wait after" value={step.delayAfterMs} min={0} max={LIMITS.maxDelayMs}
               onChange={(delayAfterMs) => onChange({ ...step, delayAfterMs })} />
-            <p className="muted small">Press time {LIMITS.minHoldMs}–{LIMITS.maxHoldMs} ms · wait 0–{LIMITS.maxDelayMs} ms.
+            <p className="muted small">Type a value, then press Enter or leave the field. Press time {LIMITS.minHoldMs}–{LIMITS.maxHoldMs} ms · wait 0–{LIMITS.maxDelayMs} ms.
               Timing follows controller reports (about every 4 ms over USB).</p>
           </Advanced>
         </div>

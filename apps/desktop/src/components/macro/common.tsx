@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type FocusEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import type { ValidationIssue } from "../../types/engine";
-import { parseMs } from "../../lib/macroTiming";
+import { msFieldCommit } from "../../lib/macroTiming";
 
 export function Switch({ checked, onChange, label, disabled, tip }: {
   checked: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean; tip?: string;
@@ -64,17 +64,17 @@ export function ConfirmDialog({ title, body, confirmLabel, danger, onConfirm, on
   );
 }
 
-/** Choice chips plus a slider, for durations. */
-export function DurationPicker({ label, value, onChange, presets, min, max, tip }: {
+/** Choice chips plus a typed millisecond field, for durations. */
+export function DurationPicker({ label, value, onChange, presets, min, max, tip, note }: {
   label: string; value: number; onChange: (ms: number) => void;
   presets: Array<{ label: string; ms: number; hint: string }>; min: number; max: number; tip: string;
+  note?: ReactNode;
 }) {
-  const sliderMax = Math.min(max, 2000);
   return (
     <div className="duration">
       <div className="duration-head">
         <span className="field-label" data-tip={tip}>{label}</span>
-        <span className="duration-value mono">{value} ms</span>
+        <MsInput label={label} value={value} min={min} max={max} onChange={onChange} hideLabel />
       </div>
       <div className="preset-row">
         {presets.map((p) => (
@@ -84,32 +84,68 @@ export function DurationPicker({ label, value, onChange, presets, min, max, tip 
           </button>
         ))}
       </div>
-      <input type="range" min={min} max={sliderMax} step={10} value={Math.min(value, sliderMax)}
-        onChange={(e) => onChange(Number(e.target.value))} aria-label={label} className="slider" />
+      {note && <p className="muted small">{note}</p>}
     </div>
   );
 }
 
-export function MsInput({ label, value, onChange, min, max }: {
-  label: string; value: number; onChange: (ms: number) => void; min: number; max: number;
+/**
+ * Typed millisecond field state. The stored value is shown again only while
+ * you are not editing, so nothing changes under your cursor; what you type
+ * is checked and stored on Enter or when you leave the field. Escape puts
+ * the stored value back.
+ */
+export function useMsField({ value, min, max, unit = "ms", onCommit }: {
+  value: number | null; min: number; max: number; unit?: string; onCommit: (n: number) => void;
 }) {
-  const [text, setText] = useState(String(value));
-  useEffect(() => setText(String(value)), [value]);
-  const commit = () => {
-    // Empty or invalid reverts; out-of-range is limited and the field shows
-    // the stored value. Unchanged values don't create an undo step.
-    const n = parseMs(text, min, max);
-    if (n === null) { setText(String(value)); return; }
-    setText(String(n));
-    if (n !== value) onChange(n);
+  const shown = value === null ? "" : String(value);
+  const [text, setText] = useState(shown);
+  const [error, setError] = useState<string | null>(null);
+  const editing = useRef(false);
+  const edited = useRef(false);
+  useEffect(() => { if (!editing.current) setText(shown); }, [shown]);
+  const finish = (how: "enter" | "leave") => {
+    const r = msFieldCommit(text, value, edited.current, min, max, how, unit);
+    setText(r.text);
+    setError(r.error);
+    if (r.error === null || how === "leave") edited.current = false;
+    if (r.store !== null) onCommit(r.store);
   };
+  return {
+    error,
+    /** Same as pressing Enter in the field (for a Set button). */
+    apply: () => finish("enter"),
+    input: {
+      type: "text" as const,
+      inputMode: "numeric" as const,
+      autoComplete: "off",
+      spellCheck: false,
+      value: text,
+      "aria-invalid": error !== null,
+      onFocus: (e: FocusEvent<HTMLInputElement>) => { editing.current = true; e.currentTarget.select(); },
+      onChange: (e: ChangeEvent<HTMLInputElement>) => { edited.current = true; setError(null); setText(e.target.value); },
+      onBlur: () => { editing.current = false; finish("leave"); },
+      onKeyDown: (e: ReactKeyboardEvent<HTMLInputElement>) => {
+        if (e.key === "Enter") { e.preventDefault(); finish("enter"); }
+        else if (e.key === "Escape") { edited.current = false; setError(null); setText(shown); }
+      },
+    },
+  };
+}
+
+/** A millisecond value you type: commits on Enter or when leaving the field. */
+export function MsInput({ label, value, onChange, min, max, hideLabel }: {
+  label: string; value: number; onChange: (ms: number) => void; min: number; max: number; hideLabel?: boolean;
+}) {
+  const f = useMsField({ value, min, max, onCommit: onChange });
   return (
-    <label className="ms-input">
-      <span>{label}</span>
-      <input type="number" min={min} max={max} step={1} value={text}
-        onChange={(e) => setText(e.target.value)} onBlur={commit}
-        onKeyDown={(e) => e.key === "Enter" && commit()} />
-      <span className="muted small">ms</span>
-    </label>
+    <span className="ms-field">
+      <label className="ms-input">
+        {!hideLabel && <span>{label}</span>}
+        <input {...f.input} aria-label={`${label} (milliseconds)`} />
+        <span className="muted small">ms</span>
+      </label>
+      {f.error && <span className="ms-error small" role="alert">{f.error}</span>}
+    </span>
   );
 }

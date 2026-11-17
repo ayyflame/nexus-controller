@@ -418,6 +418,11 @@ p { margin: 0; }
 .preset:hover { color: var(--text); border-color: var(--gold); }
 .preset.selected { background: var(--gold-wash); color: var(--gold-bright); border-color: var(--gold); }
 .slider { width: 100%; accent-color: var(--gold); }
+.duration-head .ms-input input { width: 84px; }
+.ms-field { display: flex; flex-direction: column; gap: 4px; }
+.duration-head .ms-field { align-items: flex-end; }
+.ms-input input[aria-invalid="true"] { border-color: var(--error); }
+.ms-error { color: var(--error); }
 .advanced { border-top: 1px solid var(--border); padding-top: 10px; }
 .advanced-toggle { background: none; border: 0; color: var(--text-dim); cursor: pointer; font-size: 13px; padding: 4px 0; }
 .advanced-toggle:hover { color: var(--gold-bright); }

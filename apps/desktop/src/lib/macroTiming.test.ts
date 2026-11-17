@@ -105,3 +105,42 @@ test("millisecond fields: empty reverts, out of range is limited", () => {
   assert.equal(parseMs("5", 20, 10000), 20);
   assert.equal(parseMs("42.6", 0, 10000), 43);
 });
+
+import { checkMs, msFieldCommit } from "./macroTiming.ts";
+
+test("typed milliseconds are checked, never rounded or limited", () => {
+  assert.deepEqual(checkMs("150", 0, 10000), { ok: true, value: 150 });
+  assert.deepEqual(checkMs(" 150 ms ", 0, 10000), { ok: true, value: 150 });
+  assert.deepEqual(checkMs("0", 0, 10000), { ok: true, value: 0 });
+  assert.deepEqual(checkMs("10000", 0, 10000), { ok: true, value: 10000 });
+  assert.equal(checkMs("", 0, 10000).ok, false);
+  assert.equal(checkMs("abc", 0, 10000).ok, false);
+  assert.equal(checkMs("42.6", 0, 10000).ok, false, "no silent rounding");
+  assert.equal(checkMs("-5", 0, 10000).ok, false);
+  assert.equal(checkMs("1e3", 0, 10000).ok, false);
+  const low = checkMs("5", 20, 10000);
+  assert.deepEqual(low, { ok: false, error: "Must be 20–10000 ms." }, "below the press-time minimum is reported");
+  assert.equal(checkMs("10001", 0, 10000).ok, false, "above the limit is reported");
+  assert.deepEqual(checkMs("150%", 1, 1000, "%"), { ok: true, value: 150 });
+});
+
+test("a millisecond field commits only on Enter or leaving, and only real changes", () => {
+  // Tabbing through without typing changes nothing.
+  assert.deepEqual(msFieldCommit("80", 80, false, 0, 10000, "leave"), { store: null, text: "80", error: null });
+  // Select-all and type a new value.
+  assert.deepEqual(msFieldCommit("125", 80, true, 0, 10000, "enter"), { store: 125, text: "125", error: null });
+  assert.deepEqual(msFieldCommit("125", 80, true, 0, 10000, "leave"), { store: 125, text: "125", error: null });
+  // Same value: no undo step.
+  assert.equal(msFieldCommit("80", 80, true, 0, 10000, "enter").store, null);
+  // Invalid on Enter: the typed text stays so it can be corrected.
+  const enter = msFieldCommit("5", 80, true, 20, 10000, "enter");
+  assert.deepEqual([enter.store, enter.text], [null, "5"]);
+  assert.match(enter.error!, /20–10000 ms/);
+  // Invalid on leaving: the stored value is shown again, with a message.
+  const leave = msFieldCommit("", 80, true, 0, 10000, "leave");
+  assert.deepEqual([leave.store, leave.text], [null, "80"]);
+  assert.match(leave.error!, /kept 80 ms/);
+  // Bulk field with differing values ("varies"): empty and untouched is fine.
+  assert.deepEqual(msFieldCommit("", null, false, 0, 10000, "leave"), { store: null, text: "", error: null });
+  assert.equal(msFieldCommit("60", null, true, 0, 10000, "leave").store, 60);
+});

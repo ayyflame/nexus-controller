@@ -83,14 +83,16 @@ Recorded or built macros can be retimed at any time. There is no need to record 
 
 - **One action:** click it in the timeline.
   - The inspector shows when the action starts, and its **press time** and **wait after release**.
-  - It has presets and sliders, plus **Exact timing** for millisecond entry, including **Wait before** (for every action except the first, this edits the previous action's wait).
+  - Press time and wait after release are typed millisecond fields next to their presets. **Exact timing** adds **Wait before** (for every action except the first, this edits the previous action's wait).
+  - On the last action, the wait after release is the wait before a Repeat While Held or Toggle macro starts again. The **pause between repeats** (Assignment › Advanced settings) follows it.
   - The first action always starts as soon as the macro is triggered.
 - **Several actions:** Ctrl+click, Shift+click or Ctrl+A in the timeline, then use the panel that appears:
   - set one press time or wait for all selected actions;
   - or change the speed (2× faster, faster, slower, 2× slower, or any 1–1000 %) while keeping the recorded rhythm.
-  - Nothing changes until you press Enter or **Set**, and Ctrl+Z undoes.
+  - Nothing changes until you press Enter or **Set**, or leave a field you typed in. Ctrl+Z undoes.
 - **Timeline and preview:** the timeline and **Play preview** use the new values immediately.
-- **Limits:** values are always kept within the limits the engine accepts. Press time is 20–10,000 ms, wait is 0–10,000 ms, and a macro can have up to 200 actions.
+- **Typing a value:** clicking a field selects its whole value, so you can type over it. A value is stored when you press Enter or leave the field, never while you type. Escape puts the stored value back.
+- **Limits:** press time is 20–10,000 ms, wait is 0–10,000 ms, and a macro can have up to 200 actions. Only whole milliseconds are accepted. A value outside the limits is not stored and is not rounded or limited for you: on Enter the field keeps what you typed and says why; on leaving it shows the stored value again with a "Not changed" note.
 - **Saving:** timing is part of the saved macro, so it is kept by saving, duplicating, exporting and importing.
 - **Behaviour unchanged:** Play Once, Repeat While Held and Toggle work the same. Each mode simply plays the edited timing.
 - **Precision:** timing follows controller reports, about every 4 ms over USB.
