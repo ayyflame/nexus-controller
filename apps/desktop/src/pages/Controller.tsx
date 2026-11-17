@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ControllerVisual } from "../components/ControllerVisual";
 import { ButtonChip } from "../components/macro/ButtonChip";
 import { Advanced, Switch } from "../components/macro/common";
@@ -10,6 +10,7 @@ import { engineApi, errorMessage } from "../lib/engine";
 import { backendReady, outputLabel } from "../lib/format";
 import { doubleInputAdvice, HIDHIDE_RELEASES } from "../lib/hidhide";
 import { outputSummary } from "../lib/outputStatus";
+import { buttonMapping, buttonMarks, describeMapping } from "../lib/buttonMapping";
 import { BUTTONS, pressedButtons } from "../lib/macros";
 import {
   CURVE_PRESETS, STICK_PRESETS, curvePresetId, defaultProcessing, processStick, shapeMagnitude, triggerOutput, withDefaults,
@@ -19,7 +20,7 @@ import {
   TriggerCalibrationWizard,
 } from "../components/controller/advanced";
 import type {
-  DriverPresence, MacroButton, ProcessingConfig, StickConfig, TriggerConfig, VirtualOutputKind,
+  DriverPresence, Macro, MacroButton, ProcessingConfig, StickConfig, TriggerConfig, VirtualOutputKind,
 } from "../types/engine";
 
 type Tab = "live" | "sticks" | "triggers" | "gyro" | "touchpad" | "buttons" | "output" | "lighting";
@@ -121,15 +122,39 @@ export function Controller({ initialTab }: { initialTab?: string }) {
 
 function LiveTab({ config }: { config: ProcessingConfig }) {
   const device = usePrimaryDevice();
+  const { connection } = useEngine();
   const input = device?.input ?? null;
   const out = device?.processed ?? null;
+  const [selected, setSelected] = useState<MacroButton | null>(null);
+  const [macros, setMacros] = useState<Macro[]>([]);
+  useEffect(() => {
+    if (connection.kind === "ready") engineApi.listMacros().then(setMacros).catch(() => setMacros([]));
+  }, [connection.kind]);
+  const marks = useMemo(() => buttonMarks(BUTTON_ORDER, config, macros), [config, macros]);
   if (!input || !out) {
     return <div className="card"><p className="muted">Connect your controller to see live input. Nothing here is simulated.</p></div>;
   }
+  const mapping = selected ? buttonMapping(selected, config, macros) : null;
   return (
     <div className="live-grid">
-      <Panel title="Your controller">
-        <ControllerVisual state={input} live />
+      <Panel title="Your controller" aside={<span className="muted small">click a button to see its mapping</span>}>
+        <ControllerVisual state={input} live selected={selected} marks={marks}
+          onSelect={(b) => setSelected((cur) => (cur === b ? null : b))} />
+        <div className="controller-legend" aria-hidden="true">
+          <span><i className="l-pressed" />Pressed</span>
+          <span><i className="l-selected" />Selected</span>
+          <span><i className="l-remapped" />Remapped</span>
+          <span><i className="l-macro" />Starts a macro</span>
+          <span><i className="l-disabled" />Disabled</span>
+          <span><i className="l-special" />Layer or gyro</span>
+        </div>
+        {mapping && (
+          <div className="mapping-card" aria-live="polite">
+            <h4>{BUTTONS[mapping.button].name}<span className="mapping-kind">{mapping.kind}</span></h4>
+            <ul>{describeMapping(mapping, (b) => BUTTONS[b].name).map((l) => <li key={l}>{l}</li>)}</ul>
+            <p className="muted small">Change it under Buttons, Macro Studio or the layer settings.</p>
+          </div>
+        )}
       </Panel>
       <Panel title="Sent to the game" aside={<span className="muted small">after settings, remapping and macros</span>}>
         <ControllerVisual state={out} live />

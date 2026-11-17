@@ -119,27 +119,69 @@ p { margin: 0; }
 .ev-enumerationFailed span:last-child { color: var(--error); }
 
 /* Controller visual */
-.controller { width: 100%; max-width: 640px; height: auto; transition: opacity 250ms; }
-.controller.idle { opacity: 0.35; filter: saturate(0.4); }
-.controller .body { fill: url(#body-grad); stroke: var(--border-strong); stroke-width: 1.5; }
-.controller .btn { fill: var(--panel-3); stroke: #464a53; stroke-width: 1; transition: fill 60ms, stroke 60ms; }
-.controller .btn.on, .controller .shoulder.on { fill: var(--gold); stroke: var(--gold-bright); filter: drop-shadow(0 0 6px var(--gold-glow)); }
-.controller .glyph { fill: none; stroke: var(--text-dim); stroke-width: 2; pointer-events: none; }
-.controller .glyph-label { fill: var(--text-dim); font: 600 12px var(--font); text-anchor: middle; pointer-events: none;
-  paint-order: stroke; stroke: #15171a; stroke-width: 3px; stroke-linejoin: round; }
-.controller .btn.on + .glyph { stroke: #1b1608; }
-.controller .glyph-label.small { font-size: 10px; }
-.controller .touchpad { fill: #23262c; stroke: #3d414a; transition: fill 80ms; }
-.controller .touchpad.on { fill: #3a3220; stroke: var(--gold); }
-.controller .touch-point { fill: var(--gold-bright); filter: drop-shadow(0 0 6px var(--gold-glow)); }
-.controller .stick-well { fill: #15171a; stroke: #3a3e46; }
-.controller .stick-range { fill: none; stroke: #2e3138; stroke-dasharray: 3 4; }
-.controller .stick-cap { fill: #34373e; stroke: #555a64; stroke-width: 1.5; }
-.controller .stick.on .stick-cap { fill: var(--gold); stroke: var(--gold-bright); }
-.controller .trigger-bg { fill: var(--panel-3); stroke: #464a53; }
-.controller .trigger-fill { fill: var(--gold); opacity: 0.85; }
-.controller .trigger.on .trigger-bg { stroke: var(--gold-bright); }
-.controller .home { fill: #2f3238; }
+.controller { width: 100%; max-width: 640px; height: auto; display: block; margin: 0 auto; transition: opacity 250ms; overflow: visible;
+  --c-gold: #d6a54b; --c-gold-glow: rgba(214, 165, 75, 0.55); --c-teal: #4fa8b8; --c-key: #1d2026; --c-key-edge: #3a3e47; --c-symbol: #a7adb8; }
+.controller.idle { opacity: 0.4; filter: saturate(0.35); }
+.controller .shell { stroke: #b7bcc5; stroke-width: 1.2; }
+.controller .plate { stroke: #0c0d10; stroke-width: 1; }
+.controller .seam { fill: none; stroke: rgba(0, 0, 0, 0.08); stroke-width: 2; }
+.controller .key { fill: var(--c-key); stroke: var(--c-key-edge); stroke-width: 1.2; transition: fill 50ms, stroke 50ms, filter 50ms; }
+.controller .key.round { fill: #191b20; }
+.controller .key.shoulder { fill: #22252b; }
+.controller .key.touchpad { fill: #1b1d22; stroke: #2e323a; }
+.controller .key.home { fill: #14161a; stroke: #4a4f59; }
+.controller .key.mute { fill: #2a2d34; }
+.controller .lightbar { fill: none; stroke: rgba(79, 168, 184, 0.25); stroke-width: 3; stroke-linecap: round; }
+.controller.live .lightbar { stroke: rgba(79, 168, 184, 0.55); }
+.controller .arrow { fill: #8d939e; pointer-events: none; }
+.controller .symbol { fill: none; stroke: var(--c-symbol); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+.controller .part-label { fill: #d5d8de; font: 700 13px var(--font); text-anchor: middle; pointer-events: none; }
+.controller .part-label.light { fill: #c9ccd2; font-size: 12px; }
+.controller .part-value { fill: var(--c-gold); font: 600 10px var(--mono); text-anchor: middle; pointer-events: none; }
+.controller .part-caption { fill: #6b7079; font: 600 9.5px var(--font); text-anchor: middle; letter-spacing: 0.04em; pointer-events: none; }
+.controller .speaker circle { fill: #3a3e46; }
+.controller .stick-well { fill: #0e0f12; stroke: #2a2d33; }
+.controller .stick-range { fill: none; stroke: rgba(255, 255, 255, 0.07); stroke-dasharray: 2 4; }
+.controller .stick-vector { stroke: var(--c-gold); stroke-width: 2.5; stroke-linecap: round; opacity: 0.85; }
+.controller .stick-cap { fill: #202329; stroke: #454a54; stroke-width: 1.5; }
+.controller .stick-top { fill: #15171b; stroke: #2f333b; }
+.controller .stick-ring { fill: none; stroke: transparent; stroke-width: 3; }
+.controller .trigger-body { fill: #22252b; stroke: #3a3e47; stroke-width: 1.2; }
+.controller .trigger-fill { fill: var(--c-gold); opacity: 0.9; }
+.controller .touch-point { fill: var(--c-gold); stroke: #fff4d8; stroke-width: 1.5; filter: drop-shadow(0 0 6px var(--c-gold-glow)); pointer-events: none; }
+/* Pressed: gold */
+.controller .part.on .key { fill: var(--c-gold); stroke: #f3cd7f; filter: drop-shadow(0 0 7px var(--c-gold-glow)); }
+.controller .part.on .symbol { stroke: #24190a; }
+.controller .part.on .arrow { fill: #24190a; }
+.controller .part.on .part-label { fill: #24190a; }
+.controller .part.on .stick-ring { stroke: var(--c-gold); filter: drop-shadow(0 0 7px var(--c-gold-glow)); }
+.controller .part.on .trigger-body { stroke: #f3cd7f; }
+/* Selected (mapping shown): teal */
+.controller.interactive .pickable { cursor: pointer; outline: none; }
+.controller.interactive .pickable:hover .key, .controller.interactive .pickable:hover .trigger-body, .controller.interactive .pickable:hover .stick-cap { stroke: var(--c-teal); }
+.controller .part.selected .key, .controller .part.selected .trigger-body, .controller .part.selected .stick-cap { stroke: var(--c-teal); stroke-width: 3; }
+.controller .pickable:focus-visible .key, .controller .pickable:focus-visible .trigger-body, .controller .pickable:focus-visible .stick-cap { stroke: var(--c-teal); stroke-width: 3; stroke-dasharray: 4 3; }
+/* Mapping marks */
+.controller .part.disabled .key, .controller .part.disabled .trigger-body, .controller .part.disabled .stick-cap { opacity: 0.45; stroke-dasharray: 3 3; }
+.controller .part.disabled.on .key { opacity: 0.8; }
+.controller .mark-remapped { fill: var(--c-teal); stroke: #0f1012; stroke-width: 1.5; }
+.controller .mark-macro { fill: var(--c-gold); stroke: #0f1012; stroke-width: 1.5; }
+.controller .mark-disabled { fill: #e26a6a; stroke: #0f1012; stroke-width: 1.5; }
+.controller .mark-special { fill: #0f1012; stroke: var(--c-teal); stroke-width: 2; }
+.controller-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--text-dim); margin-top: 6px; }
+.controller-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.controller-legend i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; border: 1.5px solid #0f1012; }
+.controller-legend .l-pressed { background: #d6a54b; border-radius: 3px; }
+.controller-legend .l-selected { background: transparent; border: 2px solid #4fa8b8; border-radius: 3px; }
+.controller-legend .l-remapped { background: #4fa8b8; }
+.controller-legend .l-macro { background: #d6a54b; }
+.controller-legend .l-disabled { background: #e26a6a; }
+.controller-legend .l-special { background: #0f1012; border: 2px solid #4fa8b8; }
+.mapping-card { border: 1px solid rgba(79, 168, 184, 0.45); border-radius: 10px; padding: 10px 14px; margin-top: 10px; background: rgba(79, 168, 184, 0.06); }
+.mapping-card h4 { margin: 0 0 6px; color: #7cc6d3; font-size: 14px; }
+.mapping-card ul { margin: 0; padding-left: 18px; font-size: 13px; }
+.mapping-card li { margin: 2px 0; }
+.mapping-card .mapping-kind { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; margin-left: 8px; color: var(--text-dim); }
 
 /* Live readout */
 .readout { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 28px; padding-top: 8px; border-top: 1px solid var(--border); }
