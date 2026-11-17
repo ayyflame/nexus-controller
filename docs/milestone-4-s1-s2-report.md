@@ -77,8 +77,8 @@ For each capture it shows:
 
 Verdicts:
 
-- "Reported as Cross" means mapped mode, and is never called a paddle.
-- "Candidate independent input" means bits NEXUS doesn't decode changed.
+- "Reported as Cross (mapped button)" means the normal button, or a paddle mapped to it. It is never called an independent input.
+- "Possible independent input" means bits NEXUS doesn't decode changed consistently, in a button byte or an unused byte. Timestamps, counters (bytes 7, 12–15, 28–31, 49–52), motion sensors and battery status change on their own, so they are listed as ignored and never count. A change in fewer than a fifth of the reports is only noted.
 - "No change" means the press is not visible in the report.
 
 Further functions:

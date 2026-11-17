@@ -8,3 +8,5 @@
 *.icns binary
 # Signed test fixtures must be byte-exact on every platform
 crates/updates/tests/fixtures/* binary
+# Recorded controller reports used by the Report Inspector tests
+crates/engine/src/fixtures/*.bin binary

@@ -766,7 +766,7 @@ fn report_intervals_are_published_for_usb_stability_checks() {
 
 // ---- Report Inspector (synthetic reports; real controllers need hardware) ----
 
-use crate::inspector::{analyse, InspectorSession, RawCapture, Verdict};
+use crate::inspector::{analyse, Analysis, InspectorSession, RawCapture, Verdict};
 
 /// Resting reports with the noise a real controller has: counter, timestamp,
 /// gyro and a little stick jitter.
@@ -808,7 +808,16 @@ fn inspector_identifies_a_paddle_mapped_to_cross_as_cross() {
             buttons: vec!["Cross"]
         }
     );
-    assert!(a.summary.contains("cannot tell it apart"), "{}", a.summary);
+    assert!(
+        a.summary.contains("Mapped-button activity"),
+        "{}",
+        a.summary
+    );
+    assert!(
+        a.summary.contains("not an independent input"),
+        "{}",
+        a.summary
+    );
 }
 
 #[test]
@@ -830,12 +839,214 @@ fn inspector_flags_undecoded_button_bits_as_candidates() {
 }
 
 #[test]
-fn inspector_flags_changes_in_reserved_bytes() {
-    let a = analyse(&resting(200, |_| {}), &resting(200, |r| r[12] = 0x03));
+fn inspector_flags_changes_in_unused_bytes() {
+    let a = analyse(&resting(200, |_| {}), &resting(200, |r| r[45] = 0x03));
     assert!(
-        matches!(&a.verdict, Verdict::UndecodedBits { locations } if locations == &["byte 12 mask 0x03"])
+        matches!(&a.verdict, Verdict::UndecodedBits { locations } if locations == &["byte 45 mask 0x03"])
     );
     assert_eq!(a.changes[0].field_kind, "unknown");
+    assert!(
+        a.summary.starts_with("Possible independent input"),
+        "{}",
+        a.summary
+    );
+}
+
+#[test]
+fn inspector_ignores_timestamps_counters_and_motion() {
+    // Real controllers have slow counters in bytes 12-15 and 49-52 that are
+    // steady for the 2 s baseline but differ minutes later, and motion data
+    // that changes when the controller is picked up. None of it is input.
+    let later = resting(200, |r| {
+        r[13] = r[13].wrapping_add(0x1C); // timestamp high byte moved on
+        r[14] ^= 0x01;
+        r[22] = 0x7F; // accelerometer
+        r[25] = 0x40; // accelerometer
+        r[31] = 0x2D; // sensor timestamp high byte
+        r[51] = 0x33; // status timestamp
+        r[52] = 0x2D;
+        r[53] ^= 0x10; // battery / power status
+    });
+    let a = analyse(&resting(200, |_| {}), &later);
+    assert_eq!(a.verdict, Verdict::NoChange, "{:?}", a.changes);
+    assert!(a.changes.is_empty());
+    for b in [13, 14, 22, 25, 31, 51, 52, 53] {
+        assert!(a.ignored_bytes.contains(&b), "byte {b} should be ignored");
+    }
+    // With Cross held as well, the result is Cross and nothing else.
+    let cross = resting(200, |r| {
+        r[8] |= 0x20;
+        r[13] = 0x9F;
+        r[22] = 0x7F;
+        r[52] = 0x2D;
+    });
+    let a = analyse(&resting(200, |_| {}), &cross);
+    assert_eq!(
+        a.verdict,
+        Verdict::DecodedButtons {
+            buttons: vec!["Cross"]
+        }
+    );
+}
+
+#[test]
+fn inspector_does_not_call_a_one_off_flicker_a_candidate() {
+    let mut action = resting(200, |r| r[8] |= 0x20);
+    action[50][32] = 0x0F; // one report out of 200
+    let a = analyse(&resting(200, |_| {}), &action);
+    assert_eq!(
+        a.verdict,
+        Verdict::DecodedButtons {
+            buttons: vec!["Cross"]
+        }
+    );
+    assert!(
+        a.notes
+            .iter()
+            .any(|n| n.contains("Byte 32") && n.contains("not treated as a candidate")),
+        "{:?}",
+        a.notes
+    );
+    // Held throughout, the same bit is a candidate.
+    let held = resting(200, |r| {
+        r[8] |= 0x20;
+        r[32] = 0x0F;
+    });
+    let a = analyse(&resting(200, |_| {}), &held);
+    assert!(matches!(&a.verdict, Verdict::UndecodedBits { .. }));
+    assert!(
+        a.summary
+            .contains("also reported Cross (mapped-button activity)"),
+        "{}",
+        a.summary
+    );
+}
+
+// ---- Regression: real captures from a DualSense with MZ Titan paddles --------
+// Recorded with the Report Inspector (2026-11-17), stored compactly: for each
+// section a little-endian u16 count, then that many 64-byte USB reports. The
+// first section is the 2 s hands-off baseline (all reports); then each capture,
+// keeping every fifth report. They contain only input data (no serial number).
+
+fn fixture_sections(bytes: &[u8]) -> Vec<Vec<Vec<u8>>> {
+    let mut out = Vec::new();
+    let mut at = 0;
+    while at < bytes.len() {
+        let n = u16::from_le_bytes([bytes[at], bytes[at + 1]]) as usize;
+        at += 2;
+        out.push(
+            (0..n)
+                .map(|k| bytes[at + k * 64..at + (k + 1) * 64].to_vec())
+                .collect(),
+        );
+        at += n * 64;
+    }
+    out
+}
+
+fn fixture_verdicts(bytes: &[u8]) -> Vec<Analysis> {
+    let s = fixture_sections(bytes);
+    s[1..].iter().map(|c| analyse(&s[0], c)).collect()
+}
+
+fn reported(buttons: &[&'static str]) -> Verdict {
+    Verdict::DecodedButtons {
+        buttons: buttons.to_vec(),
+    }
+}
+
+#[test]
+fn real_captures_of_mapped_paddles_are_reported_as_their_buttons() {
+    // Paddles mapped in the MZ Titan app: left = Circle, right = Cross
+    // (Triangle also pressed during that capture), then Cross itself.
+    let a = fixture_verdicts(include_bytes!("fixtures/mz_titan_mapped.bin"));
+    assert_eq!(a.len(), 3);
+    assert_eq!(
+        a[0].verdict,
+        reported(&["Circle"]),
+        "left paddle: {}",
+        a[0].summary
+    );
+    assert_eq!(
+        a[1].verdict,
+        reported(&["Cross", "Triangle"]),
+        "right paddle: {}",
+        a[1].summary
+    );
+    assert_eq!(
+        a[2].verdict,
+        reported(&["Cross"]),
+        "Cross reference: {}",
+        a[2].summary
+    );
+    for x in &a {
+        assert!(
+            x.summary.starts_with("Mapped-button activity"),
+            "{}",
+            x.summary
+        );
+        assert!(
+            x.changes.iter().all(|c| c.undecoded_bits == 0),
+            "{:?}",
+            x.changes
+        );
+        // The counters and motion data that used to be flagged are ignored.
+        for b in [13, 16, 25, 31, 52] {
+            assert!(
+                x.ignored_bytes.contains(&b),
+                "byte {b}: {:?}",
+                x.ignored_bytes
+            );
+        }
+    }
+}
+
+#[test]
+fn real_captures_of_the_second_session_have_no_false_candidates() {
+    let a = fixture_verdicts(include_bytes!("fixtures/mz_titan_session2.bin"));
+    assert_eq!(a.len(), 8);
+    // Captures 1-4: paddles reported as normal buttons.
+    assert_eq!(a[0].verdict, reported(&["Cross"]), "left paddle");
+    assert_eq!(
+        a[1].verdict,
+        reported(&["D-pad", "Triangle"]),
+        "right paddle"
+    );
+    assert_eq!(a[2].verdict, reported(&["Cross"]), "Cross reference");
+    assert_eq!(
+        a[3].verdict,
+        reported(&["D-pad", "Cross", "Triangle"]),
+        "both paddles"
+    );
+    // Captures 5-7: nothing but a slight left-stick drift since the baseline.
+    // Whether the paddles were in independent mode then is not yet confirmed,
+    // so the result is only "no button or candidate data", nothing more.
+    for (n, x) in a[4..7].iter().enumerate() {
+        assert!(
+            matches!(x.verdict, Verdict::NoChange | Verdict::AnalogOnly),
+            "capture {}: {:?} {}",
+            n + 5,
+            x.verdict,
+            x.summary
+        );
+    }
+    // Capture 8: Cross again; a one-report flicker elsewhere is not a candidate.
+    assert_eq!(
+        a[7].verdict,
+        reported(&["Cross"]),
+        "Cross reference 2: {}",
+        a[7].summary
+    );
+    assert!(a
+        .iter()
+        .all(|x| !matches!(x.verdict, Verdict::UndecodedBits { .. })));
+    // No advice about stick wobble or sensor data (the full capture 8 also
+    // has a one-report flicker in byte 32, which is not in this trimmed copy).
+    for x in &a {
+        for note in &x.notes {
+            assert!(note.starts_with("Byte 32 changed in only"), "{note}");
+        }
+    }
 }
 
 #[test]
@@ -861,7 +1072,9 @@ fn inspector_notes_brief_presses_and_odd_reports() {
     action[0][10] |= 0x80;
     let a = analyse(&resting(100, |_| {}), &action);
     assert!(
-        a.notes.iter().any(|n| n.contains("Hold the input")),
+        a.notes
+            .iter()
+            .any(|n| n.to_lowercase().contains("hold the input")),
         "{:?}",
         a.notes
     );

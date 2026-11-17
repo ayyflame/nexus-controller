@@ -53,6 +53,9 @@ function CaptureResult({ c }: { c: LabeledCapture }) {
         </table>
       )}
       {a.notes.map((n) => <div key={n} className="small muted">• {n}</div>)}
+      {a.ignoredBytes && a.ignoredBytes.length > 0 && (
+        <div className="small muted">• Ignored (timestamps, counters, motion sensors, battery; never button input): bytes {a.ignoredBytes.join(", ")}</div>
+      )}
     </div>
   );
 }
@@ -129,7 +132,8 @@ export function ReportInspector() {
       <p className="muted small">
         Shows exactly which bits of the controller's USB report change when you press something, for example a back paddle.
         Nothing is changed on the controller. A paddle mapped to a normal button (e.g. Cross) shows as that button: NEXUS can't
-        tell them apart. Only data NEXUS doesn't decode yet is a candidate independent input.
+        tell them apart. Only button or unused data NEXUS doesn't decode yet, changing consistently, is a possible independent
+        input. Timestamps, counters and motion sensors are ignored.
       </p>
 
       <div className="inspector-steps">

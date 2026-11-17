@@ -32,13 +32,18 @@ pub fn usb_byte(index: usize) -> (&'static str, FieldKind) {
             Input,
         ),
         11 => ("Buttons 4 (not decoded)", Unknown),
-        12..=15 => ("Reserved (not decoded)", Unknown),
+        // Not decoded, but not unused: captures from real controllers show a
+        // free-running counter here (byte 12 counts up every report, 13-15
+        // carry), so it changes over time with nobody touching anything.
+        12..=15 => ("Firmware timestamp (counter)", Varying),
         16..=21 => ("Gyroscope", Varying),
         22..=27 => ("Accelerometer", Varying),
         28..=31 => ("Sensor timestamp", Varying),
         32 => ("Reserved (not decoded)", Unknown),
         33..=40 => ("Touchpad points", Input),
-        41..=52 => ("Trigger and status area (not decoded)", Unknown),
+        41..=48 => ("Trigger and status area (not decoded)", Unknown),
+        // A second free-running timestamp (bytes 49-52), seen in real captures.
+        49..=52 => ("Status timestamp (counter)", Varying),
         53 => ("Battery and power status", Varying),
         54..=63 => ("Status / reserved (not decoded)", Unknown),
         _ => ("Beyond the standard 64-byte report", Unknown),

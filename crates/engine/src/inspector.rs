@@ -11,6 +11,13 @@
 //! 2. **Action**: reports recorded while the user holds one input. Any
 //!    non-noisy bit that differs from the reference is reported, with its
 //!    field name and whether NEXUS already decodes it.
+//! 3. **Ignored fields**: timestamps, counters, motion sensors and battery
+//!    status change by themselves over time (a slow counter can look steady
+//!    during the baseline and differ minutes later). They are never input,
+//!    so they are listed as ignored and can't produce a candidate.
+//! 4. **Candidates**: only undecoded bits of button bytes and unused bytes
+//!    that changed in at least a fifth of the action reports. A held paddle
+//!    shows in nearly every report; a one-off flicker is only noted.
 //!
 //! The analysis only describes data. A change in a decoded bit such as Cross
 //! means "the controller reports Cross", which is exactly what a paddle mapped
@@ -78,6 +85,9 @@ pub struct Analysis {
     pub action_reports: usize,
     pub report_len: usize,
     pub noisy_bytes: Vec<usize>,
+    /// Bytes that changed but belong to timestamp, counter, motion or
+    /// battery fields: never treated as input.
+    pub ignored_bytes: Vec<usize>,
     pub changes: Vec<ByteChange>,
     pub verdict: Verdict,
     pub summary: String,
@@ -147,6 +157,8 @@ pub fn analyse(baseline: &[Vec<u8>], action: &[Vec<u8>]) -> Analysis {
     }
 
     let mut changes: Vec<ByteChange> = Vec::new();
+    let mut ignored_bytes = Vec::new();
+    let mut flickers = Vec::new();
     for i in 0..len {
         let mut set = 0u8;
         let mut cleared = 0u8;
@@ -168,13 +180,24 @@ pub fn analyse(baseline: &[Vec<u8>], action: &[Vec<u8>]) -> Analysis {
             continue;
         }
         let (field, kind) = usb_byte(i);
-        let changed = set | cleared;
         let analog = matches!(i, 1..=6 | 33..=40);
-        let undecoded = if analog {
+        if kind == FieldKind::Varying && !analog {
+            ignored_bytes.push(i);
+            continue;
+        }
+        let changed = set | cleared;
+        let mut undecoded = if analog {
             0
         } else {
             changed & !decoded_mask(i)
         };
+        if undecoded != 0 && (count as usize) * 5 < action.len() {
+            flickers.push(format!(
+                "Byte {i} changed in only {count} of {} reports, too rarely to be a held input, so it is not treated as a candidate. If you pressed something, hold the input for the whole recording.",
+                action.len()
+            ));
+            undecoded = 0;
+        }
         let mut decoded = Vec::new();
         let mut hints = Vec::new();
         for b in 0..8 {
@@ -221,7 +244,9 @@ pub fn analyse(baseline: &[Vec<u8>], action: &[Vec<u8>]) -> Analysis {
             locations: undecoded,
         }
     } else if !buttons.is_empty() {
-        Verdict::DecodedButtons { buttons }
+        Verdict::DecodedButtons {
+            buttons: buttons.clone(),
+        }
     } else if !changes.is_empty() {
         Verdict::AnalogOnly
     } else {
@@ -230,24 +255,38 @@ pub fn analyse(baseline: &[Vec<u8>], action: &[Vec<u8>]) -> Analysis {
     let summary = match &verdict {
         Verdict::NoChange => "Nothing changed in the standard input report. If you pressed a paddle, it is not visible here: it may be handled inside the controller, or reported on another interface (see Interfaces).".to_owned(),
         Verdict::DecodedButtons { buttons } => format!(
-            "The controller reported {}. A paddle that produces this is mapped to that button; NEXUS cannot tell it apart from the real button.",
+            "Mapped-button activity: the controller reported {}. This is that normal button, or a paddle mapped to it; it is not an independent input. NEXUS cannot tell a mapped paddle apart from the real button.",
             buttons.join(" + ")
         ),
-        Verdict::UndecodedBits { locations } => format!(
-            "Data NEXUS does not decode changed ({}). This is a candidate independent input. Repeat the capture to confirm it is consistent.",
-            locations.join(", ")
-        ),
+        Verdict::UndecodedBits { locations } => {
+            let mapped = if buttons.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    " Separately, the controller also reported {} (mapped-button activity).",
+                    buttons.join(" + ")
+                )
+            };
+            format!(
+                "Possible independent input: data NEXUS does not decode changed consistently ({}).{mapped} Repeat the capture to confirm it is the same each time.",
+                locations.join(", ")
+            )
+        }
         Verdict::AnalogOnly => "Only sticks, triggers or touch data changed.".to_owned(),
         Verdict::UnexpectedFormat => "The reports do not look like standard DualSense USB reports.".to_owned(),
     };
+    notes.extend(flickers);
     if baseline.len() < 50 {
         notes.push(format!(
             "The baseline has only {} reports; noise detection may be incomplete.",
             baseline.len()
         ));
     }
+    // Only for the button data that decided the verdict: a brief stick
+    // wobble or a flicker already noted above is not what was being tested.
     if let Some(weak) = changes
         .iter()
+        .filter(|c| !c.decoded.is_empty())
         .find(|c| (c.reports_changed as usize) * 5 < action.len())
     {
         notes.push(format!(
@@ -267,6 +306,7 @@ pub fn analyse(baseline: &[Vec<u8>], action: &[Vec<u8>]) -> Analysis {
             .filter(|(_, &n)| n != 0)
             .map(|(i, _)| i)
             .collect(),
+        ignored_bytes,
         changes,
         verdict,
         summary,

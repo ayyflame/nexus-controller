@@ -17,6 +17,8 @@ export interface ByteChange {
 export interface Analysis {
   baselineReports: number; actionReports: number; reportLen: number; noisyBytes: number[];
   changes: ByteChange[]; verdict: Verdict; summary: string; notes: string[];
+  /** Bytes that changed but are timestamps, counters, motion or battery data: never input. */
+  ignoredBytes?: number[];
 }
 
 export interface LabeledCapture {
@@ -66,8 +68,8 @@ export function byteValue(n: number): string {
 
 export function verdictBadge(v: Verdict): { tone: "warn" | "ok" | "neutral"; text: string } {
   switch (v.kind) {
-    case "undecodedBits": return { tone: "warn", text: "Candidate independent input" };
-    case "decodedButtons": return { tone: "neutral", text: `Reported as ${v.buttons.join(" + ")}` };
+    case "undecodedBits": return { tone: "warn", text: "Possible independent input" };
+    case "decodedButtons": return { tone: "neutral", text: `Reported as ${v.buttons.join(" + ")} (mapped button)` };
     case "analogOnly": return { tone: "neutral", text: "Sticks / triggers / touch only" };
     case "unexpectedFormat": return { tone: "warn", text: "Unexpected report format" };
     case "noChange": return { tone: "neutral", text: "No change in the report" };

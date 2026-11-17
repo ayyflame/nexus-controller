@@ -10,7 +10,9 @@ test("bit masks are described with bit numbers", () => {
 });
 
 test("verdicts never call a decoded button a paddle", () => {
-  assert.equal(verdictBadge({ kind: "decodedButtons", buttons: ["Cross"] }).text, "Reported as Cross");
+  assert.equal(verdictBadge({ kind: "decodedButtons", buttons: ["Cross"] }).text, "Reported as Cross (mapped button)");
+  assert.doesNotMatch(verdictBadge({ kind: "decodedButtons", buttons: ["Cross"] }).text, /independent/i);
+  assert.match(verdictBadge({ kind: "undecodedBits", locations: ["byte 45 mask 0x03"] }).text, /Possible independent input/);
   assert.equal(verdictBadge({ kind: "undecodedBits", locations: ["byte 10 mask 0x40"] }).tone, "warn");
   assert.match(verdictBadge({ kind: "noChange" }).text, /No change/);
 });
