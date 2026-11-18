@@ -310,6 +310,10 @@ impl InputProcessor for ConfiguredProcessor {
         let physical = *state;
         self.process_at(state, &physical, Instant::now());
     }
+
+    fn active_layer(&self) -> Option<usize> {
+        ConfiguredProcessor::active_layer(self)
+    }
 }
 
 // ---- Curves -----------------------------------------------------------------

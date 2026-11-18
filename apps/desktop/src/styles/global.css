@@ -750,3 +750,34 @@ input[type="color"]:disabled { opacity: 0.4; cursor: not-allowed; }
 .controller-overlay .mark-remapped, .controller-overlay .mark-macro, .controller-overlay .mark-disabled, .controller-overlay .mark-special { stroke-width: 0.7; }
 .controller-overlay .part.disabled .hit { stroke: rgba(226, 106, 106, 0.6); stroke-dasharray: 1.5 1.5; }
 .photo-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; font-size: 12.5px; }
+/* Live Viewer */
+.lv-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 16px; align-items: start; }
+.lv-grid .span-2 { grid-column: 1 / -1; }
+.lv-table td, .lv-table th { padding: 5px 8px; font-size: 13px; }
+.lv-table tr.lv-warn td:first-child, .lv-table tr.lv-warn td:nth-child(2) { color: var(--warn, #e0a84a); }
+.lv-detected { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.lv-chip { padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border-strong); color: var(--text-dim); font-size: 12.5px; transition: background 60ms; }
+.lv-chip.seen { border-color: rgba(79, 168, 184, 0.7); color: #9fd3dc; }
+.lv-chip.on { background: #d6a54b; border-color: #f3cd7f; color: #24190a; }
+.lv-stats { flex: 1 1 220px; min-width: 220px; }
+.lv-sub { margin: 12px 0 2px; font-size: 13px; color: var(--gold-bright); }
+.lv-axes { display: grid; gap: 8px; }
+.lv-axis { display: grid; grid-template-columns: 90px 1fr 70px 90px; align-items: center; gap: 10px; font-size: 13px; }
+.lv-bar { position: relative; height: 10px; border-radius: 5px; background: var(--panel-3); overflow: hidden; }
+.lv-bar-mid { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--border-strong); }
+.lv-bar-fill { position: absolute; top: 0; bottom: 0; background: #4fa8b8; }
+.lv-level { width: 150px; height: 150px; }
+.lv-level-ring { fill: #15171a; stroke: var(--border-strong); }
+.lv-level-ring.inner { fill: none; stroke-dasharray: 3 3; }
+.lv-level-cross { stroke: rgba(255, 255, 255, 0.08); }
+.lv-level-bubble { fill: #4fa8b8; stroke: #bfe6ec; stroke-width: 1.5; }
+.lv-level-bubble.moving { fill: rgba(79, 168, 184, 0.45); }
+.lv-events { list-style: none; padding: 0; margin: 0; font-size: 13px; max-height: 260px; overflow: auto; }
+.lv-events li { padding: 3px 0; border-bottom: 1px solid var(--border); }
+.lv-test h2 { margin-top: 14px; }
+.lv-step { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--border-strong); background: var(--panel-2); color: var(--text-dim); cursor: pointer; }
+.lv-step.current { border-color: #4fa8b8; color: var(--text); }
+.lv-step.r-pass { background: rgba(79, 168, 184, 0.25); color: #bfe6ec; }
+.lv-step.r-fail { background: rgba(226, 106, 106, 0.25); color: #f2b5b5; }
+.lv-checks { list-style: none; padding: 0; font-size: 14px; }
+.lv-checks li { padding: 3px 0; }

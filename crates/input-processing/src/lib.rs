@@ -29,6 +29,10 @@ use nexus_controller_core::ControllerState;
 pub trait InputProcessor: Send {
     fn name(&self) -> &'static str;
     fn process(&mut self, state: &mut ControllerState);
+    /// Index of the mapping layer this stage has active, if it has layers.
+    fn active_layer(&self) -> Option<usize> {
+        None
+    }
 }
 
 /// Ordered chain of stages. An empty pipeline is a pass-through.
@@ -44,6 +48,12 @@ impl ProcessingPipeline {
 
     pub fn push(&mut self, stage: Box<dyn InputProcessor>) {
         self.stages.push(stage);
+    }
+
+    /// The active mapping layer of the first stage that has one (read-only;
+    /// for display).
+    pub fn active_layer(&self) -> Option<usize> {
+        self.stages.iter().find_map(|s| s.active_layer())
     }
 
     pub fn stage_names(&self) -> Vec<&'static str> {

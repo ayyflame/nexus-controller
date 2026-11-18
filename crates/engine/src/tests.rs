@@ -2866,3 +2866,44 @@ fn no_keep_alive_while_output_is_off() {
     std::thread::sleep(Duration::from_millis(60));
     assert_eq!(log.keep_alives(), alive);
 }
+
+// ---- Live Viewer: active shift layer ------------------------------------------
+
+#[test]
+fn the_active_shift_layer_is_published_for_hold_and_toggle_layers() {
+    use nexus_input_processing::{LayerMode, MappingLayer, ProcessingConfig, RemapRule};
+    let (backend, e) = connected_engine();
+    let mut cfg = ProcessingConfig::passthrough();
+    cfg.layers = vec![
+        MappingLayer {
+            name: "Hold L1".into(),
+            activator: MacroButton::LeftShoulder,
+            mode: LayerMode::Hold,
+            remap: vec![RemapRule::new(MacroButton::West, Some(MacroButton::DpadUp))],
+        },
+        MappingLayer {
+            name: "Toggle R1".into(),
+            activator: MacroButton::RightShoulder,
+            mode: LayerMode::Toggle,
+            remap: vec![],
+        },
+    ];
+    e.set_processing(cfg);
+    let layer = |e: &Engine| e.status().devices[0].active_layer;
+    backend.push_report(PATH, report(&[]));
+    wait_status(&e, "no layer", |s| s.devices[0].total_reports >= 2);
+    assert_eq!(layer(&e), None);
+    backend.push_report(PATH, report(&[(1, 0x01)])); // L1 held
+    wait_status(&e, "hold layer", |s| s.devices[0].active_layer == Some(0));
+    backend.push_report(PATH, report(&[]));
+    wait_status(&e, "released", |s| s.devices[0].active_layer.is_none());
+    // Toggle: a single press switches it on and it stays on after release.
+    backend.push_report(PATH, report(&[(1, 0x02)]));
+    backend.push_report(PATH, report(&[]));
+    wait_status(&e, "toggle on", |s| s.devices[0].active_layer == Some(1));
+    std::thread::sleep(Duration::from_millis(30));
+    assert_eq!(layer(&e), Some(1), "stays on");
+    backend.push_report(PATH, report(&[(1, 0x02)]));
+    backend.push_report(PATH, report(&[]));
+    wait_status(&e, "toggle off", |s| s.devices[0].active_layer.is_none());
+}

@@ -79,6 +79,8 @@ export interface DeviceSnapshot {
   processed: ControllerState | null;
   /** IDs of macros playing on this controller right now. */
   playingMacros: string[];
+  /** Index in the profile's layers of the active shift layer, if any. */
+  activeLayer: number | null;
   /** Time NEXUS spends per report (processing, macros, output). */
   pipelineLatency: LatencySummary;
   /** Reports missing per the controller's sequence counter (estimate). */

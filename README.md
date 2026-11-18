@@ -53,6 +53,17 @@ Built with Tauri 2, React and TypeScript for the UI, and Rust for the engine, wi
   - NEXUS processing time, where the 99th percentile and maximum include the driver call.
 - **Diagnostics** (*Settings › HID Devices*): raw HID reports, the engine log, a Report Inspector for unknown buttons, and a shareable diagnostics report. Serial numbers and paths are masked.
 
+### Live Viewer (diagnostics)
+
+- **What it is:** a read-only sidebar page ([`docs/live-viewer.md`](docs/live-viewer.md)) with six tabs:
+  - **Live:** every control, the analog values, the active shift layer, and which controls were detected.
+  - **Sticks & Triggers:** the full-range test, deadzone, and raw vs. sent values.
+  - **Motion:** gyro, accelerometer and tilt.
+  - **Health:** report rate, stale input, dropped or unreadable reports, processing time, battery and connection events.
+  - **Controller Test:** a guided 10-step pass/fail check.
+  - **Drift Test.**
+- **Read-only:** it never changes settings and doesn't affect macros or game output.
+
 ### Virtual Xbox 360 output
 
 - **What games see:** a standard *Controller (XBOX 360 For Windows)*, after all processing, remapping and macros.
@@ -226,6 +237,7 @@ Installers: `npm run tauri build` in `apps\desktop`, output in `target\release\b
   - [Macro Studio](docs/macro-studio.md)
   - [Optional HidHide setup](docs/hidhide-setup.md)
   - [Controller photo mode](docs/controller-photo.md)
+  - [Live Viewer and diagnostics](docs/live-viewer.md)
 - **Testing:**
   - [Hardware test plan](tests/m4.5-test-plan.md)
   - [Hardware verification checklist](tests/hardware-verification.md)

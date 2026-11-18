@@ -85,6 +85,9 @@ pub struct DeviceSnapshot {
     pub processed: Option<ControllerState>,
     /// IDs of macros currently playing on this controller.
     pub playing_macros: Vec<String>,
+    /// Index (in the profile's `layers`) of the shift layer active on this
+    /// controller, if any.
+    pub active_layer: Option<usize>,
     /// Time NEXUS spends per report: processing, macros and output.
     pub pipeline_latency: LatencySummary,
     /// Reports missing according to the controller's sequence counter
@@ -1111,6 +1114,7 @@ fn new_session_handler(
             input: None,
             processed: None,
             playing_macros: Vec::new(),
+            active_layer: None,
             pipeline_latency: LatencySummary::default(),
             sequence_gaps: 0,
             report_intervals: IntervalSummary::default(),
@@ -1372,6 +1376,8 @@ impl SessionHandler for EngineSessionHandler {
         }
         self.feedback.update(&self.shared, Instant::now());
         let (gaps, sent) = (self.sequence_gaps, self.feedback.sent);
+        // For display only, after the virtual controller already has this report.
+        let layer = self.pipeline.active_layer();
 
         let (rate, total, errors) = (
             self.rate.rate_hz(),
@@ -1395,6 +1401,7 @@ impl SessionHandler for EngineSessionHandler {
             s.parse_errors = errors;
             s.sequence_gaps = gaps;
             s.output_reports_sent = sent;
+            s.active_layer = layer;
             match (physical, processed) {
                 (Some(input), Some((out, playing))) => {
                     s.input = Some(input);

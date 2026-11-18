@@ -2,11 +2,12 @@ import { Icon, type IconName } from "./Icons";
 import { useControllerPhase } from "./StatusPill";
 
 export type PageId =
-  | "dashboard" | "controller" | "macro-studio" | "profiles" | "performance" | "settings";
+  | "dashboard" | "controller" | "live-viewer" | "macro-studio" | "profiles" | "performance" | "settings";
 
 export const NAV: Array<{ id: PageId; label: string; icon: IconName }> = [
   { id: "dashboard", label: "Dashboard", icon: "dashboard" },
   { id: "controller", label: "Controller", icon: "controller" },
+  { id: "live-viewer", label: "Live Viewer", icon: "stick" },
   { id: "macro-studio", label: "Macro Studio", icon: "macro" },
   { id: "profiles", label: "Profiles", icon: "profiles" },
   { id: "performance", label: "Performance", icon: "performance" },
