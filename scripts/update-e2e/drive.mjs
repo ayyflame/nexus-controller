@@ -44,7 +44,8 @@ function ps(cmd) {
 }
 function installed() {
   const out = ps(`Get-ChildItem HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall, HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall -ErrorAction SilentlyContinue | Get-ItemProperty | Where-Object { $_.DisplayName -eq 'NEXUS' } | ForEach-Object { $loc = $_.InstallLocation; if (-not $loc -and $_.UninstallString) { $loc = Split-Path ($_.UninstallString -replace '"', '') }; "$($_.DisplayVersion)|$($loc.TrimEnd('\\'))" }`);
-  return out ? out.split(/\r?\n/).map((l) => { const [version, location] = l.split("|"); return { version, location }; }) : [];
+  // InstallLocation can be stored with surrounding quotes.
+  return out ? out.split(/\r?\n/).map((l) => { const [version, location] = l.split("|"); return { version, location: location.replace(/"/g, "").trim() }; }) : [];
 }
 function running() { return ps(`@(Get-Process nexus-desktop -ErrorAction SilentlyContinue).Count`) !== "0"; }
 function kill() { try { execFileSync("taskkill", ["/IM", "nexus-desktop.exe", "/F"], { stdio: "ignore" }); } catch { /* not running */ } }
@@ -68,7 +69,11 @@ let page = null;
 function launch() {
   const loc = installed()[0]?.location;
   assert(loc, "NEXUS is not installed");
-  spawn(join(loc, "nexus-desktop.exe"), [], { env, detached: true, stdio: "ignore" }).unref();
+  const exe = join(loc, "nexus-desktop.exe");
+  assert(existsSync(exe), `${exe} not found`);
+  const child = spawn(exe, [], { env, detached: true, stdio: "ignore" });
+  child.on("error", (e) => console.error(`launch failed: ${e.message}`));
+  child.unref();
 }
 async function connect(ms = 120000) {
   browser = await until("the NEXUS window (WebView2 DevTools)", async () => {
