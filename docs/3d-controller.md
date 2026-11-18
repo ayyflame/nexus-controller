@@ -21,8 +21,8 @@ NEXUS shows your DualSense as an interactive 3D model on the Dashboard, Controll
 - **Rotate:** drag. It turns all the way round, and the movement eases out smoothly.
 - **Zoom:** scroll, or use − / +.
 - **Views:** Reset (the default slight tilt), Front, Rear, and Top (bumpers and triggers).
-- **Colour:** the round swatch switches between Midnight Black and White.
-- **2D:** switches back to the flat picture (drawing or your own photo). Controller › Live › Controller picture switches between 3D and 2D.
+- **Colour:** the round swatch switches between Midnight Black and White. The model's textures are painted for a white controller; Midnight Black repaints them (white plastic → black, grey printing → light grey), so the button symbols stay readable.
+- **2D:** switches to the flat picture (drawing or your own photo). The flat picture then has a **3D** button in its corner to switch back, on every page. Controller › Live › Controller picture also switches between 3D and 2D.
 - **Controller › Mapping:** click a control on the model to edit it. The leader lines follow the controls as you turn the model, and are hidden for controls facing away.
 - **ⓘ:** shows the 3D model's credit.
 

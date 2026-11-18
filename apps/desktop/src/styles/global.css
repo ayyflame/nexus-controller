@@ -826,7 +826,7 @@ input[type="color"]:disabled { opacity: 0.4; cursor: not-allowed; }
 .map-bottom { grid-area: bottom; display: flex; justify-content: center; gap: 36px; position: relative; z-index: 1; }
 .map-bottom .map-card { width: 160px; }
 .map-visual { grid-area: pad; position: relative; z-index: 1; min-width: 0; }
-.map-visual > .controller, .map-visual > .controller-photo { max-width: 600px; width: 100%; margin: 0 auto; }
+.map-visual .controller, .map-visual .controller-photo { max-width: 600px; width: 100%; margin: 0 auto; }
 .map-visual .controller-photo .controller-overlay { max-width: none; }
 /* The mapping picture is a picker, not live data: keep it readable without a controller. */
 .map-visual .controller.idle, .map-visual .controller-photo.idle { opacity: 0.9; filter: none; }
@@ -918,3 +918,13 @@ input[type="color"]:disabled { opacity: 0.4; cursor: not-allowed; }
 .c3d-hint { top: 12px; bottom: auto; }
 /* The 3D view shows the page's offline wording itself. */
 .visual-wrap:has(.c3d) .visual-overlay { display: none; }
+
+/* 2D picture chosen instead of 3D: a small button to go back. */
+.flat-view { position: relative; width: 100%; }
+.flat-to-3d {
+  position: absolute; top: 6px; right: 6px; z-index: 2; height: 26px; padding: 0 11px; border-radius: 7px;
+  border: 1px solid var(--border-strong); background: rgba(15, 16, 18, 0.82); color: var(--text-dim);
+  font: 600 12px var(--font); cursor: pointer; transition: color 120ms, border-color 120ms;
+}
+.flat-to-3d:hover { color: var(--gold-bright); border-color: var(--gold); }
+.flat-to-3d:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }

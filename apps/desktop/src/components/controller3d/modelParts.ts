@@ -6,7 +6,7 @@
 import * as THREE from "three";
 import type { GLTF } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { triggerAngle, type Visual3D } from "../../lib/controller3d";
-import { MODEL_SCALE, PARTS, PRESS_DEPTH, classify, findIslands, frameOf, type PartFrame, type V3 } from "../../lib/dualsenseModel";
+import { MODEL_SCALE, PARTS, PRESS_DEPTH, blackFinishPixel, classify, findIslands, frameOf, type Island, type PartFrame, type V3 } from "../../lib/dualsenseModel";
 import type { MacroButton } from "../../types/engine";
 
 export interface PartNode {
@@ -25,18 +25,46 @@ export interface PartNode {
 export type Finish = "white" | "black";
 
 /**
- * Base colours per model material (the textures carry the detail). "white"
- * is the model as made; "black" tints it to a Midnight Black DualSense.
+ * "white" is the model as made. "black" uses repainted copies of its colour
+ * textures (see blackFinishPixel), so plastic, core and printing each get
+ * the right shade instead of everything being darkened together.
  */
-const FINISHES: Record<Finish, Record<string, string>> = {
-  white: { "1001": "#ffffff", "1011": "#ffffff", "1002": "#ffffff" },
-  black: { "1001": "#4a4c53", "1011": "#3c3e44", "1002": "#1d1e22" },
-};
+function blackTexture(source: THREE.Texture): THREE.Texture | null {
+  const img = source.image as CanvasImageSource & { width: number; height: number } | undefined;
+  if (!img || !img.width) return null;
+  const canvas = document.createElement("canvas");
+  canvas.width = img.width;
+  canvas.height = img.height;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return null;
+  ctx.drawImage(img, 0, 0);
+  const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const px = data.data;
+  for (let i = 0; i < px.length; i += 4) {
+    const [r, g, b] = blackFinishPixel(px[i]!, px[i + 1]!, px[i + 2]!);
+    px[i] = r; px[i + 1] = g; px[i + 2] = b;
+  }
+  ctx.putImageData(data, 0, 0);
+  const t = new THREE.CanvasTexture(canvas);
+  // Same sampling as the original, so UVs line up exactly.
+  t.flipY = source.flipY;
+  t.colorSpace = source.colorSpace;
+  t.wrapS = source.wrapS;
+  t.wrapT = source.wrapT;
+  t.channel = source.channel;
+  t.anisotropy = 4;
+  return t;
+}
 
 export interface BuiltModel {
   root: THREE.Group;
-  /** Every material in the scene with its model material name (for the finish). */
-  materials: THREE.MeshStandardMaterial[];
+  /** Repainted colour textures for the black finish, made on first use (original → black). */
+  blackMaps: Map<THREE.Texture, THREE.Texture | null>;
+  /**
+   * This view's own materials (copies; the loaded model is never changed, so
+   * it can be shown again later) with each one's original colour texture.
+   */
+  materials: Map<THREE.MeshStandardMaterial, THREE.Texture | null>;
   parts: Record<MacroButton, PartNode>;
   /** Touch dots on the touchpad (two, like the hardware). */
   touchDots: THREE.Mesh[];
@@ -73,6 +101,8 @@ const GOLD = new THREE.Color("#d6a54b");
 const TEAL = new THREE.Color("#4fa8b8");
 const MUTE_ORANGE = new THREE.Color("#ff8a3c");
 const BLACK = new THREE.Color(0, 0, 0);
+/** Base colour: the textures carry the colour, so materials stay white. */
+const WHITE = new THREE.Color(1, 1, 1);
 
 /** Splits the model's meshes into the fixed shell and one object per control. */
 export function buildModel(gltf: GLTF): BuiltModel {
@@ -80,27 +110,30 @@ export function buildModel(gltf: GLTF): BuiltModel {
   root.scale.setScalar(MODEL_SCALE);
   const created: Array<THREE.BufferGeometry | THREE.Material> = [];
   const pieces = new Map<MacroButton, Array<{ geometry: THREE.BufferGeometry; material: THREE.MeshStandardMaterial }>>();
-  const materials: THREE.MeshStandardMaterial[] = [];
+  const materials = new Map<THREE.MeshStandardMaterial, THREE.Texture | null>();
 
   const meshes: THREE.Mesh[] = [];
   gltf.scene.traverse((o) => { if ((o as THREE.Mesh).isMesh) meshes.push(o as THREE.Mesh); });
   for (const mesh of meshes) {
     const g = mesh.geometry as THREE.BufferGeometry;
-    const material = mesh.material as THREE.MeshStandardMaterial;
-    // The file marks two materials as see-through although they are solid
-    // plastic; drawing them opaque avoids sorting artefacts.
+    // A copy: the loaded (cached) model stays exactly as in the file.
+    const source = mesh.material as THREE.MeshStandardMaterial;
+    const material = source.clone();
+    // The file marks two materials as see-through, but only the face-button
+    // and D-pad caps really are (handled below); everything else is drawn
+    // opaque, which avoids sorting artefacts.
     material.transparent = false;
     material.depthWrite = true;
-    material.userData.base = material.color.clone();
-    if (!materials.includes(material)) materials.push(material);
+    materials.set(material, source.map);
+    created.push(material);
     const pos = g.getAttribute("position") as THREE.BufferAttribute;
     const index = g.getIndex();
     const islands = findIslands(pos.array as ArrayLike<number>, index ? (index.array as ArrayLike<number>) : null);
     const fixed: number[] = [];
-    const byButton = new Map<MacroButton, number[]>();
+    const byButton = new Map<MacroButton, Island[]>();
     for (const isl of islands) {
       const b = classify(material.name, isl);
-      if (b) byButton.set(b, [...(byButton.get(b) ?? []), ...isl.triangles]);
+      if (b) byButton.set(b, [...(byButton.get(b) ?? []), isl]);
       else fixed.push(...isl.triangles);
     }
     if (fixed.length) {
@@ -111,15 +144,24 @@ export function buildModel(gltf: GLTF): BuiltModel {
       shell.receiveShadow = true;
       root.add(shell);
     }
-    for (const [b, tris] of byButton) {
-      const pg = subGeometry(g, tris);
-      created.push(pg);
-      // Own material per control so each can glow on its own (textures stay shared).
-      const m = material.clone();
-      m.userData.base = material.color.clone();
-      materials.push(m);
-      created.push(m);
-      pieces.set(b, [...(pieces.get(b) ?? []), { geometry: pg, material: m }]);
+    for (const [b, isls] of byButton) {
+      // Face buttons and D-pad arms: a clear cap over a solid inner piece that
+      // carries the colour and the printed symbol. The cap stays see-through.
+      const cap = PARTS[b].clearCap ? isls.reduce((a, c) => (c.max[2] > a.max[2] ? c : a)) : null;
+      const groups = cap ? [isls.filter((i) => i !== cap), [cap]] : [isls];
+      for (const group of groups) {
+        const pg = subGeometry(g, group.flatMap((i) => i.triangles));
+        created.push(pg);
+        // Own material per control so each can glow on its own (textures stay shared).
+        const m = material.clone();
+        if (group.includes(cap!)) {
+          m.transparent = true;
+          m.depthWrite = false;
+        }
+        materials.set(m, source.map);
+        created.push(m);
+        pieces.set(b, [...(pieces.get(b) ?? []), { geometry: pg, material: m }]);
+      }
     }
   }
 
@@ -163,18 +205,28 @@ export function buildModel(gltf: GLTF): BuiltModel {
     return m;
   });
 
+  const blackMaps = new Map<THREE.Texture, THREE.Texture | null>();
   return {
-    root, materials, parts, touchDots,
-    dispose: () => { for (const c of created) c.dispose(); },
+    root, materials, parts, touchDots, blackMaps,
+    dispose: () => {
+      for (const c of created) c.dispose();
+      for (const t of blackMaps.values()) t?.dispose();
+    },
   };
 }
 
 /** Sets the controller's colour. */
 export function applyFinish(model: BuiltModel, finish: Finish): void {
-  for (const m of model.materials) {
-    const base = (m.userData.base as THREE.Color);
-    base.set(FINISHES[finish][m.name] ?? "#ffffff");
-    m.color.copy(base);
+  for (const [m, original] of model.materials) {
+    let map = original;
+    if (finish === "black" && original) {
+      if (!model.blackMaps.has(original)) model.blackMaps.set(original, blackTexture(original));
+      map = model.blackMaps.get(original) ?? original;
+    }
+    m.map = map;
+    // Black plastic is a touch glossier than the white's matte finish.
+    m.roughness = finish === "black" ? 0.85 : 1;
+    m.color.set(WHITE);
   }
 }
 
@@ -201,7 +253,7 @@ export function applyVisual(model: BuiltModel, vis: Visual3D, selected: MacroBut
     for (const m of node.materials) {
       m.emissive.copy(colour);
       m.emissiveIntensity = intensity;
-      m.color.copy(m.userData.base as THREE.Color);
+      m.color.copy(WHITE);
       if (tint && colour !== MUTE_ORANGE) m.color.multiply(tint);
     }
 

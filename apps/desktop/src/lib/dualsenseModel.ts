@@ -67,7 +67,11 @@ export function findIslands(pos: ArrayLike<number>, index: ArrayLike<number> | n
 /** How a control moves when used. */
 export type Motion = "press" | "bumper" | "stick" | "trigger";
 
-interface PartSpec { material: string; centre: V3; tolerance: number; motion: Motion }
+interface PartSpec {
+  material: string; centre: V3; tolerance: number; motion: Motion;
+  /** Made of a clear cap (the outermost piece, 20 % opaque in the file) over a solid inner piece with the symbol. */
+  clearCap?: boolean;
+}
 
 /**
  * Where each control is in the model (model units: x right, y up, z out of
@@ -75,14 +79,14 @@ interface PartSpec { material: string; centre: V3; tolerance: number; motion: Mo
  * `material` is the glTF material name the control's geometry uses.
  */
 export const PARTS: Record<MacroButton, PartSpec> = {
-  dpadUp: { material: "1001", centre: [-0.62, 0.376, 0.285], tolerance: 0.05, motion: "press" },
-  dpadRight: { material: "1001", centre: [-0.524, 0.274, 0.285], tolerance: 0.05, motion: "press" },
-  dpadDown: { material: "1001", centre: [-0.626, 0.177, 0.285], tolerance: 0.05, motion: "press" },
-  dpadLeft: { material: "1001", centre: [-0.723, 0.28, 0.285], tolerance: 0.05, motion: "press" },
-  north: { material: "1001", centre: [0.623, 0.423, 0.3], tolerance: 0.05, motion: "press" },
-  west: { material: "1001", centre: [0.476, 0.276, 0.307], tolerance: 0.05, motion: "press" },
-  south: { material: "1001", centre: [0.623, 0.129, 0.289], tolerance: 0.05, motion: "press" },
-  east: { material: "1001", centre: [0.77, 0.276, 0.286], tolerance: 0.05, motion: "press" },
+  dpadUp: { material: "1001", centre: [-0.62, 0.376, 0.285], tolerance: 0.05, motion: "press", clearCap: true },
+  dpadRight: { material: "1001", centre: [-0.524, 0.274, 0.285], tolerance: 0.05, motion: "press", clearCap: true },
+  dpadDown: { material: "1001", centre: [-0.626, 0.177, 0.285], tolerance: 0.05, motion: "press", clearCap: true },
+  dpadLeft: { material: "1001", centre: [-0.723, 0.28, 0.285], tolerance: 0.05, motion: "press", clearCap: true },
+  north: { material: "1001", centre: [0.623, 0.423, 0.3], tolerance: 0.05, motion: "press", clearCap: true },
+  west: { material: "1001", centre: [0.476, 0.276, 0.307], tolerance: 0.05, motion: "press", clearCap: true },
+  south: { material: "1001", centre: [0.623, 0.129, 0.289], tolerance: 0.05, motion: "press", clearCap: true },
+  east: { material: "1001", centre: [0.77, 0.276, 0.286], tolerance: 0.05, motion: "press", clearCap: true },
   leftStick: { material: "1001", centre: [-0.318, 0, 0.33], tolerance: 0.07, motion: "stick" },
   rightStick: { material: "1001", centre: [0.318, 0, 0.33], tolerance: 0.07, motion: "stick" },
   home: { material: "1001", centre: [0, 0.005, 0.254], tolerance: 0.07, motion: "press" },
@@ -137,3 +141,29 @@ export function frameOf(b: MacroButton, min: V3, max: V3): PartFrame {
 export const MODEL_SCALE = 3.6;
 /** How far a pressed button sinks, in model units. */
 export const PRESS_DEPTH = 0.012;
+
+// ---- Midnight Black finish ----------------------------------------------
+// The model's colour textures are painted for a white DualSense: white
+// plastic, a dark grey core, and grey printing (button symbols, lettering).
+// The black finish repaints them: white plastic → near-black, grey printing →
+// light grey (as on a Midnight Black controller), dark parts stay dark.
+
+/** Near-black plastic with a slightly cool tint. */
+export const BLACK_PLATE: V3 = [27, 28, 33];
+/** Light grey printing on black plastic. */
+export const BLACK_PRINT: V3 = [176, 178, 184];
+
+const step = (a: number, b: number, v: number) => {
+  const t = Math.min(1, Math.max(0, (v - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
+
+/** One texture pixel (0–255 sRGB) repainted for the Midnight Black finish. Blends smoothly at edges. */
+export function blackFinishPixel(r: number, g: number, b: number): V3 {
+  const l = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  const white = step(0.6, 0.72, l);
+  const print = step(0.34, 0.44, l) * (1 - white);
+  const keep = 1 - white - print;
+  const mix = (i: 0 | 1 | 2, orig: number) => Math.round(white * BLACK_PLATE[i] + print * BLACK_PRINT[i] + keep * orig * 0.85);
+  return [mix(0, r), mix(1, g), mix(2, b)];
+}

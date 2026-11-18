@@ -50,6 +50,15 @@ export function ControllerVisual({ flat, onAnchors, offlineLabel, ...props }: Vi
       </Fallback3D>
     );
   }
+  // 2D chosen by the user (not forced): offer the way back to 3D right on the picture.
+  if (!flat && mode === "flat" && webglAvailable()) {
+    return (
+      <div className="flat-view">
+        <FlatController {...props} />
+        <button type="button" className="flat-to-3d" onClick={() => saveViewMode("3d")} title="Show the interactive 3D controller">3D</button>
+      </div>
+    );
+  }
   return <FlatController {...props} />;
 }
 

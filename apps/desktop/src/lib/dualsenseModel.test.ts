@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { classify, findIslands, frameOf, PARTS, type V3 } from "./dualsenseModel.ts";
+import { BLACK_PLATE, blackFinishPixel, classify, findIslands, frameOf, PARTS, type V3 } from "./dualsenseModel.ts";
 import type { MacroButton } from "../types/engine";
 
 /** Reads the shipped GLB without three.js: JSON chunk + binary chunk. */
@@ -83,4 +83,21 @@ test("pivots: sticks tilt from inside the body, triggers swing from their top fr
   assert.equal(s.anchor[2], 0.41);
   const t = frameOf("leftTrigger", [-0.75, 0.41, -0.24], [-0.47, 0.65, 0.0]);
   assert.deepEqual(t.pivot.map((v) => +v.toFixed(3)), [-0.61, 0.63, -0.02]);
+});
+
+test("Midnight Black: white plastic turns near-black, grey printing turns light, dark parts stay dark", () => {
+  assert.deepEqual(blackFinishPixel(232, 228, 238), BLACK_PLATE, "white plate");
+  assert.deepEqual(blackFinishPixel(200, 200, 200), BLACK_PLATE, "light grey plastic");
+  const symbol = blackFinishPixel(120, 120, 124);
+  assert.ok(symbol[0] > 150, "a grey printed symbol becomes light, so it shows on black");
+  const core = blackFinishPixel(46, 49, 64);
+  assert.ok(core[0] < 46 && core[0] > 30, "the dark core stays dark");
+  // Blending at a white→grey edge stays between the two results, without jumps.
+  let prev = blackFinishPixel(0, 0, 0)[0];
+  for (let v = 0; v <= 255; v += 5) {
+    const x = blackFinishPixel(v, v, v)[0];
+    assert.ok(x >= 0 && x <= 255);
+    assert.ok(Math.abs(x - prev) < 45, `smooth near ${v}`);
+    prev = x;
+  }
 });
