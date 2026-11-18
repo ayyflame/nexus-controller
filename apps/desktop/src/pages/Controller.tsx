@@ -12,6 +12,7 @@ import { doubleInputAdvice, HIDHIDE_RELEASES } from "../lib/hidhide";
 import { outputSummary } from "../lib/outputStatus";
 import { buttonMapping, buttonMarks, describeMapping } from "../lib/buttonMapping";
 import { isCalibratedPhoto, savePhoto, useControllerPhoto } from "../lib/controllerPhoto";
+import { saveViewMode, useViewMode } from "../lib/controllerViewMode";
 import { BUTTONS, pressedButtons } from "../lib/macros";
 import {
   EMPTY_HISTORY, recordEdit, redoRemap, setRemapAlso, setRemapTarget, undoRemap, type RemapHistory,
@@ -164,7 +165,7 @@ function LiveTab({ config }: { config: ProcessingConfig }) {
         )}
       </Panel>
       <Panel title="Sent to the game" aside={<span className="muted small">after settings, remapping and macros</span>}>
-        <ControllerVisual state={out} live />
+        <ControllerVisual state={out} live flat />
       </Panel>
       <Panel title="Sticks">
         <div className="row gap wrap">
@@ -191,6 +192,7 @@ function LiveTab({ config }: { config: ProcessingConfig }) {
  */
 function PhotoPicker() {
   const photo = useControllerPhoto();
+  const mode = useViewMode();
   const input = useRef<HTMLInputElement>(null);
   const [message, setMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
   const choose = async (file: File | undefined) => {
@@ -213,11 +215,15 @@ function PhotoPicker() {
   };
   return (
     <div className="photo-picker">
-      <span className="muted">Controller picture: {photo ? "your photo" : "drawn"}</span>
+      <div className="segmented small" role="group" aria-label="Controller picture">
+        <button type="button" className={mode === "3d" ? "selected" : ""} aria-pressed={mode === "3d"} onClick={() => saveViewMode("3d")}>3D</button>
+        <button type="button" className={mode === "flat" ? "selected" : ""} aria-pressed={mode === "flat"} onClick={() => saveViewMode("flat")}>2D</button>
+      </div>
+      <span className="muted">{mode === "3d" ? "Interactive 3D model" : `2D picture: ${photo ? "your photo" : "drawn"}`}</span>
       <input ref={input} type="file" accept="image/jpeg,image/png" hidden
         onChange={(e) => { void choose(e.target.files?.[0]); e.target.value = ""; }} />
-      <button className="btn-ghost small" onClick={() => input.current?.click()}>Use my photo…</button>
-      {photo && <button className="btn-ghost small" onClick={() => { savePhoto(null); setMessage(null); }}>Use drawing</button>}
+      {mode === "flat" && <button className="btn-ghost small" onClick={() => input.current?.click()}>Use my photo…</button>}
+      {mode === "flat" && photo && <button className="btn-ghost small" onClick={() => { savePhoto(null); setMessage(null); }}>Use drawing</button>}
       {message && <span className={message.tone === "ok" ? "ok-text" : "warn-text"}>{message.text}</span>}
     </div>
   );

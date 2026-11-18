@@ -1,4 +1,6 @@
-import { useId, type KeyboardEvent, type ReactNode } from "react";
+import { Component, Suspense, lazy, useId, type KeyboardEvent, type ReactNode } from "react";
+import type { Anchors } from "./controller3d/Controller3D";
+import { saveViewMode, useViewMode, webglAvailable } from "../lib/controllerViewMode";
 import type { ButtonMark } from "../lib/buttonMapping";
 import { HOTSPOTS, PHOTO, STICK_TRAVEL, TOUCH_BOX, TRIGGER_SHAPES, VIEW, useControllerPhoto, useCutoutPhoto, type Hotspot } from "../lib/controllerPhoto";
 import { describeState, dpadLit, stickOffset, touchPosition, triggerLevel, triggerPath, type TriggerShape } from "../lib/controllerView";
@@ -21,6 +23,44 @@ interface VisualProps {
   selected?: MacroButton | null;
   onSelect?: (b: MacroButton) => void;
   marks?: Partial<Record<MacroButton, ButtonMark>>;
+  /** Always the flat picture (small secondary previews). */
+  flat?: boolean;
+  /** 3D only: projected positions of the controls, for leader lines. */
+  onAnchors?: (a: Anchors) => void;
+}
+
+/** The 3D view is loaded on first use, so pages that only show the flat picture stay light. */
+const Controller3D = lazy(() => import("./controller3d/Controller3D"));
+
+/**
+ * The controller picture used across NEXUS: the interactive 3D model by
+ * default, or the flat picture (drawing or the user's photo) when chosen,
+ * when `flat` is set, or when this PC can't draw WebGL.
+ */
+export function ControllerVisual({ flat, onAnchors, ...props }: VisualProps) {
+  const mode = useViewMode();
+  if (!flat && mode === "3d" && webglAvailable()) {
+    return (
+      <Fallback3D fallback={<FlatController {...props} />}>
+        <Suspense fallback={<div className="c3d c3d-loading" aria-label="Loading the 3D controller" />}>
+          <Controller3D {...props} onAnchors={onAnchors} onFlat={() => saveViewMode("flat")} />
+        </Suspense>
+      </Fallback3D>
+    );
+  }
+  return <FlatController {...props} />;
+}
+
+/** If the 3D view fails (e.g. the graphics driver refuses WebGL), show the flat picture instead. */
+class Fallback3D extends Component<{ fallback: ReactNode; children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() { return { failed: true }; }
+  componentDidCatch(e: unknown) { console.warn("3D controller view unavailable; showing the flat picture.", e); }
+  render() {
+    return this.state.failed
+      ? <>{this.props.fallback}<p className="muted small c3d-note">The 3D view isn't available on this PC, so the flat picture is shown.</p></>
+      : this.props.children;
+  }
 }
 
 /**
@@ -28,7 +68,7 @@ interface VisualProps {
  * the calibrated image (Controller › Live › Controller picture); otherwise
  * the drawn controller below.
  */
-export function ControllerVisual(props: VisualProps) {
+function FlatController(props: Omit<VisualProps, "flat" | "onAnchors">) {
   const photo = useControllerPhoto();
   const cutout = useCutoutPhoto(photo);
   if (photo && !cutout) return <div className="controller-photo" style={{ aspectRatio: `${VIEW.w} / ${VIEW.h}` }} />;
