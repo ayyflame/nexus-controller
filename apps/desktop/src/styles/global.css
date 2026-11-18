@@ -143,30 +143,36 @@ p { margin: 0; }
 .controller .stick-range { fill: none; stroke: rgba(255, 255, 255, 0.06); stroke-dasharray: 2 4; }
 .controller .stick-vector { stroke: var(--c-gold); stroke-width: 5; stroke-linecap: round; opacity: 0.9; pointer-events: none; }
 .controller .stick-dot { fill: var(--c-gold); stroke: #fff4d8; stroke-width: 1.5; filter: drop-shadow(0 0 6px var(--c-gold-glow)); pointer-events: none; }
-.controller .trigger-label { font-size: 15px; }
-.controller .trigger-value { font-size: 15px; font-weight: 700; }
-.controller .part.on .trigger-value { fill: #24190a; }
 .controller .stick-shadow { fill: #000; opacity: 0.45; }
 .controller .stick-cap { stroke: #42454d; stroke-width: 1.2; }
 .controller .stick-top { stroke: #2a2d35; stroke-width: 1.5; }
 .controller .stick-ring { fill: none; stroke: transparent; stroke-width: 3; }
-.controller .trigger-body { stroke: #2f323a; stroke-width: 1.2; }
-.controller .trigger-fill { fill: var(--c-gold); opacity: 0.9; }
+/* L2/R2: a tab rising from behind the bumper, in the controller's colour. */
+.controller .trigger-hit { fill: transparent; stroke: none; }
+.controller .trigger-body { stroke: none; transition: filter 60ms; }
+.controller .trigger-fill { fill: var(--c-gold); opacity: 0.88; transition: y 40ms, height 40ms; }
+.controller .trigger-edge { fill: none; stroke: rgba(255, 255, 255, 0.13); stroke-width: 1; vector-effect: non-scaling-stroke; pointer-events: none; }
+.controller .trigger-label { fill: #8a8d94; font-family: var(--font); font-weight: 700; pointer-events: none; }
+.controller .trigger-readout { fill: var(--c-gold); font: 700 15px var(--mono); pointer-events: none; }
+.controller-overlay .trigger-readout { font-size: 6px; }
+.controller .part.on .trigger-edge { stroke: #f3cd7f; }
+.controller .part.on .trigger-body { filter: drop-shadow(0 0 5px var(--c-gold-glow)); }
+.controller .trigger-label.filled { fill: #24190a; }
 .controller .touch-point { fill: var(--c-gold); stroke: #fff4d8; stroke-width: 1.5; filter: drop-shadow(0 0 6px var(--c-gold-glow)); pointer-events: none; }
 /* Pressed: gold */
 .controller .part.on .key { fill: var(--c-gold); stroke: #f3cd7f; filter: drop-shadow(0 0 7px var(--c-gold-glow)); }
-.controller .part.on .trigger-body { stroke: #f3cd7f; }
 .controller .part.on .symbol { stroke: #24190a; }
 .controller .part.on .arrow { fill: #24190a; }
 .controller .part.on .part-label { fill: #24190a; }
 .controller .part.on .stick-ring { stroke: var(--c-gold); filter: drop-shadow(0 0 7px var(--c-gold-glow)); }
 /* Selected (mapping shown): teal */
 .controller.interactive .pickable { cursor: pointer; outline: none; }
-.controller.interactive .pickable:hover .key, .controller.interactive .pickable:hover .trigger-body, .controller.interactive .pickable:hover .stick-cap { stroke: var(--c-teal); }
-.controller .part.selected .key, .controller .part.selected .trigger-body, .controller .part.selected .stick-cap { stroke: var(--c-teal); stroke-width: 3; }
-.controller .pickable:focus-visible .key, .controller .pickable:focus-visible .trigger-body, .controller .pickable:focus-visible .stick-cap { stroke: var(--c-teal); stroke-width: 3; stroke-dasharray: 4 3; }
+.controller.interactive .pickable:hover .key, .controller.interactive .pickable:hover .trigger-edge, .controller.interactive .pickable:hover .stick-cap { stroke: var(--c-teal); }
+.controller .part.selected .key, .controller .part.selected .stick-cap { stroke: var(--c-teal); stroke-width: 3; }
+.controller .part.selected .trigger-edge { stroke: var(--c-teal); stroke-width: 2.2; }
+.controller .pickable:focus-visible .key, .controller .pickable:focus-visible .trigger-edge, .controller .pickable:focus-visible .stick-cap { stroke: var(--c-teal); stroke-width: 3; stroke-dasharray: 4 3; }
 /* Mapping marks */
-.controller .part.disabled .key, .controller .part.disabled .trigger-body, .controller .part.disabled .stick-cap { opacity: 0.45; stroke-dasharray: 3 3; }
+.controller .part.disabled .key, .controller .part.disabled .trigger-body, .controller .part.disabled .trigger-edge, .controller .part.disabled .stick-cap { opacity: 0.45; stroke-dasharray: 3 3; }
 .controller .part.disabled.on .key { opacity: 0.8; }
 .controller .mark-remapped { fill: var(--c-teal); stroke: #0f1012; stroke-width: 1.5; }
 .controller .mark-macro { fill: var(--c-gold); stroke: #0f1012; stroke-width: 1.5; }
@@ -734,19 +740,13 @@ input[type="color"]:disabled { opacity: 0.4; cursor: not-allowed; }
 .controller-overlay .part.on .hit { fill: rgba(214, 165, 75, 0.5); stroke: #f3cd7f; filter: drop-shadow(0 0 2.5px rgba(214, 165, 75, 0.9)); }
 .controller-overlay .part.on .press-ring { stroke: #d6a54b; filter: drop-shadow(0 0 2.5px rgba(214, 165, 75, 0.9)); }
 .controller-overlay .part.on[data-button="leftStick"] .hit, .controller-overlay .part.on[data-button="rightStick"] .hit { fill: rgba(214, 165, 75, 0.18); }
-.controller-overlay .part.selected .hit, .controller-overlay .part.selected .meter-outline { stroke: #4fa8b8; stroke-width: 1.6; }
+.controller-overlay .part.selected .hit { stroke: #4fa8b8; stroke-width: 1.6; }
 .controller-overlay.interactive .pickable, .controller-photo.interactive .pickable { cursor: pointer; outline: none; }
-.controller-photo.interactive .pickable:hover .hit, .controller-photo.interactive .pickable:hover .meter-outline { stroke: rgba(79, 168, 184, 0.75); }
+.controller-photo.interactive .pickable:hover .hit, .controller-photo.interactive .pickable:hover .trigger-edge { stroke: rgba(79, 168, 184, 0.75); }
 .controller-photo .pickable:focus-visible .hit { stroke: #4fa8b8; stroke-dasharray: 2 1.5; }
 .controller-overlay .stick-vector { stroke: #d6a54b; stroke-width: 2.2; stroke-linecap: round; opacity: 0.95; }
 .controller-overlay .stick-dot { fill: #d6a54b; stroke: #fff4d8; stroke-width: 0.6; filter: drop-shadow(0 0 2px rgba(214, 165, 75, 0.9)); pointer-events: none; }
 .controller-overlay .touch-point { fill: #d6a54b; stroke: #fff4d8; stroke-width: 0.6; filter: drop-shadow(0 0 2px rgba(214, 165, 75, 0.9)); }
-.controller-overlay .meter-track { fill: rgba(255, 255, 255, 0.08); }
-.controller-overlay .meter-fill { fill: #d6a54b; }
-.controller-overlay .meter-outline { fill: none; stroke: rgba(255, 255, 255, 0.22); stroke-width: 0.6; }
-.controller-overlay .part.on .meter-outline { stroke: #b0802c; }
-.controller-overlay .meter-label { fill: #a3a7ae; font: 700 7px var(--font); pointer-events: none; }
-.controller-overlay .meter-value { fill: #d6a54b; font: 700 7px var(--mono); pointer-events: none; }
 .controller-overlay .mark-remapped, .controller-overlay .mark-macro, .controller-overlay .mark-disabled, .controller-overlay .mark-special { stroke-width: 0.7; }
 .controller-overlay .part.disabled .hit { stroke: rgba(226, 106, 106, 0.6); stroke-dasharray: 1.5 1.5; }
 .photo-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; font-size: 12.5px; }

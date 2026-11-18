@@ -1,7 +1,7 @@
 import { useId, type KeyboardEvent, type ReactNode } from "react";
 import type { ButtonMark } from "../lib/buttonMapping";
-import { HOTSPOTS, PHOTO, STICK_TRAVEL, TOUCH_BOX, TRIGGER_METERS, VIEW, useControllerPhoto, useCutoutPhoto, type Hotspot } from "../lib/controllerPhoto";
-import { describeState, dpadLit, stickOffset, touchPosition, triggerFill } from "../lib/controllerView";
+import { HOTSPOTS, PHOTO, STICK_TRAVEL, TOUCH_BOX, TRIGGER_SHAPES, VIEW, useControllerPhoto, useCutoutPhoto, type Hotspot } from "../lib/controllerPhoto";
+import { describeState, dpadLit, stickOffset, touchPosition, triggerLevel, triggerPath, type TriggerShape } from "../lib/controllerView";
 import type { ControllerState, MacroButton } from "../types/engine";
 
 /**
@@ -102,6 +102,7 @@ function hotspotCorner(h: Hotspot): [number, number] {
  * overlay scales with the image. Overlays are invisible while inactive.
  */
 function PhotoController({ photo, state, live, selected = null, onSelect, marks }: VisualProps & { photo: string }) {
+  const uid = useId().replace(/:/g, "");
   const s = live ? state : null;
   const b = s?.buttons;
   const d = dpadLit(s?.dpad);
@@ -129,18 +130,15 @@ function PhotoController({ photo, state, live, selected = null, onSelect, marks 
     );
   };
 
-  const meter = (id: "leftTrigger" | "rightTrigger", value: number, digital: boolean | undefined) => {
-    const m = TRIGGER_METERS[id];
+  const trigger = (id: "leftTrigger" | "rightTrigger", value: number, digital: boolean | undefined) => {
+    const t = TRIGGER_SHAPES[id];
     const v = Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0));
     const label = id === "leftTrigger" ? "L2" : "R2";
     return (
       <g key={id} {...partProps(id, digital, `${label}, ${Math.round(v * 100)}%`, ctx)}>
-        <rect x={m.x} y={m.y} width={m.w} height={m.h} rx={m.h / 2} className="meter-track" />
-        <rect x={m.x} y={m.y} width={m.w * v} height={m.h} rx={m.h / 2} className="meter-fill" />
-        <rect x={m.x} y={m.y} width={m.w} height={m.h} rx={m.h / 2} className="meter-outline" />
-        <text x={m.x - 3} y={m.y + m.h - 1.2} className="meter-label" textAnchor="end">{label}</text>
-        {v > 0.005 && <text x={m.x + m.w + 3} y={m.y + m.h - 1.2} className="meter-value">{Math.round(v * 100)}%</text>}
-        {markDots(marks?.[id], m.x + m.w - 2, m.y - 3, 1.8)}
+        <TriggerTab id={`${uid}-${id}`} shape={t} value={v} label={label} fontSize={5.4} />
+        {v > 0.005 && <text x={(t.outer + t.inner) / 2} y={t.top - 3} className="trigger-readout" textAnchor="middle">{Math.round(v * 100)}%</text>}
+        {markDots(marks?.[id], t.inner, t.top - 2, 1.8)}
       </g>
     );
   };
@@ -155,8 +153,8 @@ function PhotoController({ photo, state, live, selected = null, onSelect, marks 
       }} />
       <svg className="controller controller-overlay" viewBox={`${VIEW.x} ${VIEW.y} ${VIEW.w} ${VIEW.h}`} role="group"
         aria-label={live ? `Live controller input. ${describeState(s)}` : "Controller (no live input)"}>
-        {meter("leftTrigger", s?.leftTrigger.value ?? 0, s?.leftTrigger.digital)}
-        {meter("rightTrigger", s?.rightTrigger.value ?? 0, s?.rightTrigger.digital)}
+        {trigger("leftTrigger", s?.leftTrigger.value ?? 0, s?.leftTrigger.digital)}
+        {trigger("rightTrigger", s?.rightTrigger.value ?? 0, s?.rightTrigger.digital)}
         {(Object.keys(HOTSPOTS) as MacroButton[]).filter((id) => id !== "leftStick" && id !== "rightStick").map((id) => {
           const h = HOTSPOTS[id]!;
           return (
@@ -260,21 +258,15 @@ function DrawnController({ state, live, selected = null, onSelect, marks }: Visu
     );
   };
 
-  /** L2/R2 peek out above the bumpers; real pressure fills them from the bottom. */
-  const trigger = (id: MacroButton, x: number, value: number, digital: boolean | undefined, label: string) => {
-    const h = 78;
-    const top = -60;
-    const fill = triggerFill(value, h);
-    const clip = `${uid}-${id}`;
-    const shape = `M${x + 4} ${top + h}V${top + 18}Q${x + 4} ${top} ${x + 24} ${top}H${x + 92}Q${x + 112} ${top} ${x + 112} ${top + 18}V${top + h}Z`;
+  /** L2/R2 rise from behind the bumpers, following their outline; pressure fills them from below. */
+  const trigger = (id: "leftTrigger" | "rightTrigger", value: number, digital: boolean | undefined, label: string) => {
+    const t = DRAWN_TRIGGERS[id];
+    const v = Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0));
     return (
-      <g {...part(id, digital, `${label}, ${Math.round(Math.max(0, Math.min(1, value)) * 100)}%`)}>
-        <clipPath id={clip}><path d={shape} /></clipPath>
-        <path d={shape} className="trigger-body" fill={`url(#${uid}-key)`} />
-        <rect x={x} y={top + h - fill} width={116} height={fill} clipPath={`url(#${clip})`} className="trigger-fill" />
-        <text x={x + 58} y={top + 26} className="part-label trigger-label">{label}</text>
-        <text x={x + 58} y={top + 52} className="part-value trigger-value">{Math.round(Math.max(0, Math.min(1, value)) * 100)}%</text>
-        {badge(id, x + 100, top + 8)}
+      <g {...part(id, digital, `${label}, ${Math.round(v * 100)}%`)}>
+        <TriggerTab id={`${uid}-${id}`} shape={t} value={v} label={label} fontSize={15} />
+        {v > 0.005 && <text x={(t.outer + t.inner) / 2} y={t.top - 8} className="trigger-readout" textAnchor="middle">{Math.round(v * 100)}%</text>}
+        {badge(id, t.inner - (t.inner > t.outer ? 8 : -8), t.top - 2)}
       </g>
     );
   };
@@ -305,7 +297,7 @@ function DrawnController({ state, live, selected = null, onSelect, marks }: Visu
 
   return (
     <svg className={`controller dualsense${live ? " live" : " idle"}${onSelect ? " interactive" : ""}`}
-      viewBox="0 -64 800 584" role="group"
+      viewBox="0 -38 800 558" role="group"
       aria-label={live ? `Live controller input. ${describeState(s)}` : "Controller (no live input)"}>
       <defs>
         <linearGradient id={`${uid}-shell`} x1="0" y1="0" x2="0" y2="1">
@@ -339,8 +331,8 @@ function DrawnController({ state, live, selected = null, onSelect, marks }: Visu
       </defs>
 
       {/* Triggers (behind) and bumpers */}
-      {trigger("leftTrigger", 124, s?.leftTrigger.value ?? 0, s?.leftTrigger.digital, "L2")}
-      {trigger("rightTrigger", 560, s?.rightTrigger.value ?? 0, s?.rightTrigger.digital, "R2")}
+      {trigger("leftTrigger", s?.leftTrigger.value ?? 0, s?.leftTrigger.digital, "L2")}
+      {trigger("rightTrigger", s?.rightTrigger.value ?? 0, s?.rightTrigger.digital, "R2")}
       <g {...part("leftShoulder", b?.leftShoulder, "L1")}>
         <path d="M134 46Q140 22 170 20H202Q222 21 228 38L230 46Z" className="key shoulder" />
         {badge("leftShoulder", 226, 18)}
@@ -412,5 +404,47 @@ function DrawnController({ state, live, selected = null, onSelect, marks }: Visu
         {badge("mute", 420, 288)}
       </g>
     </svg>
+  );
+}
+
+/** Drawn controller: L2/R2 behind the bumpers (L1 spans x 134–230, top y 20). */
+const DRAWN_TRIGGERS: Record<"leftTrigger" | "rightTrigger", TriggerShape> = {
+  leftTrigger: { outer: 138, inner: 226, top: -20, visibleBottom: 24, bottom: 44, dip: 6 },
+  rightTrigger: { outer: 662, inner: 574, top: -20, visibleBottom: 24, bottom: 44, dip: 6 },
+};
+
+/**
+ * One trigger: its body in the controller's colour, the pressure fill rising
+ * from the bumper, and the label. The whole tab dips a little as it is pressed.
+ * The body comes first so the Mapping screen anchors its line to the trigger at rest.
+ */
+function TriggerTab({ id, shape, value, label, fontSize }: { id: string; shape: TriggerShape; value: number; label: string; fontSize: number }) {
+  const d = triggerPath(shape);
+  const { fillTop, dip } = triggerLevel(value, shape);
+  const x0 = Math.min(shape.outer, shape.inner);
+  const w = Math.abs(shape.inner - shape.outer);
+  const mid = (shape.top + shape.visibleBottom) / 2;
+  return (
+    <>
+      <path d={d} className="trigger-hit" />
+      <g transform={dip ? `translate(0 ${dip})` : undefined}>
+        <defs>
+          <clipPath id={`${id}-clip`}><path d={d} /></clipPath>
+          <linearGradient id={`${id}-body`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="#34363c" />
+            <stop offset="0.35" stopColor="#24262b" />
+            <stop offset="1" stopColor="#141519" />
+          </linearGradient>
+        </defs>
+        <path d={d} className="trigger-body" fill={`url(#${id}-body)`} />
+        <rect x={x0} y={fillTop} width={w} height={Math.max(0, shape.bottom - fillTop)} clipPath={`url(#${id}-clip)`} className="trigger-fill" />
+        <path d={d} className="trigger-edge" />
+        {/* The label is light on the body and dark where the fill has reached it. */}
+        <clipPath id={`${id}-filled`}><rect x={x0} y={fillTop} width={w} height={Math.max(0, shape.bottom - fillTop)} /></clipPath>
+        <text x={x0 + w / 2} y={mid + fontSize * 0.36} className="trigger-label" textAnchor="middle" style={{ fontSize }}>{label}</text>
+        <text x={x0 + w / 2} y={mid + fontSize * 0.36} className="trigger-label filled" textAnchor="middle" style={{ fontSize }}
+          clipPath={`url(#${id}-filled)`} aria-hidden="true">{label}</text>
+      </g>
+    </>
   );
 }

@@ -8,6 +8,7 @@
 // that image's pixels and drawn in an SVG with the same viewBox, so they stay
 // aligned at any size.
 
+import type { TriggerShape } from "./controllerView";
 import { useEffect, useState } from "react";
 import type { MacroButton } from "../types/engine";
 
@@ -46,15 +47,16 @@ export const HOTSPOTS: Partial<Record<MacroButton, Hotspot>> = {
 /** How far a stick indicator moves at full deflection (image pixels). */
 export const STICK_TRAVEL = 12;
 
-/** L2 and R2 are hidden behind L1/R1 in this front view: their pressure is
- *  shown as meters in the empty space just above the shoulders. */
-export const TRIGGER_METERS = {
-  leftTrigger: { x: 106, y: 101, w: 40, h: 12 },
-  rightTrigger: { x: 258, y: 101, w: 40, h: 12 },
-} as const;
+/** L2 and R2 are hidden behind L1/R1 in this front view, so they are drawn
+ *  rising from behind the bumpers (L1 x 112–142, R1 x 262–292, top y 126),
+ *  in the controller's own colour; pressure fills them from below. */
+export const TRIGGER_SHAPES: Record<"leftTrigger" | "rightTrigger", TriggerShape> = {
+  leftTrigger: { outer: 112.5, inner: 141.5, top: 110, visibleBottom: 127, bottom: 128, dip: 2.2 },
+  rightTrigger: { outer: 291.5, inner: 262.5, top: 110, visibleBottom: 127, bottom: 128, dip: 2.2 },
+};
 
 /** Part of the photo shown once its background is removed: the controller
- *  plus the L2/R2 meters, without the empty margins. Image and overlay use
+ *  plus L2/R2 and their pressure readout, without the empty margins. Image and overlay use
  *  the same box, so they stay aligned. */
 export const VIEW = { x: 70, y: 92, w: 264, h: 206 } as const;
 

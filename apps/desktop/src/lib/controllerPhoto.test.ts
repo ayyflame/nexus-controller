@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { HOTSPOTS, PHOTO, STICK_TRAVEL, TOUCH_BOX, TRIGGER_METERS, isCalibratedPhoto, sha256Hex } from "./controllerPhoto.ts";
+import { HOTSPOTS, PHOTO, STICK_TRAVEL, TOUCH_BOX, TRIGGER_SHAPES, VIEW, isCalibratedPhoto, sha256Hex } from "./controllerPhoto.ts";
 import type { Hotspot } from "./controllerPhoto.ts";
 
 function bounds(h: Hotspot): [number, number, number, number] {
@@ -18,7 +18,13 @@ test("every pressable control except L2/R2 has a hotspot inside the image", () =
     const [x0, y0, x1, y1] = bounds(h!);
     assert.ok(x0 >= 0 && y0 >= 0 && x1 <= PHOTO.width && y1 <= PHOTO.height, id);
   }
-  for (const m of Object.values(TRIGGER_METERS)) assert.ok(m.y + m.h <= PHOTO.height);
+  for (const [id, t] of Object.entries(TRIGGER_SHAPES)) {
+    assert.ok(t.top - 8 >= VIEW.y && t.bottom <= PHOTO.height, `${id} and its readout fit in the view`);
+    const bumper = bounds(HOTSPOTS[id === "leftTrigger" ? "leftShoulder" : "rightShoulder"]!);
+    // Rises from behind its own bumper: same span, bottom tucked under the bumper's top edge.
+    assert.ok(Math.min(t.outer, t.inner) >= bumper[0] && Math.max(t.outer, t.inner) <= bumper[2], `${id} within its bumper`);
+    assert.ok(t.visibleBottom >= bumper[1] && t.visibleBottom <= bumper[3], `${id} meets its bumper`);
+  }
 });
 
 test("hotspots are where a DualSense front view puts them, mirrored about the centre", () => {
