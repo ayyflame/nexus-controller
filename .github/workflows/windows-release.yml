@@ -93,7 +93,7 @@ jobs:
             $notesFile = "release-notes/v$conf.md"
             $released = git ls-remote --tags origin "refs/tags/v$conf"
             if (-not (Test-Path $notesFile)) {
-              Write-Host "No $notesFile: development build of $conf (not published)."
+              Write-Host "No ${notesFile}: development build of $conf (not published)."
               "release=false" >> $env:GITHUB_OUTPUT; "publish=false" >> $env:GITHUB_OUTPUT; exit 0
             }
             if ($released) {
@@ -137,7 +137,7 @@ jobs:
 
           "release=true" >> $env:GITHUB_OUTPUT
           if ($env:PRERELEASE -eq 'true') {
-            Write-Host "Pre-release $tag: signed build, not published to the Stable channel."
+            Write-Host "Pre-release ${tag}: signed build, not published to the Stable channel."
             "publish=false" >> $env:GITHUB_OUTPUT
           } else {
             "publish=true" >> $env:GITHUB_OUTPUT
