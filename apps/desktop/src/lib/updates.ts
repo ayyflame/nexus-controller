@@ -49,6 +49,15 @@ export function isNewer(latest: string, current: string): boolean {
   return false;
 }
 
+/** Short notes for the notification: the first few non-empty lines. */
+export function notesPreview(notes: string, maxLines = 4, maxChars = 320): { preview: string; more: boolean } {
+  const lines = notes.trim().split(/\r?\n/).filter((l) => l.trim() !== "");
+  let preview = lines.slice(0, maxLines).join("\n");
+  let more = lines.length > maxLines;
+  if (preview.length > maxChars) { preview = `${preview.slice(0, maxChars - 1).trimEnd()}…`; more = true; }
+  return { preview, more };
+}
+
 export function formatBytes(n: number): string {
   if (!Number.isFinite(n) || n < 0) return "—";
   if (n < 1024) return `${n} B`;

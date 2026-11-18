@@ -96,10 +96,16 @@ impl UpdateService {
         let mut ctl = UpdateController::new(current, configured(app));
         let (auto, outcome) = match state.store.lock() {
             Ok(mut store) => {
+                // "Remind me later" lasts for the session it was chosen in:
+                // the update is offered again at the next start. (Older
+                // builds stored it; clear that so it can't hide an update.)
+                let stored_postpone = store.get_setting(KEY_POSTPONED).ok().flatten();
+                if stored_postpone.is_some_and(|v| !v.is_empty()) {
+                    let _ = store.set_setting(KEY_POSTPONED, "");
+                }
                 let get = |k| store.get_setting(k).ok().flatten();
                 let auto = get(KEY_AUTO).is_none_or(|v| v != "false");
                 ctl.last_success = get(KEY_LAST_SUCCESS).and_then(|v| v.parse().ok());
-                ctl.postponed = get(KEY_POSTPONED);
                 let outcome = get(KEY_EXPECTED)
                     .filter(|v| !v.is_empty())
                     .map(|expected| verify_installed(&expected, current));
@@ -415,11 +421,9 @@ fn prepare_and_install(app: &AppHandle, release: &ReleaseInfo) -> Result<(), Upd
         .map_err(|e| classify(&e, Phase::Install))
 }
 
+/// "Remind me later": hides the offer for the rest of this session only.
 pub fn postpone(app: &AppHandle) {
-    let v = service(app).ctl.lock().expect("update state").postpone();
-    if let Some(v) = v {
-        save_setting(app, KEY_POSTPONED, &v);
-    }
+    let _ = service(app).ctl.lock().expect("update state").postpone();
     emit(app);
 }
 

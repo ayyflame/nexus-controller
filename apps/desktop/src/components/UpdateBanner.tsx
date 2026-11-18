@@ -1,17 +1,20 @@
 import { useState } from "react";
 import { useUpdates } from "../hooks/useUpdates";
-import { formatBytes, progressPercent, RELEASES_PAGE, type UpdateStatus } from "../lib/updates";
+import { formatBytes, notesPreview, progressPercent, RELEASES_PAGE, type UpdateStatus } from "../lib/updates";
 
-/** Release notes, collapsed by default. Plain text only (never HTML). */
+/** Release notes: the first lines shown directly, the rest on request. Plain text only (never HTML). */
 export function ReleaseNotes({ notes }: { notes: string }) {
   const [open, setOpen] = useState(false);
-  if (!notes.trim()) return null;
+  const { preview, more } = notesPreview(notes);
+  if (!preview) return null;
   return (
     <div className="update-notes">
-      <button className="btn-ghost small" onClick={() => setOpen(!open)} aria-expanded={open}>
-        {open ? "Hide what's new" : "What's new"}
-      </button>
-      {open && <pre className="update-notes-body">{notes}</pre>}
+      <pre className="update-notes-body">{open ? notes.trim() : preview}</pre>
+      {more && (
+        <button className="btn-ghost small" onClick={() => setOpen(!open)} aria-expanded={open}>
+          {open ? "Show less" : "Show all notes"}
+        </button>
+      )}
     </div>
   );
 }
@@ -28,7 +31,7 @@ export function UpdateActions({ status, actions }: {
         <span className="row gap-sm">
           <button className="btn-primary" onClick={() => void actions.download()}>Update now</button>
           {status.postponed !== s.release.version && (
-            <button className="btn-ghost" onClick={() => void actions.postpone()}>Later</button>
+            <button className="btn-ghost" onClick={() => void actions.postpone()}>Remind me later</button>
           )}
         </span>
       );
@@ -59,7 +62,7 @@ export function UpdateActions({ status, actions }: {
       return s.release ? (
         <span className="row gap-sm">
           <button className="btn-secondary" onClick={() => void actions.download()}>Try again</button>
-          <button className="btn-ghost" onClick={() => void actions.postpone()}>Later</button>
+          <button className="btn-ghost" onClick={() => void actions.postpone()}>Remind me later</button>
         </span>
       ) : null;
     default:

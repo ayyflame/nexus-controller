@@ -52,3 +52,15 @@ test("last check time", () => {
   assert.equal(formatLastCheck(now - 60_000, now), "1 minute ago");
   assert.equal(formatLastCheck(now - 3 * 3_600_000, now), "3 hours ago");
 });
+
+import { notesPreview } from "./updates.ts";
+
+test("the notification shows the first lines of the release notes", () => {
+  assert.deepEqual(notesPreview("Fixed stick drift.\n\nFaster macros.\n"), { preview: "Fixed stick drift.\nFaster macros.", more: false });
+  const long = notesPreview("1\n2\n3\n4\n5\n6");
+  assert.deepEqual(long, { preview: "1\n2\n3\n4", more: true });
+  const wide = notesPreview("x".repeat(400));
+  assert.equal(wide.preview.length, 320);
+  assert.ok(wide.preview.endsWith("…") && wide.more);
+  assert.deepEqual(notesPreview("   \n "), { preview: "", more: false });
+});

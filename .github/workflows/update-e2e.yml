@@ -1,0 +1,146 @@
+# Real Windows update test: installed 0.x.0 -> installed 0.x.1 through the
+# NEXUS updater, exactly as users get it.
+#
+# Run manually (Actions -> "Update end-to-end test" -> Run workflow).
+#
+# Everything here is throwaway and stays on the GitHub test machine:
+# - a NEW updater signing key generated for this run only (never the real
+#   one; the real key exists only in the release secrets);
+# - a self-signed HTTPS certificate for https://localhost, trusted only on
+#   this machine, standing in for the public update host;
+# - two signed builds of the current source: version N and version N+0.0.1.
+# The NEXUS builds contain no test hooks. The test drives the real UI through
+# WebView2's DevTools port (scripts/update-e2e/drive.mjs).
+name: Update end-to-end test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: Install old version, update to new version (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 120
+    env:
+      CARGO_TERM_COLOR: always
+      WORK: ${{ github.workspace }}\e2e
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          Push-Location apps/desktop; npm ci; Pop-Location
+          New-Item -ItemType Directory -Force -Path $env:WORK | Out-Null
+          Push-Location $env:WORK; npm init -y | Out-Null; npm install --no-save playwright-core@1.49.1 2>&1 | Select-Object -Last 2; Pop-Location
+
+      - name: Throwaway signing key and HTTPS certificate (this machine only)
+        shell: pwsh
+        run: |
+          $pass = [guid]::NewGuid().ToString('N')
+          "::add-mask::$pass"
+          Push-Location apps/desktop
+          npx tauri signer generate --ci -f -p $pass -w "$env:WORK\e2e.key"
+          if ($LASTEXITCODE -ne 0) { throw "key generation failed" }
+          Pop-Location
+          "E2E_KEY_PASSWORD=$pass" >> $env:GITHUB_ENV
+          $cert = New-SelfSignedCertificate -DnsName localhost -CertStoreLocation Cert:\LocalMachine\My -NotAfter (Get-Date).AddDays(1) -KeyExportPolicy Exportable
+          $pfxPass = ConvertTo-SecureString $pass -AsPlainText -Force
+          Export-PfxCertificate -Cert $cert -FilePath "$env:WORK\tls.pfx" -Password $pfxPass | Out-Null
+          Export-Certificate -Cert $cert -FilePath "$env:WORK\tls.cer" | Out-Null
+          Import-Certificate -FilePath "$env:WORK\tls.cer" -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
+          @{ args = @("$env:GITHUB_WORKSPACE\scripts\update-e2e\server.mjs", "$env:WORK\tls.pfx", $pass, "$env:WORK\srv", "8443", "400000") } |
+            ConvertTo-Json | Set-Content -Encoding utf8 "$env:WORK\server.cmd.json"
+
+      - name: Build the OLD version (current source version), signed with the test key
+        shell: pwsh
+        run: |
+          $key = Get-Content "$env:WORK\e2e.key" -Raw
+          $env:TAURI_SIGNING_PRIVATE_KEY = $key.Trim()
+          $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = $env:E2E_KEY_PASSWORD
+          $pub = (Get-Content "$env:WORK\e2e.key.pub" -Raw).Trim()
+          @{ bundle = @{ createUpdaterArtifacts = $true }; plugins = @{ updater = @{ pubkey = $pub; endpoints = @("https://localhost:8443/stable/latest.json") } } } |
+            ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 "$env:WORK\e2e.conf.json"
+          $old = (Get-Content apps/desktop/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          "OLD_VERSION=$old" >> $env:GITHUB_ENV
+          Push-Location apps/desktop
+          npx tauri build --bundles nsis --config "$env:WORK\e2e.conf.json"
+          if ($LASTEXITCODE -ne 0) { throw "build failed" }
+          Pop-Location
+          New-Item -ItemType Directory -Force -Path "$env:WORK\old" | Out-Null
+          Copy-Item target/release/bundle/nsis/*-setup.exe "$env:WORK\old\"
+
+      - name: Build the NEW version (patch + 1), signed with the test key
+        shell: pwsh
+        run: |
+          $p = $env:OLD_VERSION.Split('.'); $new = "$($p[0]).$($p[1]).$([int]$p[2] + 1)"
+          "NEW_VERSION=$new" >> $env:GITHUB_ENV
+          node scripts/bump-version.mjs $new
+          if ($LASTEXITCODE -ne 0) { throw "bump failed" }
+          $env:TAURI_SIGNING_PRIVATE_KEY = (Get-Content "$env:WORK\e2e.key" -Raw).Trim()
+          $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = $env:E2E_KEY_PASSWORD
+          Push-Location apps/desktop
+          npx tauri build --bundles nsis --config "$env:WORK\e2e.conf.json"
+          if ($LASTEXITCODE -ne 0) { throw "build failed" }
+          Pop-Location
+          New-Item -ItemType Directory -Force -Path "$env:WORK\new" | Out-Null
+          Copy-Item target/release/bundle/nsis/*-setup.exe* "$env:WORK\new\"
+          git checkout -- .
+
+      - name: Publish to the test host (same tool and layout as the release workflow)
+        shell: pwsh
+        run: |
+          $env:TAURI_UPDATER_PUBKEY = (Get-Content "$env:WORK\e2e.key.pub" -Raw).Trim()
+          $exe = (Get-ChildItem "$env:WORK\new" -Filter *-setup.exe).Name
+          $oldExe = (Get-ChildItem "$env:WORK\old" -Filter *-setup.exe).Name
+          New-Item -ItemType Directory -Force -Path "$env:WORK\srv\stable\$env:NEW_VERSION", "$env:WORK\srv\stable\bad", "$env:WORK\manifests" | Out-Null
+          Copy-Item "$env:WORK\new\$exe" "$env:WORK\srv\stable\$env:NEW_VERSION\"
+          "End-to-end test release $env:NEW_VERSION.`nSecond line of notes." | Set-Content -Encoding utf8 -NoNewline "$env:WORK\notes.md"
+          cargo run --locked --release -p nexus-updates --bin make-manifest -- create --version $env:NEW_VERSION --notes-file "$env:WORK\notes.md" `
+            --url "https://localhost:8443/stable/$env:NEW_VERSION/$exe" --installer "$env:WORK\new\$exe" --signature-file "$env:WORK\new\$exe.sig" `
+            --out "$env:WORK\manifests\good.json"
+          if ($LASTEXITCODE -ne 0) { throw "manifest failed" }
+          # "No update": a manifest for the version already installed.
+          $same = Get-Content "$env:WORK\manifests\good.json" -Raw | ConvertFrom-Json
+          $same.version = $env:OLD_VERSION
+          $same | ConvertTo-Json -Depth 6 | Set-Content -Encoding utf8 "$env:WORK\manifests\same.json"
+          # Incorrectly signed: the published signature with a modified installer.
+          $bytes = [IO.File]::ReadAllBytes("$env:WORK\new\$exe"); $bytes[$bytes.Length - 1] = $bytes[$bytes.Length - 1] -bxor 0xFF
+          [IO.File]::WriteAllBytes("$env:WORK\srv\stable\bad\$exe", $bytes)
+          $bad = Get-Content "$env:WORK\manifests\good.json" -Raw | ConvertFrom-Json
+          $bad.platforms.'windows-x86_64-nsis'.url = "https://localhost:8443/stable/bad/$exe"
+          $bad | ConvertTo-Json -Depth 6 | Set-Content -Encoding utf8 "$env:WORK\manifests\bad.json"
+          Get-Content "$env:WORK\manifests\good.json"
+
+      - name: Run the update test
+        shell: pwsh
+        run: |
+          Copy-Item "$env:GITHUB_WORKSPACE\scripts\update-e2e\drive.mjs" "$env:WORK\drive.mjs"
+          Push-Location $env:WORK
+          node drive.mjs $env:WORK $env:OLD_VERSION $env:NEW_VERSION
+          $code = $LASTEXITCODE
+          Pop-Location
+          if ($code -ne 0) { throw "update end-to-end test failed" }
+
+      - name: Keep results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: update-e2e-results
+          path: |
+            e2e/results.json
+            e2e/final.png
+          if-no-files-found: ignore
