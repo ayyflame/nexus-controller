@@ -74,8 +74,14 @@ jobs:
           $env:TAURI_SIGNING_PRIVATE_KEY = $key.Trim()
           $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = $env:E2E_KEY_PASSWORD
           $pub = (Get-Content "$env:WORK\e2e.key.pub" -Raw).Trim()
-          @{ bundle = @{ createUpdaterArtifacts = $true }; plugins = @{ updater = @{ pubkey = $pub; endpoints = @("https://localhost:8443/stable/latest.json") } } } |
-            ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 "$env:WORK\e2e.conf.json"
+          # Test builds only: the main window also opens WebView2's DevTools port
+          # so the test can click the real UI. (A config override replaces the
+          # whole windows list, so the existing window settings are copied.)
+          $win = (Get-Content apps/desktop/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).app.windows[0]
+          $win | Add-Member -NotePropertyName additionalBrowserArgs -NotePropertyValue "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --remote-debugging-port=9222"
+          @{ bundle = @{ createUpdaterArtifacts = $true }; app = @{ windows = @($win) }; plugins = @{ updater = @{ pubkey = $pub; endpoints = @("https://localhost:8443/stable/latest.json") } } } |
+            ConvertTo-Json -Depth 6 | Set-Content -Encoding utf8 "$env:WORK\e2e.conf.json"
+          Get-Content "$env:WORK\e2e.conf.json"
           $old = (Get-Content apps/desktop/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
           "OLD_VERSION=$old" >> $env:GITHUB_ENV
           Push-Location apps/desktop

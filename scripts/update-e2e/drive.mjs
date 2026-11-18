@@ -76,9 +76,17 @@ function launch() {
   child.unref();
 }
 async function connect(ms = 120000) {
-  browser = await until("the NEXUS window (WebView2 DevTools)", async () => {
-    try { return await chromium.connectOverCDP(`http://127.0.0.1:${PORT}`); } catch { return null; }
-  }, ms, 1000);
+  try {
+    browser = await until("the NEXUS window (WebView2 DevTools)", async () => {
+      try { return await chromium.connectOverCDP(`http://127.0.0.1:${PORT}`); } catch { return null; }
+    }, ms, 1000);
+  } catch (e) {
+    // Explain why: is NEXUS running, did WebView2 start, which ports listen?
+    let info = `NEXUS running: ${running()}`;
+    try { info += `; WebView2 processes: ${ps("@(Get-Process msedgewebview2 -ErrorAction SilentlyContinue).Count")}`; } catch {}
+    try { info += `; listening: ${ps("(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $_.LocalPort -ge 9000 } | ForEach-Object { $_.LocalPort }) -join ','")}`; } catch {}
+    throw new Error(`${e.message} [${info}]`);
+  }
   page = await until("the NEXUS page", () => browser.contexts()[0]?.pages().find((p) => !p.url().startsWith("devtools")) ?? null);
   await page.waitForLoadState("domcontentloaded");
   await page.evaluate(() => { try { localStorage.setItem("nexus.onboarding.v1", "done"); } catch {} });
