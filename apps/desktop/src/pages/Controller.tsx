@@ -14,6 +14,10 @@ import { buttonMapping, buttonMarks, describeMapping } from "../lib/buttonMappin
 import { isCalibratedPhoto, savePhoto, useControllerPhoto } from "../lib/controllerPhoto";
 import { BUTTONS, pressedButtons } from "../lib/macros";
 import {
+  EMPTY_HISTORY, recordEdit, redoRemap, setRemapAlso, setRemapTarget, undoRemap, type RemapHistory,
+} from "../lib/mappingView";
+import { MappingView } from "../components/controller/MappingView";
+import {
   CURVE_PRESETS, STICK_PRESETS, curvePresetId, defaultProcessing, processStick, shapeMagnitude, triggerOutput, withDefaults,
 } from "../lib/processing";
 import {
@@ -21,7 +25,7 @@ import {
   TriggerCalibrationWizard,
 } from "../components/controller/advanced";
 import type {
-  DriverPresence, Macro, MacroButton, ProcessingConfig, StickConfig, TriggerConfig, VirtualOutputKind,
+  ControllerState, RemapRule, DriverPresence, Macro, MacroButton, ProcessingConfig, StickConfig, TriggerConfig, VirtualOutputKind,
 } from "../types/engine";
 
 type Tab = "live" | "sticks" | "triggers" | "gyro" | "touchpad" | "buttons" | "output" | "lighting";
@@ -31,7 +35,7 @@ const TABS: Array<{ id: Tab; label: string }> = [
   { id: "triggers", label: "Triggers" },
   { id: "gyro", label: "Gyro" },
   { id: "touchpad", label: "Touchpad" },
-  { id: "buttons", label: "Buttons" },
+  { id: "buttons", label: "Mapping" },
   { id: "output", label: "Virtual Output" },
   { id: "lighting", label: "Lighting & Haptics" },
 ];
@@ -111,7 +115,8 @@ export function Controller({ initialTab }: { initialTab?: string }) {
         {tab === "triggers" && <TriggersTab config={draft} onChange={setDraft} />}
         {tab === "gyro" && <GyroTab config={draft} onChange={setDraft} />}
         {tab === "touchpad" && <TouchpadTab config={draft} onChange={setDraft} />}
-        {tab === "buttons" && <><ButtonsTab config={draft} onChange={setDraft} /><LayersPanel config={draft} onChange={setDraft} /></>}
+        {tab === "buttons" && <><ButtonsTab key={profile?.id ?? 0} config={draft} onChange={setDraft} output={profile?.virtualOutput ?? "xbox360"}
+          onOpenOutput={() => setTab("output")} /><LayersPanel config={draft} onChange={setDraft} /></>}
         {tab === "output" && <OutputTab />}
         {tab === "lighting" && <LightingTab config={draft} onChange={setDraft} />}
       </div>
@@ -366,51 +371,90 @@ const BUTTON_ORDER: MacroButton[] = [
   "leftStick", "rightStick", "dpadUp", "dpadDown", "dpadLeft", "dpadRight", "select", "start", "touchpad", "home", "mute",
 ];
 
-function ButtonsTab({ config, onChange }: { config: ProcessingConfig; onChange: (c: ProcessingConfig) => void }) {
+function ButtonsTab({ config, onChange, output, onOpenOutput }: {
+  config: ProcessingConfig; onChange: (c: ProcessingConfig) => void; output: VirtualOutputKind; onOpenOutput: () => void;
+}) {
   const device = usePrimaryDevice();
-  const target = (b: MacroButton) => config.remap.find((r) => r.from === b);
-  const setTarget = (from: MacroButton, value: string) => {
-    const prev = config.remap.find((r) => r.from === from);
-    const rest = config.remap.filter((r) => r.from !== from);
-    const remap = value === "same" && !prev?.also?.length ? rest
-      : [...rest, { from, to: value === "same" ? from : value === "off" ? null : (value as MacroButton), also: prev?.also ?? [] }];
-    onChange({ ...config, remap });
+  const { connection } = useEngine();
+  const [view, setView] = useState<"picture" | "list">(() => {
+    try { return localStorage.getItem(MAPPING_VIEW_KEY) === "list" ? "list" : "picture"; } catch { return "picture"; }
+  });
+  const [history, setHistory] = useState<RemapHistory>(EMPTY_HISTORY);
+  const [macros, setMacros] = useState<Macro[]>([]);
+  useEffect(() => {
+    if (connection.kind === "ready") engineApi.listMacros().then(setMacros).catch(() => setMacros([]));
+  }, [connection.kind]);
+
+  /** Every remap change goes through here so it can be undone. */
+  const edit = (next: ProcessingConfig) => {
+    setHistory((h) => recordEdit(h, config.remap, next.remap));
+    onChange(next);
   };
-  const setAlso = (from: MacroButton, b: MacroButton | null) => {
-    const prev = config.remap.find((r) => r.from === from);
-    const rest = config.remap.filter((r) => r.from !== from);
-    const to = prev ? prev.to : from;
-    const remap = !b && to === from ? rest : [...rest, { from, to, also: b ? [b] : [] }];
-    onChange({ ...config, remap });
+  const step = (r: { history: RemapHistory; remap: RemapRule[] } | null) => {
+    if (!r) return;
+    setHistory(r.history);
+    onChange({ ...config, remap: r.remap });
   };
-  const pressed = new Set(pressedButtons(device?.input));
+  const chooseView = (v: "picture" | "list") => {
+    setView(v);
+    try { localStorage.setItem(MAPPING_VIEW_KEY, v); } catch { /* per-viewer convenience only */ }
+  };
+  const input = device?.input ?? null;
+
   return (
-    <Panel title="Button remapping" aside={
-      config.remap.length > 0 && <button className="btn-ghost" onClick={() => onChange({ ...config, remap: [] })}>Reset all</button>
-    }>
-      <p className="muted small">Choose what each button sends to the game, and optionally a second button pressed at the same time. Press a button on your controller to find it in the list. Macros are always started by the physical button.</p>
-      <div className="remap-list">
-        {BUTTON_ORDER.map((b) => {
-          const rule = target(b);
-          const value = !rule || rule.to === b ? "same" : rule.to === null ? "off" : rule.to;
-          return (
-            <div key={b} className={`remap-row${pressed.has(b) ? " lit" : ""}${rule ? " changed" : ""}`}>
-              <ButtonChip button={b} size="lg" active={pressed.has(b)} />
-              <span className="remap-name">{BUTTONS[b].name}</span>
-              <span className="muted" aria-hidden="true">→</span>
-              <select className="select" value={value} aria-label={`${BUTTONS[b].name} sends`}
-                onChange={(e) => setTarget(b, e.target.value)}>
-                <option value="same">{BUTTONS[b].name} (normal)</option>
-                <option value="off">Disabled</option>
-                {BUTTON_ORDER.filter((x) => x !== b).map((x) => <option key={x} value={x}>{BUTTONS[x].name}</option>)}
-              </select>
-              <ButtonSelect label={`${BUTTONS[b].name} also presses`} value={rule?.also?.[0] ?? null} noneLabel="+ also press…"
-                onChange={(x) => setAlso(b, x)} />
-            </div>
-          );
-        })}
+    <Panel title="Mapping" aside={
+      <div className="row gap map-toolbar">
+        <button type="button" className="btn-ghost small" disabled={history.past.length === 0}
+          onClick={() => step(undoRemap(history, config.remap))} title="Undo">↶ Undo</button>
+        <button type="button" className="btn-ghost small" disabled={history.future.length === 0}
+          onClick={() => step(redoRemap(history, config.remap))} title="Redo">↷ Redo</button>
+        <div className="segmented small" role="group" aria-label="View">
+          <button type="button" className={view === "picture" ? "selected" : ""} aria-pressed={view === "picture"} onClick={() => chooseView("picture")}>Picture</button>
+          <button type="button" className={view === "list" ? "selected" : ""} aria-pressed={view === "list"} onClick={() => chooseView("list")}>List</button>
+        </div>
+        <button type="button" className="btn-ghost small" disabled={config.remap.length === 0}
+          onClick={() => edit({ ...config, remap: [] })}>Reset all</button>
       </div>
+    }>
+      <p className="muted small">
+        {view === "picture" ? "Click any control on the pad to remap it. " : "Press a button on your controller to find it in the list. "}
+        Saved to your profile. Games receive it once the <button type="button" className="map-link" onClick={onOpenOutput}>virtual controller</button> is
+        on{output === "disabled" ? " (it is off in this profile)" : ""}. Macros are always started by the physical button.
+      </p>
+      {view === "picture"
+        ? <MappingView config={config} onEdit={edit} input={input} output={output} macros={macros} onOpenOutput={onOpenOutput} />
+        : <ButtonList config={config} onEdit={edit} input={input} />}
     </Panel>
+  );
+}
+
+const MAPPING_VIEW_KEY = "nexus.mappingView";
+
+/** The original list: one row per button with what it sends and an optional second button. */
+function ButtonList({ config, onEdit, input }: { config: ProcessingConfig; onEdit: (c: ProcessingConfig) => void; input: ControllerState | null }) {
+  const pressed = new Set(pressedButtons(input));
+  return (
+    <div className="remap-list">
+      {BUTTON_ORDER.map((b) => {
+        const rule = config.remap.find((r) => r.from === b);
+        const value = !rule || rule.to === b ? "same" : rule.to === null ? "off" : rule.to;
+        return (
+          <div key={b} className={`remap-row${pressed.has(b) ? " lit" : ""}${rule ? " changed" : ""}`}>
+            <ButtonChip button={b} size="lg" active={pressed.has(b)} />
+            <span className="remap-name">{BUTTONS[b].name}</span>
+            <span className="muted" aria-hidden="true">→</span>
+            <select className="select" value={value} aria-label={`${BUTTONS[b].name} sends`}
+              onChange={(e) => onEdit(setRemapTarget(config, b, e.target.value as MacroButton | "same" | "off"))}>
+              <option value="same">{BUTTONS[b].name} (normal)</option>
+              <option value="off">Disabled</option>
+              {BUTTON_ORDER.filter((x) => x !== b).map((x) => <option key={x} value={x}>{BUTTONS[x].name}</option>)}
+            </select>
+            <ButtonSelect label={`${BUTTONS[b].name} also presses`} value={rule?.also?.[0] ?? null} noneLabel="+ also press…"
+              onChange={(x) => onEdit(setRemapAlso(config, b, x))} />
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

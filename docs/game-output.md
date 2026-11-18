@@ -23,7 +23,7 @@ DualSense (USB)  →  processing  →  remaps / layers  →  macros  →  virtua
 | Left / right stick | Left / right stick, −32768…32767 | Up is positive, as XInput expects. After your deadzone, curve and sensitivity |
 | D-pad | D-pad | Diagonals are two directions together |
 | Create / Options | Back / Start | |
-| PS | Guide | Windows hides Guide from games; it opens the Xbox Game Bar. Disable it under Controller › Buttons if unwanted |
+| PS | Guide | Windows hides Guide from games; it opens the Xbox Game Bar. Disable it under Controller › Mapping if unwanted |
 | Touchpad click, Mute | not sent | An Xbox 360 controller has no such buttons. Remap them to an Xbox button to use them |
 | Touchpad position, gyro, adaptive triggers, lightbar | not sent | Not part of an Xbox 360 controller. Gyro and touchpad can drive sticks or buttons through NEXUS's own settings |
 | Remaps, shift layers, macros | Applied before the game sees anything | A macro's presses are added to what you physically hold |

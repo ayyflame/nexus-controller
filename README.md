@@ -17,7 +17,7 @@ Built with Tauri 2, React and TypeScript for the UI, and Rust for the engine, wi
 - **USB detection.** NEXUS finds a USB DualSense automatically, reconnects within about a second and ignores duplicate or virtual devices. Bluetooth is not supported.
 - **Sticks** (*Controller › Sticks*): deadzone (radial or axial), outer deadzone, anti-deadzone, sensitivity, response curves with presets or custom points, invert, circular or square output, and a calibration wizard.
 - **Triggers** (*Controller › Triggers*): deadzone, range, curve, the point where the trigger counts as pressed, and calibration.
-- **Button remapping** (*Controller › Buttons*): send any button as another button, disable it, or make one button press two.
+- **Button remapping** (*Controller › Mapping*): click any button on the controller picture, or its card, and choose what it sends: another button, nothing, or two buttons at once. Each card shows what the game receives (for example Triangle → Y). Undo/redo and a list view are included.
 - **Shift layers:** hold a button (or toggle it) to switch to a different button layout while it's active.
 - **Gyro and touchpad** (optional): gyro aiming onto a stick, touchpad zones and swipes as buttons.
 - **Lighting and vibration** for the physical controller (*Controller › Lighting & Haptics*).
@@ -132,7 +132,7 @@ Installing a newer version over an older one keeps your profiles and macros. Mor
 
 ### Map controller inputs
 
-- **Remap buttons:** *Controller › Buttons*. For each button, choose what it sends: itself, another button, or **Disabled**. Optionally add a second button it also presses. Press a button on the controller to find it in the list.
+- **Remap buttons:** *Controller › Mapping*. Every button has a card around the controller picture showing what the game receives (Xbox names such as A, LB, Back; DualShock 4 names if that output is chosen). Click a card or the button on the picture, then pick what it **Sends** (itself, another button, or **Disabled**) and optionally a second button under **Also press**. Pressing a button on your controller lights its card. **Undo**, **Redo**, **Reset all** and a **List** view are at the top right.
 - **Shift layers:** in the layers section of the same tab, pick an activator button (held or toggled) and the mappings that apply while it's active. The activator itself is not sent to the game.
 - **Sticks and triggers:** *Controller › Sticks* and *Controller › Triggers*. Changes apply live, and the plots show your physical input next to the processed result.
 - **Check a mapping:** *Controller › Live*. Click a button on the controller picture to see what it sends, which layers change it and which macros it starts.
