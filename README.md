@@ -8,17 +8,23 @@ DualSense (USB) → NEXUS: sticks, triggers, remapping, layers, macros → virtu
 
 Built with Tauri 2, React and TypeScript for the UI, and Rust for the engine, with SQLite storage and Windows HID. NEXUS is a personal project for its owner and a few friends.
 
-> **Status:** the features below are implemented and covered by automated tests. Hardware checks with a physical DualSense, ViGEmBus and real games are tracked in [`tests/m4.5-test-plan.md`](tests/m4.5-test-plan.md) and [`docs/game-output.md`](docs/game-output.md). Automatic updates work in a Windows test but are not live yet (see [Updates](#updates)).
+> **Status:** the features below are implemented and covered by automated tests. Hardware checks with a physical DualSense, ViGEmBus and real games are tracked in [`tests/m4.5-test-plan.md`](tests/m4.5-test-plan.md), [`docs/game-output.md`](docs/game-output.md) and [`docs/3d-controller.md`](docs/3d-controller.md). Automatic updates work in a Windows test but are not live yet (see [Updates](#updates)).
 
 ## Features
 
 ### Controller input and processing
 
 - **USB detection.** NEXUS finds a USB DualSense automatically, reconnects within about a second and ignores duplicate or virtual devices. Bluetooth is not supported.
+<<<<<<< HEAD
 - **Sticks** (*Controller › Sticks*): deadzone (radial or axial), outer deadzone, anti-deadzone, sensitivity, response curves with presets or custom points, invert, circular or square output, and a calibration wizard.
 - **Triggers** (*Controller › Triggers*): deadzone, range, curve, the point where the trigger counts as pressed, and calibration.
 - **Interactive 3D controller**: your DualSense as a 3D model that moves with the real controller: buttons light up, sticks tilt, L2/R2 swing with their pressure, touches show on the touchpad. Drag to rotate, scroll to zoom, front/rear/top views, Midnight Black or White. See [docs/3d-controller.md](docs/3d-controller.md).
-- **Button remapping** (*Controller › Mapping*): click any button on the controller picture, or its card, and choose what it sends: another button, nothing, or two buttons at once. Each card shows what the game receives (for example Triangle → Y). Undo/redo and a list view are included.
+=======
+- **Sticks** (*Controller › Sticks*): deadzone (radial or axial), outer deadzone, anti-deadzone, sensitivity, response curves with presets or custom points, invert, and circular or square output.
+- **Triggers** (*Controller › Triggers*): deadzone, range, curve, and the point where the trigger counts as pressed.
+- **Calibration** (*Live Viewer › Calibration*): a guided wizard that measures each stick's resting centre, jitter and full range, recommends a deadzone, and measures L2/R2's released and fully pressed ends. Nothing is saved until you review and apply it, and you can reset to the previous calibration ([`docs/calibration.md`](docs/calibration.md)).
+>>>>>>> main
+- **Button remapping** (*Controller › Mapping*): click any button on the 3D controller, or its card, and choose what it sends: another button, nothing, or two buttons at once. Each card shows what the game receives (for example Triangle → Y). Undo/redo and a list view are included.
 - **Shift layers:** hold a button (or toggle it) to switch to a different button layout while it's active.
 - **Gyro and touchpad** (optional): gyro aiming onto a stick, touchpad zones and swipes as buttons.
 - **Lighting and vibration** for the physical controller (*Controller › Lighting & Haptics*).
@@ -44,8 +50,10 @@ Built with Tauri 2, React and TypeScript for the UI, and Rust for the engine, wi
 
 ### Live view and diagnostics
 
-- **Live controller picture** (Dashboard and *Controller › Live*):
-  - Pressed buttons light up, stick movement and trigger pressure are shown, and touches appear on the touchpad.
+- **Live controller picture** (Dashboard, *Controller › Live*, *Controller › Mapping* and the Live Viewer):
+  - **3D by default:** the interactive DualSense model described above.
+  - **2D if you prefer:** *Controller › Live › Controller picture › 2D* shows the flat drawing (or your own photo). It's also shown automatically if the PC can't draw 3D.
+  - Pressed buttons light up, stick movement is shown, L2/R2 fill with their analog pressure, and touches appear on the touchpad.
   - Your physical input and what is sent to the game are shown side by side.
   - Click a button to see what it is mapped to; small marks flag remapped, macro and disabled buttons.
   - Optionally, you can use your own photo of the controller instead of the drawing ([`docs/controller-photo.md`](docs/controller-photo.md)).
@@ -56,15 +64,15 @@ Built with Tauri 2, React and TypeScript for the UI, and Rust for the engine, wi
 
 ### Live Viewer (diagnostics)
 
-- **What it is:** a read-only sidebar page ([`docs/live-viewer.md`](docs/live-viewer.md)) with six tabs:
+- **What it is:** a sidebar page ([`docs/live-viewer.md`](docs/live-viewer.md)) with seven tabs:
   - **Live:** every control, the analog values, the active shift layer, and which controls were detected.
   - **Sticks & Triggers:** the full-range test, deadzone, and raw vs. sent values.
   - **Motion:** gyro, accelerometer and tilt.
   - **Health:** report rate, stale input, dropped or unreadable reports, processing time, battery and connection events.
   - **Controller Test:** a guided 10-step pass/fail check.
-  - **Drift Test.**
+  - **Drift Test:** measures how much each stick moves at rest over time.
   - **Calibration:** a guided wizard for both sticks (centre, deadzone recommendation, full range) and both triggers (endpoints). It saves to the current profile only after you review and apply, and can be reset to the previous values ([`docs/calibration.md`](docs/calibration.md)).
-- **Read-only:** it never changes settings and doesn't affect macros or game output.
+- **Read-only, except Calibration:** the other tabs never change settings. Calibration only changes the current profile's calibration, and only when you apply it. Nothing here affects macros or game output.
 
 ### Virtual Xbox 360 output
 
@@ -95,6 +103,7 @@ Built with Tauri 2, React and TypeScript for the UI, and Rust for the engine, wi
 | **ViGEmBus** 1.22 (free, third-party) | **Needed for games to receive NEXUS output.** Without it, NEXUS still reads and shows your controller, but games see no virtual controller. Official download: [github.com/nefarius/ViGEmBus/releases](https://github.com/nefarius/ViGEmBus/releases) (`ViGEmBus_1.22.0_x64_x86_arm64.exe`). It was retired by its developer in 2023 but still works on Windows 11, which is why NEXUS labels virtual output *experimental*. |
 | **HidHide** (free, third-party) | **Optional, not needed for normal use.** Games with PlayStation support, and Steam Input, may see both the DualSense and NEXUS's Xbox controller, so a press counts twice. HidHide hides the DualSense from everything except NEXUS. Official download: [github.com/nefarius/HidHide/releases](https://github.com/nefarius/HidHide/releases). Without it, turn off PlayStation controller support in the game or in Steam instead. Guide: [`docs/hidhide-setup.md`](docs/hidhide-setup.md). |
 | Microsoft Edge WebView2 Runtime | Part of Windows 11. The installer downloads it if missing. |
+| Graphics with WebGL support | Any Windows 11 PC has it. Used by the 3D controller view. Without it, NEXUS shows the flat picture instead. |
 
 **NEXUS never installs, bundles or silently configures drivers.** You install ViGEmBus (and HidHide, if you want it) yourself from the official pages. NEXUS only checks whether they are present. NEXUS itself needs no administrator rights.
 
@@ -136,7 +145,8 @@ Installing a newer version over an older one keeps your profiles and macros. Mor
 - **Remap buttons:** *Controller › Mapping*. Every button has a card around the controller picture showing what the game receives (Xbox names such as A, LB, Back; DualShock 4 names if that output is chosen). Click a card or the button on the picture, then pick what it **Sends** (itself, another button, or **Disabled**) and optionally a second button under **Also press**. Pressing a button on your controller lights its card. **Undo**, **Redo**, **Reset all** and a **List** view are at the top right.
 - **Shift layers:** in the layers section of the same tab, pick an activator button (held or toggled) and the mappings that apply while it's active. The activator itself is not sent to the game.
 - **Sticks and triggers:** *Controller › Sticks* and *Controller › Triggers*. Changes apply live, and the plots show your physical input next to the processed result.
-- **Check a mapping:** *Controller › Live*. Click a button on the controller picture to see what it sends, which layers change it and which macros it starts.
+- **Check a mapping:** *Controller › Live*. Click a button on the controller (in 3D or 2D) to see what it sends, which layers change it and which macros it starts.
+- **3D view controls:** drag to rotate, scroll or −/+ to zoom; **Reset**, **Front**, **Rear** and **Top** views; the round swatch switches between Midnight Black and White; **2D** switches to the flat picture.
 
 ### Create and edit a macro
 
@@ -187,7 +197,8 @@ Choose **Repeat While Held** as the mode. The sequence repeats while the trigger
 | Controller not found after setting up HidHide | NEXUS must be on HidHide's *Applications* list. Add it again (copy the path from *Virtual Output*), or untick *Enable device hiding*. |
 | *Reconnecting…* on the virtual controller | ViGEmBus rejected an update. NEXUS re-creates the controller by itself (1 s, then up to every 30 s). If it keeps happening, restart Windows or reinstall ViGEmBus. |
 | A macro press isn't seen by the game | Make the press time at least 40–50 ms and keep the 20 ms gap between presses of the same button. |
-| Stick drift or a stick that doesn't reach full range | *Controller › Sticks*: run calibration, or raise the deadzone a little. |
+| Stick drift or a stick that doesn't reach full range | **Live Viewer › Calibration**: calibrate the stick. It measures the resting centre and full range and recommends a deadzone. **Live Viewer › Drift Test** shows how much it drifts. |
+| A trigger doesn't reach 100 % | **Live Viewer › Calibration**: calibrate L2/R2 so their full press gives full output. |
 | SmartScreen warns when installing | Expected: the installer isn't code-signed yet. **More info › Run anyway**. |
 | Something looks wrong | **Settings › HID Devices › Copy diagnostics report**, paste it into a text file and send it with a description. |
 
@@ -222,7 +233,7 @@ Installers: `npm run tauri build` in `apps\desktop`, output in `target\release\b
 
 **Layout:**
 
-- `apps/desktop`: Tauri app (`src-tauri`) and React UI (`src`).
+- `apps/desktop`: Tauri app (`src-tauri`) and React UI (`src`). The 3D model is in `src/assets/models`, the 3D view in `src/components/controller3d`.
 - `crates/`:
   - `controller-core`: state model.
   - `dualsense`: report parsing.
@@ -238,6 +249,7 @@ Installers: `npm run tauri build` in `apps\desktop`, output in `target\release\b
   - [Game output: what games receive, compatibility limits](docs/game-output.md)
   - [Macro Studio](docs/macro-studio.md)
   - [Optional HidHide setup](docs/hidhide-setup.md)
+  - [3D controller view](docs/3d-controller.md)
   - [Controller photo mode](docs/controller-photo.md)
   - [Live Viewer and diagnostics](docs/live-viewer.md)
   - [Calibration wizard](docs/calibration.md)
