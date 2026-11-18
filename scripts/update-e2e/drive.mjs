@@ -87,14 +87,29 @@ async function connect(ms = 120000) {
     try { info += `; listening: ${ps("(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $_.LocalPort -ge 9000 } | ForEach-Object { $_.LocalPort }) -join ','")}`; } catch {}
     throw new Error(`${e.message} [${info}]`);
   }
-  page = await until("the NEXUS page", () => browser.contexts()[0]?.pages().find((p) => !p.url().startsWith("devtools")) ?? null);
-  await page.waitForLoadState("domcontentloaded");
-  await page.evaluate(() => { try { localStorage.setItem("nexus.onboarding.v1", "done"); } catch {} });
-  await page.reload();
+  // The window first shows a blank page, then navigates to the app.
+  page = await until("the NEXUS page", () => browser.contexts()[0]?.pages()
+    .find((p) => /tauri\.localhost|^tauri:/.test(p.url())) ?? null, 60000, 500);
+  await page.waitForLoadState("load");
+  await page.waitForFunction(() => !!window.__TAURI_INTERNALS__, null, { timeout: 60000 });
+  await retry(() => page.evaluate(() => { try { localStorage.setItem("nexus.onboarding.v1", "done"); } catch {} }));
+  await page.reload({ waitUntil: "load" });
+  await page.waitForFunction(() => !!window.__TAURI_INTERNALS__, null, { timeout: 60000 });
   await until("the app UI", () => page.locator("nav, .sidebar").first().isVisible());
 }
+
+/** Retries an action that a page navigation can interrupt. */
+async function retry(fn, tries = 5) {
+  for (let i = 1; ; i++) {
+    try { return await fn(); } catch (e) {
+      if (i >= tries || !/context was destroyed|navigat|Target closed/i.test(String(e))) throw e;
+      await sleep(1000);
+      try { await page.waitForLoadState("load"); await page.waitForFunction(() => !!window.__TAURI_INTERNALS__, null, { timeout: 30000 }); } catch {}
+    }
+  }
+}
 async function disconnect() { try { await browser?.close(); } catch {} browser = null; page = null; }
-const invoke = (cmd, args) => page.evaluate(([c, a]) => window.__TAURI_INTERNALS__.invoke(c, a), [cmd, args ?? {}]);
+const invoke = (cmd, args) => retry(() => page.evaluate(([c, a]) => window.__TAURI_INTERNALS__.invoke(c, a), [cmd, args ?? {}]));
 const updateStatus = () => invoke("get_update_status");
 async function openSettings() {
   await page.getByRole("button", { name: "Settings", exact: true }).click();
