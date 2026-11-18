@@ -1,6 +1,41 @@
 # Update verification checklist (Windows)
 
-**None of these have been performed yet.** The updater was built and unit-tested in a Linux container. Real installation can only be verified on Windows, with two published versions. Until this checklist passes, do not consider automatic updates working.
+## Automated Windows result (2026-11-18)
+
+[`update-e2e.yml`](../.github/workflows/update-e2e.yml) ([run 44239087021](https://github.com/ayyflame/nexus-controller/actions/runs/44239087021), commit `4b9ac93`) passed **12/12** on a GitHub Windows Server 2025 x64 runner.
+
+**Setup:**
+- Two real, signed NEXUS builds, 0.1.0 and 0.1.1.
+- A throwaway signing key, created for that run only.
+- An HTTPS test host on that machine.
+- The real installer, the real updater and the real UI, driven through WebView2 DevTools.
+
+| # | Step | Result |
+|---|---|---|
+| T1 | Install 0.1.0 with its installer | Pass |
+| T2 | Start 0.1.0; create a profile, a mapping, a macro and settings | Pass |
+| T3 | Update server unavailable | Pass: "Couldn't reach the update server…"; NEXUS kept working; retry available |
+| T4 | No update available | Pass: "You're up to date (version 0.1.0)", no notice |
+| T5 | Incorrectly signed update (modified installer) | Pass: "The update failed its security check…", nothing installed |
+| T6 | Notice content | Pass: "Update available: NEXUS 0.1.1 (you have 0.1.0)", notes, **Update now**, **Remind me later** |
+| T7 | Remind me later, same session | Pass: not shown again after a new check |
+| T8 | After restarting NEXUS | Pass: offered again |
+| T9 | Update now | Pass: background download, progress bar to 100 %, "signature verified" |
+| T10 | Restart and install | Pass: 0.1.1 installed; NEXUS **restarted by itself** on 0.1.1; "NEXUS was updated to 0.1.1…" |
+| T11 | Data | Pass: profiles, mappings, macros and settings identical; `pre-update 0.1.0 to 0.1.1 ….db` backup created |
+| T12 | Afterwards | Pass: exactly one NEXUS installation (0.1.1); up to date |
+
+**Differences from a real release:**
+- the signing key is a test key;
+- the host is `https://localhost` with a certificate trusted only on the test machine;
+- the OS is Windows Server 2025, not Windows 11;
+- the test builds also open WebView2's DevTools port so the test can click the UI.
+
+The updater code, signature checks, installer and restart are the same as in release builds. The manual checklist below repeats this with your real key and host on a Windows 11 PC.
+
+## Manual checklist (your PC, after the one-time setup)
+
+**Not performed yet.** It needs the one-time setup and two published versions.
 
 Prerequisites:
 

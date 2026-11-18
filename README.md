@@ -8,7 +8,7 @@ DualSense (USB) → NEXUS: sticks, triggers, remapping, layers, macros → virtu
 
 Built with Tauri 2, React and TypeScript for the UI, and Rust for the engine, with SQLite storage and Windows HID. NEXUS is a personal project for its owner and a few friends.
 
-> **Status:** the features below are implemented and covered by automated tests. Hardware checks with a physical DualSense, ViGEmBus and real games are tracked in [`tests/m4.5-test-plan.md`](tests/m4.5-test-plan.md) and [`docs/game-output.md`](docs/game-output.md). Automatic updates are built but not live yet (see [Updates](#updates)).
+> **Status:** the features below are implemented and covered by automated tests. Hardware checks with a physical DualSense, ViGEmBus and real games are tracked in [`tests/m4.5-test-plan.md`](tests/m4.5-test-plan.md) and [`docs/game-output.md`](docs/game-output.md). Automatic updates work in a Windows test but are not live yet (see [Updates](#updates)).
 
 ## Features
 
@@ -71,7 +71,7 @@ Built with Tauri 2, React and TypeScript for the UI, and Rust for the engine, wi
   - a signature check before anything runs;
   - install and restart with your data kept, after a backup is made first.
 - **Not live yet.** The signing key, update host and GitHub secrets haven't been set up ([`docs/updater-setup.md`](docs/updater-setup.md)), so current builds never check for updates.
-- **Not yet verified on Windows.** A real update from one installed version to the next hasn't been confirmed yet ([`docs/update-verification.md`](docs/update-verification.md)). Until then, install new versions by hand.
+- **Verified on Windows in CI.** An installed 0.1.0 updated itself to 0.1.1 with its data intact on a Windows test machine. It used a test key and a local HTTPS host ([`docs/update-verification.md`](docs/update-verification.md)). Until the one-time setup is done, install new versions by hand.
 
 ## Requirements
 

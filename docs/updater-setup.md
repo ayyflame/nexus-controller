@@ -1,6 +1,6 @@
 # Automatic updates: one-time setup
 
-> **Status:** the updater is implemented and tested, but **not live**. No signing key, update host or GitHub secrets have been configured yet. Until the steps below are done, every build reports *"Automatic updates aren't set up in this build"* and never contacts anything. Publishing a release fails on purpose, with a message naming what is missing.
+> **Status:** the updater is implemented, and a real installed-to-installed update passed on Windows in CI ([`update-verification.md`](update-verification.md)). It is **not live** yet, because no signing key, update host or GitHub secrets have been configured. Until the steps below are done, every build reports *"Automatic updates aren't set up in this build"* and never contacts anything. Publishing a release fails on purpose, with a message naming what is missing.
 
 ## How it works
 
@@ -16,7 +16,7 @@ windows-release.yml ── tests ── tauri build (signs updater artifacts wit
         └─ make-manifest verify: re-downloads both from the public URLs and checks the signature
         
 NEXUS (installed) ── every start (+20 s) and every 6 h ── GET https://<host>/stable/latest.json
-        │ newer version?  → banner "Update available" (Update now / Later)
+        │ newer version?  → banner "Update available" (Update now / Remind me later)
         ▼ Update now
 download → plugin verifies signature → "Restart and install"
         → database snapshot + expected version saved → engine stopped
