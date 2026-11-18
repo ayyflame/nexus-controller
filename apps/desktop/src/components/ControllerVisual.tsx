@@ -25,6 +25,8 @@ interface VisualProps {
   marks?: Partial<Record<MacroButton, ButtonMark>>;
   /** Always the flat picture (small secondary previews). */
   flat?: boolean;
+  /** 3D only: wording of the badge shown while there is no live input. */
+  offlineLabel?: string;
   /** 3D only: projected positions of the controls, for leader lines. */
   onAnchors?: (a: Anchors) => void;
 }
@@ -37,13 +39,13 @@ const Controller3D = lazy(() => import("./controller3d/Controller3D"));
  * default, or the flat picture (drawing or the user's photo) when chosen,
  * when `flat` is set, or when this PC can't draw WebGL.
  */
-export function ControllerVisual({ flat, onAnchors, ...props }: VisualProps) {
+export function ControllerVisual({ flat, onAnchors, offlineLabel, ...props }: VisualProps) {
   const mode = useViewMode();
   if (!flat && mode === "3d" && webglAvailable()) {
     return (
       <Fallback3D fallback={<FlatController {...props} />}>
         <Suspense fallback={<div className="c3d c3d-loading" aria-label="Loading the 3D controller" />}>
-          <Controller3D {...props} onAnchors={onAnchors} onFlat={() => saveViewMode("flat")} />
+          <Controller3D {...props} onAnchors={onAnchors} offlineLabel={offlineLabel} onFlat={() => saveViewMode("flat")} />
         </Suspense>
       </Fallback3D>
     );
@@ -68,7 +70,7 @@ class Fallback3D extends Component<{ fallback: ReactNode; children: ReactNode },
  * the calibrated image (Controller › Live › Controller picture); otherwise
  * the drawn controller below.
  */
-function FlatController(props: Omit<VisualProps, "flat" | "onAnchors">) {
+function FlatController(props: Omit<VisualProps, "flat" | "onAnchors" | "offlineLabel">) {
   const photo = useControllerPhoto();
   const cutout = useCutoutPhoto(photo);
   if (photo && !cutout) return <div className="controller-photo" style={{ aspectRatio: `${VIEW.w} / ${VIEW.h}` }} />;

@@ -908,3 +908,13 @@ input[type="color"]:disabled { opacity: 0.4; cursor: not-allowed; }
 .c3d-note { text-align: center; margin: 6px 0 0; }
 .map-visual > .c3d { max-width: none; min-height: 340px; }
 @media (max-width: 720px) { .c3d-hint { display: none; } }
+.c3d-credit {
+  position: absolute; left: 10px; right: 10px; bottom: 50px; padding: 8px 12px; border-radius: 8px;
+  background: rgba(15, 16, 18, 0.9); border: 1px solid var(--border); color: var(--text-dim); font-size: 12px; line-height: 1.45;
+}
+.c3d-finish i { display: block; width: 13px; height: 13px; border-radius: 50%; border: 1px solid var(--border-strong); }
+.c3d-finish.black i { background: linear-gradient(135deg, #3a3c42, #121316); }
+.c3d-finish.white i { background: linear-gradient(135deg, #ffffff, #c9ccd3); }
+.c3d-hint { top: 12px; bottom: auto; }
+/* The 3D view shows the page's offline wording itself. */
+.visual-wrap:has(.c3d) .visual-overlay { display: none; }

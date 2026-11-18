@@ -33,6 +33,25 @@ export function useViewMode(): ViewMode {
   return mode;
 }
 
+export type Finish = "white" | "black";
+const FINISH_KEY = "nexus.controllerFinish.v1";
+
+export function parseFinish(v: string | null): Finish {
+  return v === "white" ? "white" : "black";
+}
+
+/** The 3D controller's colour (Midnight Black unless White was chosen). */
+export function useFinish(): [Finish, (f: Finish) => void] {
+  const [finish, setFinish] = useState<Finish>(() => {
+    try { return parseFinish(localStorage.getItem(FINISH_KEY)); } catch { return "black"; }
+  });
+  const save = (f: Finish) => {
+    setFinish(f);
+    try { localStorage.setItem(FINISH_KEY, f); } catch { /* display preference only */ }
+  };
+  return [finish, save];
+}
+
 let webgl: boolean | null = null;
 /** Whether this PC's webview can draw WebGL (checked once). */
 export function webglAvailable(): boolean {

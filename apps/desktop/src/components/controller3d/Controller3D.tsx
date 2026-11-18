@@ -1,16 +1,19 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Canvas, useFrame, useLoader, useThree, type ThreeEvent } from "@react-three/fiber";
 import * as THREE from "three";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
+import modelUrl from "../../assets/models/dualsense.glb?url";
 import {
-  CAMERA_TARGET, VIEWS, ZOOM, anchorOf, facesCamera, fitRadius, orbitBetween, orbitToOffset, visualFrom, visualKey,
-  type Orbit, type ViewName,
+  CAMERA_TARGET, VIEWS, ZOOM, facesCamera, fitRadius, orbitBetween, orbitToOffset, visualFrom, visualKey,
+  type Orbit, type ViewName, type Visual3D,
 } from "../../lib/controller3d";
 import { describeState } from "../../lib/controllerView";
 import type { ButtonMark } from "../../lib/buttonMapping";
 import type { ControllerState, MacroButton } from "../../types/engine";
-import { DualSenseModel } from "./DualSenseModel";
+import { applyFinish, applyVisual, buildModel, type BuiltModel, type Finish } from "./modelParts";
+import { useFinish } from "../../lib/controllerViewMode";
 
 /** Screen position of each control inside the canvas (CSS px), for leader lines. */
 export type Anchors = Partial<Record<MacroButton, { x: number; y: number; visible: boolean }>>;
@@ -25,42 +28,54 @@ export interface Controller3DProps {
   onAnchors?: (a: Anchors) => void;
   /** Switch back to the 2D picture. */
   onFlat?: () => void;
+  /** Badge text while there is no live input. */
+  offlineLabel?: string;
 }
 
-const ALL_BUTTONS: MacroButton[] = [
-  "south", "east", "west", "north", "leftShoulder", "rightShoulder", "leftTrigger", "rightTrigger", "leftStick", "rightStick",
-  "start", "select", "home", "touchpad", "mute", "dpadUp", "dpadDown", "dpadLeft", "dpadRight",
-];
+/** Credit required by the model's licence (CC BY 4.0). */
+export const MODEL_CREDIT = {
+  title: "Playstation 5 Dualsense",
+  author: "AHarmlessPotato",
+  source: "https://sketchfab.com/3d-models/playstation-5-dualsense-878c1f882808477ab81c2fe86d5a3936",
+  license: "CC BY 4.0",
+  licenseUrl: "https://creativecommons.org/licenses/by/4.0/",
+  changes: "split into separate controls, recoloured glow, animated by NEXUS",
+} as const;
 
 type Request = { kind: "view"; view: ViewName; n: number } | { kind: "zoom"; factor: number; n: number };
+type Pick = { over: (b: MacroButton) => void; out: (b: MacroButton) => void; click: (b: MacroButton) => void };
+
+const MARK_COLOURS = { disabled: "#e26a6a", remapped: "#4fa8b8", macro: "#d6a54b", special: "#9b9ea6" } as const;
 
 /**
  * Interactive 3D controller. Renders on demand only: a frame is drawn when
  * the input changes, while the camera moves, or when the size changes —
  * nothing runs while everything is still.
  */
-export default function Controller3D({ state, live, selected = null, onSelect, marks, onAnchors, onFlat }: Controller3DProps) {
+export default function Controller3D({ state, live, selected = null, onSelect, marks, onAnchors, onFlat, offlineLabel }: Controller3DProps) {
   const vis = visualFrom(state, live);
   const visKey = visualKey(vis);
-  // Same key → same object, so the memoised model skips identical updates.
+  // Same key → same object, so identical status updates do nothing.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const stableVis = useMemo(() => vis, [visKey]);
   const [hovered, setHovered] = useState<MacroButton | null>(null);
   const [request, setRequest] = useState<Request>({ kind: "view", view: "default", n: 0 });
   const [view, setView] = useState<ViewName | null>("default");
   const [interacted, setInteracted] = useState(false);
+  const [credit, setCredit] = useState(false);
+  const [finish, setFinish] = useFinish();
   const counter = useRef(0);
   const go = (v: ViewName) => { setView(v); setRequest({ kind: "view", view: v, n: ++counter.current }); };
   const zoom = (factor: number) => setRequest({ kind: "zoom", factor, n: ++counter.current });
 
-  // Callers pass inline handlers; keep the latest in a ref so the model is not re-rendered for them.
+  // Callers pass inline handlers; keep the latest in refs so the scene isn't redrawn for them.
   const selectRef = useRef(onSelect);
   selectRef.current = onSelect;
   const canPick = Boolean(onSelect);
-  const pick = useMemo(() => canPick ? {
-    over: (b: MacroButton) => setHovered(b),
-    out: (b: MacroButton) => setHovered((h) => (h === b ? null : h)),
-    click: (b: MacroButton) => selectRef.current?.(b),
+  const pick = useMemo<Pick | undefined>(() => canPick ? {
+    over: (b) => setHovered(b),
+    out: (b) => setHovered((h) => (h === b ? null : h)),
+    click: (b) => selectRef.current?.(b),
   } : undefined, [canPick]);
   const anchorsRef = useRef(onAnchors);
   anchorsRef.current = onAnchors;
@@ -84,11 +99,11 @@ export default function Controller3D({ state, live, selected = null, onSelect, m
       >
         <Scene />
         <CameraRig request={request} onUserMove={userMoved} />
-        <DualSenseModel vis={stableVis} visKey={visKey} selected={selected} hovered={hovered} marks={stableMarks} pick={pick} />
-        {onAnchors && <AnchorReporter onAnchors={reportAnchors} />}
+        <DualSense vis={stableVis} visKey={visKey} selected={selected} hovered={hovered} marks={stableMarks} pick={pick} finish={finish}
+          onAnchors={onAnchors ? reportAnchors : undefined} />
       </Canvas>
 
-      {!vis.connected && <div className="c3d-status">No controller connected</div>}
+      {!vis.connected && <div className="c3d-status" role="status">{offlineLabel ?? "No controller connected"}</div>}
       <div className="c3d-toolbar" role="toolbar" aria-label="3D view">
         {(["default", "front", "rear", "top"] as ViewName[]).map((v) => (
           <button key={v} type="button" className={view === v ? "selected" : ""} aria-pressed={view === v} onClick={() => go(v)}>
@@ -98,24 +113,36 @@ export default function Controller3D({ state, live, selected = null, onSelect, m
         <span className="c3d-sep" aria-hidden="true" />
         <button type="button" aria-label="Zoom out" title="Zoom out" onClick={() => zoom(1.18)}>−</button>
         <button type="button" aria-label="Zoom in" title="Zoom in" onClick={() => zoom(1 / 1.18)}>+</button>
-        {onFlat && <><span className="c3d-sep" aria-hidden="true" /><button type="button" onClick={onFlat} title="Show the flat picture">2D</button></>}
+        <span className="c3d-sep" aria-hidden="true" />
+        <button type="button" className={`c3d-finish ${finish}`} onClick={() => setFinish(finish === "black" ? "white" : "black")}
+          title={`Colour: ${finish === "black" ? "Midnight Black" : "White"} (click to change)`}
+          aria-label={`Controller colour: ${finish === "black" ? "Midnight Black" : "White"}. Change`}><i /></button>
+        {onFlat && <button type="button" onClick={onFlat} title="Show the flat picture">2D</button>}
+        <span className="c3d-sep" aria-hidden="true" />
+        <button type="button" aria-label="3D model credit" aria-expanded={credit} title="3D model credit" onClick={() => setCredit((c) => !c)}>ⓘ</button>
       </div>
-      {!interacted && <div className="c3d-hint" aria-hidden="true">Drag to rotate · scroll to zoom</div>}
+      {credit && (
+        <div className="c3d-credit" role="note">
+          3D model: “{MODEL_CREDIT.title}” by {MODEL_CREDIT.author} (Sketchfab), licensed {MODEL_CREDIT.license}.
+          Changes: {MODEL_CREDIT.changes}.
+        </div>
+      )}
+      {!interacted && !credit && <div className="c3d-hint" aria-hidden="true">Drag to rotate · scroll to zoom</div>}
     </div>
   );
 }
 
-/** Lights, reflections and the soft contact shadow. */
+/** Lights, reflections and the soft shadow behind the controller. */
 function Scene() {
   const gl = useThree((s) => s.gl);
   const scene = useThree((s) => s.scene);
   useEffect(() => {
-    // Studio-like reflections without any image file.
+    // Studio-like reflections generated in code, no image file.
     const pmrem = new THREE.PMREMGenerator(gl);
     const room = new RoomEnvironment();
     const env = pmrem.fromScene(room, 0.04).texture;
     scene.environment = env;
-    scene.environmentIntensity = 0.55;
+    scene.environmentIntensity = 0.6;
     return () => {
       scene.environment = null;
       env.dispose();
@@ -126,18 +153,80 @@ function Scene() {
   return (
     <>
       <hemisphereLight args={["#c9ccd6", "#0b0b0d", 0.35]} />
-      <directionalLight position={[3.5, 7, 8]} intensity={2.1} castShadow
+      <directionalLight position={[3.5, 7, 8]} intensity={2.0} castShadow
         shadow-mapSize={[1024, 1024]} shadow-radius={6} shadow-bias={-0.0004} shadow-normalBias={0.02}
         shadow-camera-left={-5} shadow-camera-right={5} shadow-camera-top={5} shadow-camera-bottom={-5}
         shadow-camera-near={1} shadow-camera-far={25} />
-      <directionalLight position={[-7, 2, 5]} intensity={0.55} color="#cfd6ff" />
+      <directionalLight position={[-7, 2, 5]} intensity={0.5} color="#cfd6ff" />
       {/* A faint warm rim from behind picks out the edges against the dark page. */}
-      <directionalLight position={[0, 6, -7]} intensity={0.8} color="#f0cb72" />
+      <directionalLight position={[0, 6, -7]} intensity={0.7} color="#f0cb72" />
       {/* Backdrop that only shows the shadow. */}
-      <mesh position={[0, -0.2, -2.6]} receiveShadow>
+      <mesh position={[0, -0.2, -2.8]} receiveShadow>
         <planeGeometry args={[30, 30]} />
         <shadowMaterial opacity={0.28} />
       </mesh>
+    </>
+  );
+}
+
+/** The model: loaded once, split into controls, updated only when what is visible changes. */
+function DualSense({ vis, visKey, selected, hovered, marks, pick, onAnchors, finish }: {
+  vis: Visual3D; visKey: string; selected: MacroButton | null; hovered: MacroButton | null; finish: Finish;
+  marks?: Partial<Record<MacroButton, ButtonMark>>; pick?: Pick; onAnchors?: (a: Anchors) => void;
+}) {
+  const gltf = useLoader(GLTFLoader, modelUrl);
+  const model = useMemo(() => buildModel(gltf), [gltf]);
+  useEffect(() => () => model.dispose(), [model]);
+  const invalidate = useThree((s) => s.invalidate);
+  useLayoutEffect(() => {
+    applyFinish(model, finish);
+    applyVisual(model, vis, selected, hovered);
+    invalidate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [model, visKey, selected, hovered, finish, invalidate]);
+
+  const buttonOf = (e: ThreeEvent<PointerEvent | MouseEvent>): MacroButton | null => {
+    for (let o: THREE.Object3D | null = e.object; o; o = o.parent) {
+      if (o.userData.button) return o.userData.button as MacroButton;
+    }
+    return null;
+  };
+  const handlers = pick ? {
+    onPointerMove: (e: ThreeEvent<PointerEvent>) => {
+      const b = buttonOf(e);
+      if (b) { e.stopPropagation(); pick.over(b); }
+    },
+    onPointerOut: (e: ThreeEvent<PointerEvent>) => { const b = buttonOf(e); if (b) pick.out(b); },
+    onClick: (e: ThreeEvent<MouseEvent>) => {
+      const b = buttonOf(e);
+      // A drag that rotated the view is not a click.
+      if (b && e.delta <= 4) { e.stopPropagation(); pick.click(b); }
+    },
+  } : {};
+
+  return (
+    <>
+      <primitive object={model.root} {...handlers} />
+      {marks && <Marks model={model} marks={marks} />}
+      {onAnchors && <AnchorReporter model={model} onAnchors={onAnchors} />}
+    </>
+  );
+}
+
+/** Mapping marks: small dots beside a control (remapped, macro, disabled, layer/gyro). */
+function Marks({ model, marks }: { model: BuiltModel; marks: Partial<Record<MacroButton, ButtonMark>> }) {
+  return (
+    <>
+      {(Object.keys(marks) as MacroButton[]).map((b) => {
+        const m = marks[b]!;
+        const a = model.parts[b].frame.anchor;
+        return (["disabled", "remapped", "macro", "special"] as const).filter((k) => m[k]).map((k, i) => (
+          <mesh key={`${b}-${k}`} position={[a[0] + 0.24 + i * 0.14, a[1] + 0.22, a[2] + 0.06]}>
+            <sphereGeometry args={[0.055, 16, 12]} />
+            <meshStandardMaterial color={MARK_COLOURS[k]} emissive={MARK_COLOURS[k]} emissiveIntensity={0.6} />
+          </mesh>
+        ));
+      })}
     </>
   );
 }
@@ -220,8 +309,8 @@ function CameraRig({ request, onUserMove }: { request: Request; onUserMove: () =
   return null;
 }
 
-/** Projects each control's position to the canvas when the camera or size changes. */
-function AnchorReporter({ onAnchors }: { onAnchors: (a: Anchors) => void }) {
+/** Projects each control's anchor to the canvas when the camera or size changes. */
+function AnchorReporter({ model, onAnchors }: { model: BuiltModel; onAnchors: (a: Anchors) => void }) {
   const last = useRef("");
   const v = useMemo(() => new THREE.Vector3(), []);
   useFrame(({ camera, size }) => {
@@ -231,12 +320,18 @@ function AnchorReporter({ onAnchors }: { onAnchors: (a: Anchors) => void }) {
     last.current = sig;
     const cam = camera.position.toArray() as [number, number, number];
     const out: Anchors = {};
-    for (const b of ALL_BUTTONS) {
-      const a = anchorOf(b);
-      v.set(...a.pos).project(camera);
-      out[b] = { x: ((v.x + 1) / 2) * size.width, y: ((1 - v.y) / 2) * size.height, visible: v.z < 1 && facesCamera(a, cam) };
+    for (const node of Object.values(model.parts)) {
+      const { anchor, normal } = node.frame;
+      v.set(...anchor).project(camera);
+      out[node.button] = {
+        x: ((v.x + 1) / 2) * size.width, y: ((1 - v.y) / 2) * size.height,
+        visible: v.z < 1 && facesCamera({ pos: anchor, normal }, cam),
+      };
     }
     onAnchors(out);
   });
   return null;
 }
+
+// Start downloading the model as soon as the 3D view is first imported.
+useLoader.preload(GLTFLoader, modelUrl);

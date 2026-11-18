@@ -17,6 +17,7 @@ Built with Tauri 2, React and TypeScript for the UI, and Rust for the engine, wi
 - **USB detection.** NEXUS finds a USB DualSense automatically, reconnects within about a second and ignores duplicate or virtual devices. Bluetooth is not supported.
 - **Sticks** (*Controller › Sticks*): deadzone (radial or axial), outer deadzone, anti-deadzone, sensitivity, response curves with presets or custom points, invert, circular or square output, and a calibration wizard.
 - **Triggers** (*Controller › Triggers*): deadzone, range, curve, the point where the trigger counts as pressed, and calibration.
+- **Interactive 3D controller**: your DualSense as a 3D model that moves with the real controller: buttons light up, sticks tilt, L2/R2 swing with their pressure, touches show on the touchpad. Drag to rotate, scroll to zoom, front/rear/top views, Midnight Black or White. See [docs/3d-controller.md](docs/3d-controller.md).
 - **Button remapping** (*Controller › Mapping*): click any button on the controller picture, or its card, and choose what it sends: another button, nothing, or two buttons at once. Each card shows what the game receives (for example Triangle → Y). Undo/redo and a list view are included.
 - **Shift layers:** hold a button (or toggle it) to switch to a different button layout while it's active.
 - **Gyro and touchpad** (optional): gyro aiming onto a stick, touchpad zones and swipes as buttons.
@@ -269,3 +270,7 @@ Installers: `npm run tauri build` in `apps\desktop`, output in `target\release\b
 - No drivers are installed, bundled or configured by NEXUS.
 - No administrator rights are requested.
 - No game-memory access, injection, aim assistance, recoil manipulation or anti-cheat evasion.
+
+## Credits
+
+- 3D controller model: **"Playstation 5 Dualsense" by [AHarmlessPotato](https://sketchfab.com/AHarmlessPotato)** ([source](https://sketchfab.com/3d-models/playstation-5-dualsense-878c1f882808477ab81c2fe86d5a3936)), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). NEXUS splits it into separate controls and recolours it at run time. NEXUS is not affiliated with Sony.
