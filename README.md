@@ -6,7 +6,7 @@ NEXUS is a Windows 11 (x64) app that processes and remaps a **Sony DualSense con
 DualSense (USB) → NEXUS: sticks, triggers, remapping, layers, macros → virtual Xbox 360 controller → Windows games
 ```
 
-Built with Tauri 2, React and TypeScript for the UI, and Rust for the engine, with SQLite storage and Windows HID. NEXUS is a personal project for its owner and a few friends.
+Built with Tauri 2, React and TypeScript for the UI, and Rust for the engine, with SQLite storage and Windows HID. NEXUS is a personal project for its owner and a few friends(Vibe Coded Slop.
 
 > **Status:** the features below are implemented and covered by automated tests. Hardware checks with a physical DualSense, ViGEmBus and real games are tracked in [`tests/m4.5-test-plan.md`](tests/m4.5-test-plan.md) and [`docs/game-output.md`](docs/game-output.md). Automatic updates work in a Windows test but are not live yet (see [Updates](#updates)).
 
