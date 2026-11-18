@@ -2,7 +2,7 @@
 
 Macro Studio lets anyone record or build a button sequence and start it with a single controller button.
 
-> **Current limitation: macros don't reach games yet.** Games only see NEXUS input through a virtual controller, and the virtual controller driver (experimental ViGEmBus backend) is still waiting on hardware validation. Until then, macros run inside NEXUS and can be tested with your real controller under **Test with your controller**. The app says this clearly everywhere it matters.
+> Games receive macros through NEXUS's virtual Xbox 360 controller, which needs the free ViGEmBus driver (Controller › Virtual Output). Without it, macros still run inside NEXUS and can be tried under **Test with your controller**, but games don't see them.
 
 ## For users
 
@@ -13,7 +13,7 @@ Macro Studio lets anyone record or build a button sequence and start it with a s
    - **Build Manually:** click buttons on the controller layout to add actions.
 
    Then edit the timeline:
-   - Click an action to change its buttons, its **press time** and the **wait after release**. Presets are Tap, Press, Hold and Long hold; exact milliseconds are under **Exact timing**.
+   - Click an action to change its buttons, its **press time** and the **wait after release**: pick a preset (Tap, Press, Hold, Long hold) or type the milliseconds. **Exact timing** adds **wait before**.
    - Drag actions to reorder them, or use ← →. **Duplicate**, **Delete**, **Undo** and **Redo** are all available, with keyboard shortcuts Ctrl+Z, Ctrl+Y and Delete.
    - **Play preview** animates the sequence on screen. It never presses anything in a game.
 4. **Assign your macro.** Pick the button that starts it, then how it plays:
@@ -75,7 +75,7 @@ The engine status carries both states: `input` (physical) and `processed` (what 
   - `profile-manager`: 6 macro storage tests, including v1→v2 migration.
   - `engine`: 5 end-to-end tests using synthetic DualSense reports (trigger → output, recording, interrupted recording, disconnect).
 - **Frontend:** `npm test` (Node's built-in runner) covers the preview timeline (same cases as the engine), defaults, validation, conflicts and button mapping.
-- **Not yet verified:** recording and playback with a physical DualSense, and macros reaching a game. The latter needs virtual output.
+- **Hardware:** Repeat While Held through the virtual Xbox controller in an offline game has been verified by the owner; the remaining rows are in `tests/m4.5-test-plan.md`.
 
 ## Editing timing after recording
 

@@ -34,7 +34,7 @@ If the controller never appears, close Steam, DS4Windows or similar tools, then 
 
 NEXUS installed from a **published release** updates itself. It checks about 20 seconds after it starts and then every 6 hours. You can also use **Settings → Updates → Check for updates**.
 
-- When a new version exists, a banner shows **Update available** with the release notes. Click **Update now**, or **Later** to hide it for that version. Nothing is installed without your OK.
+- When a new version exists, a banner shows **Update available** with your version, the new version and the release notes. Click **Update now**, or **Remind me later** to hide it until NEXUS next starts. Nothing is installed without your OK.
 - After the download, NEXUS checks the update's signature. Then click **Restart and install**: NEXUS closes, a small installer window runs without asking questions, and NEXUS reopens on the new version.
 - Your profiles, macros, calibration and settings are kept. A backup copy is saved in `%APPDATA%\com.nexus.controllerengine\backups` first.
 - No internet? NEXUS works normally and tries again later.
@@ -49,8 +49,11 @@ The installer is still not code-signed, so SmartScreen can still warn on a manua
 
 Your profile database stays in `%APPDATA%\com.nexus.controllerengine`. Delete that folder for a completely clean removal.
 
-## What NEXUS does not do in this version
+## Games and the virtual controller
 
-- It does not create virtual controllers.
-- It does not install drivers.
+Games receive NEXUS's output through a virtual Xbox 360 controller. That needs the free ViGEmBus driver, which you install yourself; see the README's *Installation* section and [`game-output.md`](game-output.md).
+
+## What NEXUS does not do
+
+- It does not install, bundle or configure drivers (ViGEmBus and the optional HidHide are installed by you).
 - It does not change Windows controller settings.

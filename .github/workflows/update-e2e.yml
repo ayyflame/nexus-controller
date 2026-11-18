@@ -81,7 +81,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "build failed" }
           Pop-Location
           New-Item -ItemType Directory -Force -Path "$env:WORK\old" | Out-Null
-          Copy-Item target/release/bundle/nsis/*-setup.exe "$env:WORK\old\"
+          Copy-Item "target/release/bundle/nsis/NEXUS_$($old)_x64-setup.exe" "$env:WORK\old\"
 
       - name: Build the NEW version (patch + 1), signed with the test key
         shell: pwsh
@@ -97,7 +97,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "build failed" }
           Pop-Location
           New-Item -ItemType Directory -Force -Path "$env:WORK\new" | Out-Null
-          Copy-Item target/release/bundle/nsis/*-setup.exe* "$env:WORK\new\"
+          # Only this version's files (the folder still holds the old build).
+          Copy-Item "target/release/bundle/nsis/NEXUS_$($new)_x64-setup.exe*" "$env:WORK\new\"
+          if (-not (Test-Path "$env:WORK\new\NEXUS_$($new)_x64-setup.exe.sig")) { throw "no signed $new installer" }
           git checkout -- .
 
       - name: Publish to the test host (same tool and layout as the release workflow)
