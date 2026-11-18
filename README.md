@@ -15,15 +15,10 @@ Built with Tauri 2, React and TypeScript for the UI, and Rust for the engine, wi
 ### Controller input and processing
 
 - **USB detection.** NEXUS finds a USB DualSense automatically, reconnects within about a second and ignores duplicate or virtual devices. Bluetooth is not supported.
-<<<<<<< HEAD
-- **Sticks** (*Controller › Sticks*): deadzone (radial or axial), outer deadzone, anti-deadzone, sensitivity, response curves with presets or custom points, invert, circular or square output, and a calibration wizard.
-- **Triggers** (*Controller › Triggers*): deadzone, range, curve, the point where the trigger counts as pressed, and calibration.
-- **Interactive 3D controller**: your DualSense as a 3D model that moves with the real controller: buttons light up, sticks tilt, L2/R2 swing with their pressure, touches show on the touchpad. Drag to rotate, scroll to zoom, front/rear/top views, Midnight Black or White. See [docs/3d-controller.md](docs/3d-controller.md).
-=======
 - **Sticks** (*Controller › Sticks*): deadzone (radial or axial), outer deadzone, anti-deadzone, sensitivity, response curves with presets or custom points, invert, and circular or square output.
 - **Triggers** (*Controller › Triggers*): deadzone, range, curve, and the point where the trigger counts as pressed.
 - **Calibration** (*Live Viewer › Calibration*): a guided wizard that measures each stick's resting centre, jitter and full range, recommends a deadzone, and measures L2/R2's released and fully pressed ends. Nothing is saved until you review and apply it, and you can reset to the previous calibration ([`docs/calibration.md`](docs/calibration.md)).
->>>>>>> main
+- **Interactive 3D controller**: your DualSense as a 3D model that moves with the real controller: buttons light up, sticks tilt, L2/R2 swing with their pressure, touches show on the touchpad. Drag to rotate, scroll to zoom, front/rear/top views, Midnight Black or White. See [docs/3d-controller.md](docs/3d-controller.md).
 - **Button remapping** (*Controller › Mapping*): click any button on the 3D controller, or its card, and choose what it sends: another button, nothing, or two buttons at once. Each card shows what the game receives (for example Triangle → Y). Undo/redo and a list view are included.
 - **Shift layers:** hold a button (or toggle it) to switch to a different button layout while it's active.
 - **Gyro and touchpad** (optional): gyro aiming onto a stick, touchpad zones and swipes as buttons.
