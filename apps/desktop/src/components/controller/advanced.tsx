@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useEngine, usePrimaryDevice } from "../../hooks/useEngine";
 import { engineApi, errorMessage } from "../../lib/engine";
 import { connectionLabel, modelLabel } from "../../lib/format";
@@ -63,97 +63,41 @@ export function DeviceSelector() {
 
 // ---- Calibration wizards ------------------------------------------------------
 
-type CalStep = "idle" | "center" | "range" | "done";
+/** Opens the calibration wizard (Live Viewer › Calibration). */
+function openWizard() {
+  window.dispatchEvent(new CustomEvent("nexus:navigate", { detail: { page: "live-viewer", tab: "calibration" } }));
+}
 
-/** Measures a stick's resting centre and full travel from live input. */
+/** Calibration status for one stick, with the wizard shortcut and a reset. */
 export function StickCalibrationWizard({ side, calibration, onSave }: {
   side: "leftStick" | "rightStick"; calibration: StickCalibration; onSave: (c: StickCalibration) => void;
 }) {
-  const device = usePrimaryDevice();
-  const [step, setStep] = useState<CalStep>("idle");
-  const acc = useRef({ n: 0, sx: 0, sy: 0, minX: 0, maxX: 0, minY: 0, maxY: 0 });
-  const stick = device?.input?.[side];
   const custom = JSON.stringify(calibration) !== JSON.stringify(DEFAULT_CALIBRATION);
-
-  useEffect(() => {
-    if (!stick) return;
-    const a = acc.current;
-    if (step === "center") { a.n += 1; a.sx += stick.x; a.sy += stick.y; }
-    if (step === "range") {
-      a.minX = Math.min(a.minX, stick.x); a.maxX = Math.max(a.maxX, stick.x);
-      a.minY = Math.min(a.minY, stick.y); a.maxY = Math.max(a.maxY, stick.y);
-    }
-  }, [stick, step]);
-
-  useEffect(() => {
-    if (step !== "center") return;
-    const t = setTimeout(() => setStep("range"), 1500);
-    return () => clearTimeout(t);
-  }, [step]);
-
-  const start = () => { acc.current = { n: 0, sx: 0, sy: 0, minX: 0, maxX: 0, minY: 0, maxY: 0 }; setStep("center"); };
-  const finish = () => {
-    const a = acc.current;
-    const cx = a.n ? a.sx / a.n : 0, cy = a.n ? a.sy / a.n : 0;
-    if (a.maxX - a.minX < 1 || a.maxY - a.minY < 1) { setStep("idle"); return; }
-    onSave({ centerX: cx, centerY: cy, minX: a.minX, maxX: a.maxX, minY: a.minY, maxY: a.maxY });
-    setStep("done");
-  };
-
-  if (!stick) return <p className="muted small">Connect your controller to calibrate.</p>;
   return (
-    <div className="wizard-inline" aria-live="polite">
-      {step === "idle" || step === "done" ? (
-        <div className="row gap wrap">
-          <button className="btn-secondary" onClick={start}>Calibrate {side === "leftStick" ? "left" : "right"} stick</button>
-          {custom && <button className="btn-ghost" onClick={() => onSave({ ...DEFAULT_CALIBRATION })}>Reset calibration</button>}
-          <span className="muted small">{step === "done" ? "✓ Calibration saved." : custom ? "Custom calibration active." : "Not calibrated (factory range)."}</span>
-        </div>
-      ) : step === "center" ? (
-        <p><strong>Step 1 of 2:</strong> let go of the stick and keep it still…</p>
-      ) : (
-        <div className="row gap wrap">
-          <p><strong>Step 2 of 2:</strong> rotate the stick slowly around its edge two or three times.</p>
-          <button className="btn-primary" onClick={finish}>Done</button>
-          <button className="btn-ghost" onClick={() => setStep("idle")}>Cancel</button>
-        </div>
-      )}
+    <div className="wizard-inline">
+      <div className="row gap wrap">
+        <button className="btn-secondary" onClick={openWizard}>Open calibration wizard</button>
+        {custom && <button className="btn-ghost" onClick={() => onSave({ ...DEFAULT_CALIBRATION })}>Reset {side === "leftStick" ? "left" : "right"} stick calibration</button>}
+        <span className="muted small">{custom
+          ? `Calibrated: centre ${calibration.centerX.toFixed(3)} / ${calibration.centerY.toFixed(3)}`
+          : "Not calibrated (factory range)."}</span>
+      </div>
     </div>
   );
 }
 
-/** Measures a trigger's resting and fully pressed values. */
-export function TriggerCalibrationWizard({ side, rawMin, rawMax, onSave }: {
+/** Calibration status for one trigger, with the wizard shortcut and a reset. */
+export function TriggerCalibrationWizard({ rawMin, rawMax, onSave }: {
   side: "leftTrigger" | "rightTrigger"; rawMin: number; rawMax: number; onSave: (min: number, max: number) => void;
 }) {
-  const device = usePrimaryDevice();
-  const [step, setStep] = useState<"idle" | "release" | "press" | "done">("idle");
-  const acc = useRef({ min: 1, max: 0 });
-  const v = device?.input?.[side].value;
-  useEffect(() => {
-    if (v === undefined) return;
-    if (step === "release") acc.current.min = Math.min(acc.current.min, v);
-    if (step === "press") acc.current.max = Math.max(acc.current.max, v);
-  }, [v, step]);
-  if (v === undefined) return null;
   const custom = rawMin !== 0 || rawMax !== 1;
   return (
     <div className="wizard-inline">
-      {step === "idle" || step === "done" ? (
-        <div className="row gap wrap">
-          <button className="btn-ghost" onClick={() => { acc.current = { min: 1, max: 0 }; setStep("release"); }}>Calibrate</button>
-          {custom && <button className="btn-ghost" onClick={() => onSave(0, 1)}>Reset</button>}
-          <span className="muted small">{step === "done" ? "✓ Saved." : custom ? `Range ${pct(rawMin)}–${pct(rawMax)}` : "Factory range"}</span>
-        </div>
-      ) : step === "release" ? (
-        <div className="row gap"><span>Let go of the trigger completely.</span><button className="btn-primary" onClick={() => setStep("press")}>Next</button></div>
-      ) : (
-        <div className="row gap"><span>Now press it all the way down and release.</span>
-          <button className="btn-primary" onClick={() => {
-            const { min, max } = acc.current;
-            if (max - min > 0.3) { onSave(Math.min(0.5, min), Math.max(min + 0.2, max)); setStep("done"); } else setStep("idle");
-          }}>Done</button></div>
-      )}
+      <div className="row gap wrap">
+        <button className="btn-ghost" onClick={openWizard}>Calibrate…</button>
+        {custom && <button className="btn-ghost" onClick={() => onSave(0, 1)}>Reset</button>}
+        <span className="muted small">{custom ? `Range ${pct(rawMin)}–${pct(rawMax)}` : "Factory range"}</span>
+      </div>
     </div>
   );
 }

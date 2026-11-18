@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { CalibrationWizard } from "../components/CalibrationWizard";
 import { ControllerVisual } from "../components/ControllerVisual";
+import { calibrationStatus } from "../lib/calibration";
 import { Panel, StickPlot, TriggerMeter, Segmented } from "../components/controller/widgets";
 import { useEngine, usePrimaryDevice } from "../hooks/useEngine";
 import { buttonMapping, buttonMarks, describeMapping } from "../lib/buttonMapping";
@@ -20,7 +22,7 @@ import { BUTTONS } from "../lib/macros";
 import { withDefaults } from "../lib/processing";
 import type { ControllerState, DeviceSnapshot, Macro, MacroButton, ProcessingConfig } from "../types/engine";
 
-type Tab = "live" | "analog" | "motion" | "health" | "test" | "drift";
+type Tab = "live" | "analog" | "motion" | "health" | "test" | "drift" | "calibration";
 const TABS: Array<{ id: Tab; label: string }> = [
   { id: "live", label: "Live" },
   { id: "analog", label: "Sticks & Triggers" },
@@ -28,6 +30,7 @@ const TABS: Array<{ id: Tab; label: string }> = [
   { id: "health", label: "Health" },
   { id: "test", label: "Controller Test" },
   { id: "drift", label: "Drift Test" },
+  { id: "calibration", label: "Calibration" },
 ];
 
 const BUTTON_IDS = Object.keys(BUTTONS) as MacroButton[];
@@ -38,8 +41,9 @@ const BUTTON_IDS = Object.keys(BUTTONS) as MacroButton[];
  * the controller, never changes a setting, and closing it changes nothing in
  * controller processing, macros or virtual output.
  */
-export function LiveViewer() {
-  const [tab, setTab] = useState<Tab>("live");
+export function LiveViewer({ initialTab }: { initialTab?: string }) {
+  const [tab, setTab] = useState<Tab>(TABS.some((t) => t.id === initialTab) ? (initialTab as Tab) : "live");
+  useEffect(() => { if (TABS.some((t) => t.id === initialTab)) setTab(initialTab as Tab); }, [initialTab]);
   const device = usePrimaryDevice();
   const { profile } = useEngine();
   const config = useMemo(() => withDefaults(profile?.processing), [profile?.processing]);
@@ -59,12 +63,13 @@ export function LiveViewer() {
       ) : (
         <div className="tab-body" key={tab}>
           <StaleNotice device={device} />
-          {tab === "live" && <LiveTab device={device} config={config} />}
+          {tab === "live" && <LiveTab device={device} config={config} onCalibrate={() => setTab("calibration")} />}
           {tab === "analog" && <AnalogTab device={device} config={config} />}
           {tab === "motion" && <MotionTab input={device.input} />}
           {tab === "health" && <HealthTab device={device} />}
           {tab === "test" && <TestTab input={device.input} />}
           {tab === "drift" && <DriftTab input={device.input} config={config} />}
+          {tab === "calibration" && <CalibrationWizard />}
         </div>
       )}
     </div>
@@ -87,7 +92,7 @@ function StaleNotice({ device }: { device: DeviceSnapshot }) {
 
 // ---- Live ----------------------------------------------------------------------
 
-function LiveTab({ device, config }: { device: DeviceSnapshot; config: ProcessingConfig }) {
+function LiveTab({ device, config, onCalibrate }: { device: DeviceSnapshot; config: ProcessingConfig; onCalibrate: () => void }) {
   const { connection } = useEngine();
   const input = device.input;
   const out = device.processed;
@@ -125,6 +130,7 @@ function LiveTab({ device, config }: { device: DeviceSnapshot; config: Processin
       <Panel title="Analog values">
         <AnalogTable input={input} out={out} />
       </Panel>
+      <CalibrationStatusPanel config={config} onCalibrate={onCalibrate} />
       <Panel title="Detected this session" aside={<button className="btn-ghost small" onClick={() => setSeen(new Set())}>Reset</button>}>
         <p className="muted small">Each control lights while it's in use and gets a tick once NEXUS has seen it. Anything that never ticks isn't reaching NEXUS.</p>
         <div className="lv-detected">
@@ -157,6 +163,28 @@ function AnalogTable({ input, out }: { input: ControllerState | null; out: Contr
         {row("R2", String(input.rightTrigger.raw), pct(input.rightTrigger.value), out ? pct(out.rightTrigger.value) : "—")}
       </tbody>
     </table>
+  );
+}
+
+function CalibrationStatusPanel({ config, onCalibrate }: { config: ProcessingConfig; onCalibrate: () => void }) {
+  const { profile } = useEngine();
+  const s = calibrationStatus(config);
+  const all = s.sticks.every((x) => x.calibrated) && s.triggers.every((x) => x.calibrated);
+  return (
+    <Panel title={`Calibration · ${profile?.name ?? "profile"}`} aside={<button className="btn-ghost small" onClick={onCalibrate}>{all ? "Calibrate again" : "Run calibration"}</button>}>
+      <table className="table lv-table"><tbody>
+        {s.sticks.map((x) => (
+          <tr key={x.side}><td>{x.side === "leftStick" ? "Left stick" : "Right stick"}</td>
+            <td className={x.calibrated ? "ok-text" : "muted"}>{x.calibrated ? "Calibrated" : "Not calibrated"}</td>
+            <td className="mono">centre offset {(x.centerOffset * 100).toFixed(1)} %</td><td className="mono">deadzone {(x.deadzone * 100).toFixed(1)} %</td></tr>
+        ))}
+        {s.triggers.map((x) => (
+          <tr key={x.side}><td>{x.side === "leftTrigger" ? "L2" : "R2"}</td>
+            <td className={x.calibrated ? "ok-text" : "muted"}>{x.calibrated ? "Calibrated" : "Not calibrated"}</td>
+            <td className="mono" colSpan={2}>endpoints {(x.rawMin * 100).toFixed(1)} – {(x.rawMax * 100).toFixed(1)} %</td></tr>
+        ))}
+      </tbody></table>
+    </Panel>
   );
 }
 

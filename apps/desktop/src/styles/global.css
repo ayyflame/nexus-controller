@@ -781,3 +781,21 @@ input[type="color"]:disabled { opacity: 0.4; cursor: not-allowed; }
 .lv-step.r-fail { background: rgba(226, 106, 106, 0.25); color: #f2b5b5; }
 .lv-checks { list-style: none; padding: 0; font-size: 14px; }
 .lv-checks li { padding: 3px 0; }
+/* Calibration wizard */
+.cal h3 { margin: 10px 0 6px; color: var(--gold-bright); font-size: 15px; }
+.cal-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; margin-right: 12px; }
+.cal-plot { width: 220px; height: 220px; flex: 0 0 auto; }
+.cal-gate { fill: #121316; stroke: var(--border-strong); }
+.cal-expected { fill: none; stroke: rgba(255, 255, 255, 0.15); stroke-dasharray: 3 3; }
+.cal-axes { stroke: rgba(255, 255, 255, 0.07); }
+.cal-noise { fill: rgba(160, 165, 175, 0.25); stroke: rgba(160, 165, 175, 0.6); }
+.cal-dz-rec { fill: none; stroke: #4fa8b8; stroke-dasharray: 3 2; }
+.cal-dz { fill: rgba(214, 165, 75, 0.12); stroke: #d6a54b; stroke-width: 1.5; }
+.cal-center { stroke: #d6a54b; stroke-width: 1.5; }
+.cal-dot { fill: #4fa8b8; stroke: #bfe6ec; }
+.cal-reach { fill: rgba(79, 168, 184, 0.15); stroke: #4fa8b8; stroke-width: 1.5; }
+.cal-trace { fill: rgba(214, 165, 75, 0.55); }
+.cal-dirs { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
+.cal-results { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; }
+.cal-result { border: 1px solid var(--border-strong); border-radius: 10px; padding: 10px 14px; }
+.cal-result h4 { margin: 0 0 6px; }

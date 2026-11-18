@@ -20,7 +20,7 @@ function Page({ id, tab }: { id: PageId; tab?: string }) {
     case "performance": return <Performance />;
     case "macro-studio": return <MacroStudio />;
     case "controller": return <Controller initialTab={tab} />;
-    case "live-viewer": return <LiveViewer />;
+    case "live-viewer": return <LiveViewer initialTab={tab} />;
   }
 }
 

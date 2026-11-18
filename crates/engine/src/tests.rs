@@ -2907,3 +2907,60 @@ fn the_active_shift_layer_is_published_for_hold_and_toggle_layers() {
     backend.push_report(PATH, report(&[]));
     wait_status(&e, "toggle off", |s| s.devices[0].active_layer.is_none());
 }
+
+// ---- Calibration reaches the virtual Xbox controller ---------------------------
+
+#[test]
+fn stick_and_trigger_calibration_shape_what_the_virtual_pad_receives() {
+    use nexus_input_processing::StickCalibration;
+    let (backend, e, log) = xbox_engine();
+    // A stick resting at raw (134, 128) ≈ +0.047 and a trigger resting at 6.
+    let mut rest = Payload::neutral();
+    rest.lx = 134;
+    rest.l2 = 6;
+    let mut cfg = ProcessingConfig::passthrough();
+    e.set_processing(cfg.clone());
+    backend.push_report(PATH, rest.usb_report());
+    log.wait("uncalibrated", |_| {
+        log.reports()
+            .last()
+            .is_some_and(|r| r.thumb_lx > 1000 && r.left_trigger == 6)
+    });
+    // Calibrated to that resting point (what the wizard applies): output centred.
+    cfg.left_stick.calibration = StickCalibration {
+        center_x: 6.0 / 127.0,
+        center_y: 0.0,
+        min_x: -1.0,
+        max_x: 1.0,
+        min_y: -1.0,
+        max_y: 1.0,
+    };
+    cfg.left_trigger.raw_min = 6.0 / 255.0;
+    cfg.left_trigger.raw_max = 220.0 / 255.0;
+    e.set_processing(cfg.clone());
+    expect_pad(
+        &backend,
+        &log,
+        &rest,
+        XusbReport::default(),
+        "calibrated rest is neutral",
+    );
+    // Full travel still reaches full output, including a trigger that only reaches 220.
+    let mut full = Payload::neutral();
+    full.lx = 255;
+    full.l2 = 220;
+    let want = XusbReport {
+        thumb_lx: 32767,
+        left_trigger: 255,
+        ..Default::default()
+    };
+    expect_pad(&backend, &log, &full, want, "full range");
+    // Back to the profile without calibration (a profile switch).
+    e.set_processing(ProcessingConfig::passthrough());
+    backend.push_report(PATH, rest.usb_report());
+    log.wait("uncalibrated again", |_| {
+        log.reports()
+            .last()
+            .is_some_and(|r| r.thumb_lx > 1000 && r.left_trigger == 6)
+    });
+}

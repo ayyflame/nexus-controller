@@ -211,3 +211,88 @@ fn old_database_is_backed_up_before_migration() {
     assert_eq!(ProfileStore::backup_before_migration(&path).unwrap(), None);
     let _ = std::fs::remove_dir_all(dir);
 }
+
+// ---- Calibration is stored per profile -----------------------------------------
+
+#[test]
+fn calibration_is_kept_per_profile_across_switching_and_reopening() {
+    use nexus_input_processing::StickCalibration;
+    let dir = std::env::temp_dir().join(format!("nexus-cal-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("nexus.db");
+    let cal = StickCalibration {
+        center_x: 0.04,
+        center_y: -0.03,
+        min_x: -0.9,
+        max_x: 0.95,
+        min_y: -0.92,
+        max_y: 0.97,
+    };
+    let (a_id, b_id) = {
+        let mut s = ProfileStore::open(&path).unwrap();
+        let a = s.active_profile().unwrap();
+        let b = s.create_profile("Racing").unwrap();
+        let mut cfg = a.processing.clone();
+        cfg.left_stick.calibration = cal;
+        cfg.left_stick.deadzone = 0.06;
+        cfg.right_trigger.raw_min = 0.01;
+        cfg.right_trigger.raw_max = 0.9;
+        cfg.remap = vec![RemapRule::new(Button::South, Some(Button::East))];
+        s.set_processing(a.id, &cfg).unwrap();
+        // Switching profiles loads the other profile's (default) calibration.
+        let now_b = s.set_active_profile(b.id).unwrap();
+        assert_eq!(
+            now_b.processing.left_stick.calibration,
+            StickCalibration::default()
+        );
+        assert_eq!(now_b.processing.right_trigger.raw_max, 1.0);
+        (a.id, b.id)
+    };
+    // After reopening (an app restart), each profile still has its own values.
+    let mut s = ProfileStore::open(&path).unwrap();
+    assert_eq!(s.active_profile().unwrap().id, b_id, "last-used profile");
+    let a = s.set_active_profile(a_id).unwrap();
+    assert_eq!(a.processing.left_stick.calibration, cal);
+    assert_eq!(a.processing.left_stick.deadzone, 0.06);
+    assert_eq!(
+        (
+            a.processing.right_trigger.raw_min,
+            a.processing.right_trigger.raw_max
+        ),
+        (0.01, 0.9)
+    );
+    assert_eq!(a.processing.remap.len(), 1, "mappings kept alongside");
+    assert_eq!(
+        s.get_profile(b_id)
+            .unwrap()
+            .processing
+            .left_stick
+            .calibration,
+        StickCalibration::default()
+    );
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn out_of_range_calibration_is_limited_when_saved() {
+    use nexus_input_processing::StickCalibration;
+    let mut s = ProfileStore::open_in_memory().unwrap();
+    let p = s.active_profile().unwrap();
+    let mut cfg = p.processing.clone();
+    cfg.left_stick.calibration = StickCalibration {
+        center_x: 0.9,
+        center_y: f32::NAN,
+        min_x: 0.5,
+        max_x: -0.5,
+        min_y: -1.0,
+        max_y: 1.0,
+    };
+    cfg.left_trigger.raw_min = 0.95;
+    let saved = s.set_processing(p.id, &cfg).unwrap().processing;
+    let c = saved.left_stick.calibration;
+    assert_eq!((c.center_x, c.center_y), (0.5, 0.0));
+    assert!(c.min_x <= -0.2 && c.max_x >= 0.2);
+    assert!(saved.left_trigger.raw_min <= 0.5);
+}

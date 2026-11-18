@@ -62,6 +62,7 @@ Built with Tauri 2, React and TypeScript for the UI, and Rust for the engine, wi
   - **Health:** report rate, stale input, dropped or unreadable reports, processing time, battery and connection events.
   - **Controller Test:** a guided 10-step pass/fail check.
   - **Drift Test.**
+  - **Calibration:** a guided wizard for both sticks (centre, deadzone recommendation, full range) and both triggers (endpoints). It saves to the current profile only after you review and apply, and can be reset to the previous values ([`docs/calibration.md`](docs/calibration.md)).
 - **Read-only:** it never changes settings and doesn't affect macros or game output.
 
 ### Virtual Xbox 360 output
@@ -238,6 +239,7 @@ Installers: `npm run tauri build` in `apps\desktop`, output in `target\release\b
   - [Optional HidHide setup](docs/hidhide-setup.md)
   - [Controller photo mode](docs/controller-photo.md)
   - [Live Viewer and diagnostics](docs/live-viewer.md)
+  - [Calibration wizard](docs/calibration.md)
 - **Testing:**
   - [Hardware test plan](tests/m4.5-test-plan.md)
   - [Hardware verification checklist](tests/hardware-verification.md)

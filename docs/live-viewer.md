@@ -13,6 +13,8 @@ Sidebar › **Live Viewer**. Read-only: it shows what NEXUS receives from the Du
 | **Controller Test** | A guided ten-step test: face buttons, D-pad, bumpers, triggers, stick clicks, left stick full range, right stick full range, touchpad, Create/Options/PS, Mute. Each control is **pass**, **fail** or **not tested**, with Retry, Back/Skip, Mark as failed, and a summary | Engine; nothing is changed |
 | **Drift Test** | Leave the controller untouched for 5, 10 or 30 s. It reports the average resting position, the centre offset, the maximum deviation, jitter and drift (first second against last second), compared with a reference radius you set (by default the profile's deadzone). There is no "defective" verdict | Engine (raw, before any deadzone) |
 
+| **Calibration** | The calibration wizard ([`calibration.md`](calibration.md)). The **Live** tab also shows the current profile's calibration status (sticks: calibrated or not, centre offset, deadzone; triggers: endpoints), with a shortcut to run it | Profile settings |
+
 ## Pass rules (Controller Test)
 
 - **Button:** pressed, then released, so a stuck button doesn't pass.
