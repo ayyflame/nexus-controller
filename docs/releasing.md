@@ -19,27 +19,32 @@ Prerequisite: the one-time setup in [updater-setup.md](updater-setup.md). Withou
    node scripts/bump-version.mjs 0.1.1
    ```
    This updates `Cargo.toml`, `Cargo.lock`, `package.json`, `package-lock.json` and `tauri.conf.json`. It refuses versions that are not newer.
-2. **Run the checks locally** (optional; CI runs them too): `cargo test --workspace`, then `npm run typecheck` and `npm test` in `apps/desktop`.
-3. **Commit and push** to `main`, e.g. `Release 0.1.1`.
-4. **Publish the release.** On GitHub: **Releases → Draft a new release**:
-   - Tag: `v0.1.1`, created on publish, target `main`. It must equal `v` + the version from step 1, or the build fails.
-   - Title: `NEXUS 0.1.1`.
-   - Description: the release notes users will see in the app's update banner. Plain text or simple Markdown, short and user-facing. It must not be empty.
-   - Leave **Set as a pre-release** unchecked for a Stable update. A pre-release gets signed installers attached but is not offered to users.
-   - **Publish release.**
-5. **CI does the rest** (Actions → *Windows release build*, about 15–25 min):
-   1. version and tag check, secrets check
-   2. all Rust and frontend tests
-   3. signed build (`createUpdaterArtifacts`, NSIS `.sig`)
-   4. `latest.json` generated and signature-checked against the public key
-   5. installer uploaded, then `latest.json`
-   6. both re-downloaded from the public URL and verified
-   7. `.exe`, `.msi` and `SHA256SUMS.txt` attached to the release
-6. **Clients pick it up** within 6 hours, or immediately with **Settings → Updates → Check for updates**, or at their next start (about 20 s after launch).
+2. **Write the release notes** in `release-notes/v0.1.1.md`. Users see the first few lines in the update notice, and the whole text under *Show all notes*. Keep it short, user-facing and in plain text or simple Markdown. It must not be empty.
+3. **Commit both and push to `main`**, e.g. `Release 0.1.1`. That is all.
+4. **CI does the rest** (Actions → *Windows release build*, about 15–25 min). The push adds a release-notes file for a version that has no release yet, so the workflow:
+   1. checks the version, notes and secrets
+   2. runs all Rust and frontend tests
+   3. builds and signs (`createUpdaterArtifacts`, NSIS `.sig`)
+   4. generates `latest.json` and checks its signature against the public key
+   5. uploads the installer, then `latest.json`
+   6. re-downloads both from the public URL and verifies them
+   7. creates the GitHub Release `v0.1.1` with the notes, the `.exe`, the `.msi` and `SHA256SUMS.txt`
+5. **Installed copies pick it up** about 20 s after their next start, every 6 hours while running, or at once with **Settings → Updates → Check for updates**.
+
+Pushes that don't add release notes, or that are for an already released version, only build and test. They never publish.
+
+### Alternative: publish from the GitHub website
+
+Still supported: after step 1, push, then **Releases → Draft a new release**:
+- tag `v0.1.1` targeting `main`;
+- the notes as the description;
+- not a pre-release.
+
+The workflow then does the same as above and attaches the installers to that release. A pre-release gets signed installers but is not offered to users.
 
 ## If something fails
 
-- **Before the "Publish update" step:** nothing was uploaded. Fix the problem. To rebuild the same version, delete the GitHub Release **and** its tag, then publish it again.
+- **Before the "Publish update" step:** nothing was uploaded. Fix the problem. The tag and GitHub Release are only created at the very end, so to retry the same version just push again (for example, a small edit to its release-notes file). If a Release from the website flow exists, delete it **and** its tag first.
 - **After the installer upload but before `latest.json`:** clients don't see anything yet. The versioned path now exists, so the pipeline refuses to overwrite it. Bump to the next patch version and release again.
 - **Bad release already live:** you can't roll clients back, because there are no downgrades. Publish a fixed, higher version.
 
