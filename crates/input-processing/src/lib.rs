@@ -14,13 +14,13 @@ mod processor;
 pub use config::{
     find_conflicts, ComboRule, ConfigConflict, CurvePoint, DeadzoneShape, FeedbackConfig,
     GyroActivation, GyroConfig, GyroHorizontalAxis, LayerMode, MappingLayer, ProcessingConfig,
-    RemapRule, ResponseCurve, StickCalibration, StickConfig, TouchLayout, TouchpadConfig,
-    TriggerConfig, MAX_COMBOS, MAX_COMBO_BUTTONS, MAX_COMBO_SENDS, MAX_CURVE_POINTS,
-    MAX_EXTRA_ACTIONS, MAX_LAYERS,
+    RemapRule, ResponseCurve, StickButtons, StickCalibration, StickConfig, StickDirections,
+    StickRouting, StickSource, TouchLayout, TouchpadConfig, TriggerConfig, MAX_COMBOS,
+    MAX_COMBO_BUTTONS, MAX_COMBO_SENDS, MAX_CURVE_POINTS, MAX_EXTRA_ACTIONS, MAX_LAYERS,
 };
 pub use processor::{
-    evaluate_curve, process_stick, process_trigger, shape_magnitude, trigger_output,
-    ConfiguredProcessor, GYRO_LSB_PER_DPS,
+    evaluate_curve, process_stick, process_trigger, shape_magnitude, stick_directions,
+    trigger_output, ConfiguredProcessor, DIR_DOWN, DIR_LEFT, DIR_RIGHT, DIR_UP, GYRO_LSB_PER_DPS,
 };
 
 use nexus_controller_core::ControllerState;
@@ -75,6 +75,9 @@ mod processing_tests;
 
 #[cfg(test)]
 mod advanced_tests;
+
+#[cfg(test)]
+mod stick_mapping_tests;
 
 #[cfg(test)]
 mod tests {

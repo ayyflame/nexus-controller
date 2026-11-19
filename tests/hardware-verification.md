@@ -225,8 +225,34 @@ Simulated and CI tests cover the logic; these confirm it on hardware.
 |---|---|---|
 | CF1 | Virtual output on (Xbox 360), **Live Viewer › Output Check**, press every button, pull both triggers, move both sticks | Every row stays green; "Windows receives exactly what NEXUS sends" |
 | CF2 | Same, with a game (e.g. Warzone) running in the background | Still green; no differences that stay while input is held still |
-| CF3 | **Performance**, play for 30+ minutes | *Virtual controller driver call* p99 stays well under 1 ms; report rate ~250 Hz; late reports over 50 ms stay at or near 0. Note any spikes |
+| CF3 | **Performance**, play for 30+ minutes | *Virtual controller driver call* p99 stays well under 1 ms; *Slow driver calls* shows 0 over 50 ms and almost none over 4 ms; report rate ~250 Hz; late reports over 50 ms stay at or near 0. Note any spikes: any call over 50 ms means the latest-frame handoff in `docs/driver-performance.md` should be built |
 | CF4 | **Controller › Mapping › Button combinations**: L1 + R1 → Triangle, hide on | Holding L1+R1 gives Y in `joy.cpl`/Output Check, not LB/RB; releasing one doesn't flash LB/RB; L1 alone still gives LB |
 | CF5 | Macro with **Hold to activate** 300 ms, each mode | A quick tap does nothing; holding fires it; releasing stops Repeat While Held at once |
 | CF6 | Profiles › **Make default**, switch to another profile, restart NEXUS | NEXUS starts on the default profile |
 | CF7 | Unplug the controller while a macro is running and a button is held | The virtual controller is removed; Output Check / `joy.cpl` show nothing stuck; reconnect resumes |
+
+## Windows integration and stick mapping (November 2026): needs Windows, the DualSense for SM checks
+
+The rules are unit-tested and the installer check runs in CI on a GitHub Windows machine; these confirm behaviour on a real PC.
+
+| # | Check | Expected |
+|---|---|---|
+| WI1 | Close the window (default settings) while a game uses the controller | NEXUS stays in the tray; the game keeps the controller; clicking the tray icon brings the window back where it was |
+| WI2 | Tray right-click › **Quit NEXUS** while holding a button / while a macro plays | NEXUS exits within ~2 s; `joy.cpl` shows the Xbox controller gone, nothing stuck in the game |
+| WI3 | *Settings › Windows*: Close button → *Quit NEXUS*, close the window | NEXUS exits and releases the controller (as WI2) |
+| WI4 | *Minimise → Hide to the tray*, minimise | No taskbar button; tray click restores it |
+| WI5 | **Start with Windows** on, sign out and in | NEXUS starts in the tray (no window), the DualSense and virtual controller work without opening it |
+| WI6 | Same with *When started with Windows → Open the window* | The window opens at sign-in |
+| WI7 | Task Manager › Startup apps › NEXUS → Disabled, then open *Settings › Windows* | *Start with Windows* shows off with the Task Manager note; turning it on works at the next sign-in |
+| WI8 | Start NEXUS from the Start menu while it already runs (hidden or not) | No second copy (Task Manager shows one `nexus-desktop.exe`); the existing window comes to the front |
+| WI9 | Resize/move the window, go to Performance, quit and start again | Same size, position and page |
+| WI10 | Uninstall from Windows Settings › Apps with Start with Windows on | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` has no `NEXUS` value; `%APPDATA%\com.nexus.controllerengine` is still there |
+| WI11 | Update to a newer build with Start with Windows on | Still starts with Windows afterwards; profiles kept |
+| SM1 | *Controller › Sticks › Stick swap › Swap sticks*, move each stick in `joy.cpl` / Output Check | Left stick moves the right axes and the other way round, with the full range; L3/R3 unchanged |
+| SM2 | Left stick deadzone 30 %, right 5 %, swapped | The left stick's drift is still hidden (its deadzone travels with it) |
+| SM3 | Gyro on, sticks swapped | Gyro still aims with the game's right stick |
+| SM4 | *Stick to buttons* on the left stick, *Use as d-pad*, analog off | Pushing the stick presses the d-pad in the game; the game's left stick stays centred |
+| SM5 | Same, threshold 50 %, release margin 10 %: rest the stick near half travel and wobble it | No flicker of the d-pad button (Output Check / `joy.cpl`) |
+| SM6 | 4 directions, roll the stick from up to right | Never both buttons at once; up releases before right presses |
+| SM7 | *Also move the stick in games* on, Precise curve | The d-pad presses and the stick still moves with the curve applied |
+| SM8 | Switch to a profile without stick mapping while a stick-button is held | The button releases at once; nothing stuck |

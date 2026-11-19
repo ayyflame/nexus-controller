@@ -26,6 +26,7 @@ Built with Tauri 2, React and TypeScript for the UI, and Rust for the engine, wi
 ### Controller
 - **Automatic USB detection.** Finds a USB DualSense, reconnects within about a second, ignores duplicate and virtual devices. No Bluetooth.
 - **Sticks** (*Controller › Sticks*): deadzones (radial or axial, outer, anti-deadzone), sensitivity, response curves (presets or custom), invert, circular or square output.
+- **Stick swap and stick to buttons** (*Controller › Sticks*): swap the left and right sticks (or send one stick to both, or neither), and press buttons by pushing a stick, e.g. the d-pad. Separate left/right and up/down thresholds, a release margin against flicker, 8 or 4 directions, and the stick's movement kept for the game or not. Per profile.
 - **Triggers** (*Controller › Triggers*): deadzone, range, curve and the point where the trigger counts as pressed.
 - **Calibration** (*Live Viewer › Calibration*): a guided wizard for both sticks (resting centre, jitter, full range, a recommended deadzone) and both triggers. Nothing is saved until you apply it, and you can go back to the previous calibration.
 - **Button remapping** (*Controller › Mapping*): click any button on the controller, or its card, and choose what it sends: another button, nothing, or two buttons at once. Each card shows what the game receives (e.g. Triangle → Y). Undo/redo and a list view included.
@@ -55,13 +56,21 @@ Built with Tauri 2, React and TypeScript for the UI, and Rust for the engine, wi
 ### Live Viewer and diagnostics
 - **Live Viewer** (sidebar): every control and analog value, motion (gyro, accelerometer, tilt), connection health, a guided 10-step controller test, a drift test and the calibration wizard. Read-only apart from calibration.
 - **Output Check** (*Live Viewer*): reads the virtual Xbox controller back through XInput (as games do) and compares every button and axis with what NEXUS sent.
-- **Performance:** report rate, timing, late and dropped reports, NEXUS processing time split by stage (mapping, macros, virtual controller driver call). Measurements: [`docs/performance.md`](docs/performance.md).
+- **Performance:** report rate, timing, late and dropped reports, NEXUS processing time split by stage (mapping, macros, virtual controller driver call), and slow driver calls since the controller connected. Measurements: [`docs/performance.md`](docs/performance.md); what a slow driver call does: [`docs/driver-performance.md`](docs/driver-performance.md).
 - **Diagnostics** (*Settings › HID Devices*): raw reports, the engine log, a Report Inspector and a shareable diagnostics report (serial numbers and paths masked).
 
 ### Virtual Xbox 360 output
 - Games see a standard *Controller (XBOX 360 For Windows)* after all processing, remapping and macros.
 - NEXUS shows whether it's connected, its player slot, and when it's reconnecting after a driver error.
-- **No stuck buttons:** a neutral state is sent when the virtual controller goes away, on a profile change while the controller is silent, and after 8 unreadable reports in a row.
+- **No stuck buttons:** a neutral state is sent when the virtual controller goes away, when NEXUS quits, on a profile change while the controller is silent, and after 8 unreadable reports in a row.
+
+### Running in the background
+- **Tray icon:** NEXUS keeps running in the notification area. Click it to open the window; right-click for *Stop all macros* and *Quit NEXUS*.
+- **Close and minimise** (*Settings › Windows*): closing the window keeps NEXUS running in the tray by default, so games keep the virtual controller. Minimising can hide it to the tray too. Both can be switched.
+- **Start with Windows** (*Settings › Windows*), for your user account only, straight to the tray (or with the window, if you prefer). A switch-off in Task Manager › Startup apps is shown.
+- **One copy at a time:** opening NEXUS again brings the running window back, instead of a second copy fighting over the controller.
+- Window size and position, and the page you were on, are restored at the next start.
+- **Quitting** stops macros, releases every button and removes the virtual controller first (waiting at most 2 seconds for the driver).
 
 ### Updates
 - **Built:** a check shortly after start-up and every 6 hours, a notice with the release notes (**Update now** / **Remind me later**), background download, signature check, and install with your data kept (backed up first).
@@ -102,6 +111,8 @@ More detail: [`docs/install-windows.md`](docs/install-windows.md).
 
 **Profiles:** switch from the sidebar, create from templates, choose a **default** to start with, and link a game's `.exe` to switch automatically.
 
+**Keep it running while you play:** close the window; NEXUS stays in the tray. Use *Settings › Windows* to start it with Windows, and tray › *Quit NEXUS* to really close it.
+
 **Check that games get your input:** *Live Viewer › Output Check* with the virtual controller on. Press buttons and move the sticks: every row should stay green.
 
 **What games receive:**
@@ -125,13 +136,15 @@ Full details: [`docs/game-output.md`](docs/game-output.md).
 | A macro press isn't seen | Press time at least 40–50 ms; 20 ms between presses of the same button. |
 | Stick drift, or a stick/trigger not reaching full range | **Live Viewer › Calibration**; **Live Viewer › Drift Test** shows how much a stick drifts. |
 | The 3D controller looks plain white or doesn't change colour | Install the newest build; older builds blocked the model's textures. |
+| Closing the window doesn't quit NEXUS | That's on purpose, so games keep the controller: quit from the tray icon (right-click › *Quit NEXUS*), or switch it off under *Settings › Windows › Close button*. |
+| Nothing opens when I start NEXUS | It's already running in the tray, and that copy's window is brought back. If NEXUS was started with Windows, it starts in the tray; click the tray icon. |
 | Something else looks wrong | **Settings › HID Devices › Copy diagnostics report**, paste it into a text file and send it with a description. |
 
-Your data lives in `%APPDATA%\com.nexus.controllerengine` (profiles, macros, settings, backups). Uninstalling leaves it there; delete the folder for a clean removal.
+Your data lives in `%APPDATA%\com.nexus.controllerengine` (profiles, macros, settings, backups). Uninstalling removes the *Start with Windows* entry and leaves your data there; delete the folder for a clean removal.
 
 ## Documentation
 
-- **Using NEXUS:** [Installing](docs/install-windows.md) · [Game output](docs/game-output.md) · [Macro Studio](docs/macro-studio.md) · [3D controller view](docs/3d-controller.md) · [Live Viewer](docs/live-viewer.md) · [Performance](docs/performance.md) · [Calibration](docs/calibration.md) · [Controller photo mode](docs/controller-photo.md) · [HidHide setup](docs/hidhide-setup.md)
+- **Using NEXUS:** [Installing](docs/install-windows.md) · [Game output](docs/game-output.md) · [Macro Studio](docs/macro-studio.md) · [3D controller view](docs/3d-controller.md) · [Live Viewer](docs/live-viewer.md) · [Performance](docs/performance.md) · [Driver call stalls](docs/driver-performance.md) · [Calibration](docs/calibration.md) · [Controller photo mode](docs/controller-photo.md) · [HidHide setup](docs/hidhide-setup.md)
 - **Testing:** [Hardware test plan](tests/m4.5-test-plan.md) · [Hardware verification checklist](tests/hardware-verification.md) · [Update verification](docs/update-verification.md)
 - **Updates and releases:** [Updater setup](docs/updater-setup.md) · [Releasing](docs/releasing.md)
 - **Internals:** [Architecture](docs/architecture.md) · [DualSense report format](docs/dualsense-protocol.md) · [Virtual output and drivers](docs/virtual-output.md) · [Virtual driver evaluation](docs/virtual-driver-evaluation.md) · [Latency audit](docs/latency-audit.md)

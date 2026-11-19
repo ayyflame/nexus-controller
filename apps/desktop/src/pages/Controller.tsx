@@ -19,8 +19,9 @@ import {
 } from "../lib/mappingView";
 import { MappingView } from "../components/controller/MappingView";
 import { CombosPanel } from "../components/controller/CombosPanel";
+import { StickButtonsPanel, StickRoutingPanel } from "../components/controller/StickMapping";
 import {
-  CURVE_PRESETS, STICK_PRESETS, curvePresetId, defaultProcessing, processStick, shapeMagnitude, triggerOutput, withDefaults,
+  CURVE_PRESETS, STICK_PRESETS, applyStickPreset, curvePresetId, defaultProcessing, processStick, shapeMagnitude, triggerOutput, withDefaults,
 } from "../lib/processing";
 import {
   ButtonSelect, DeviceSelector, GyroTab, LayersPanel, LightingTab, StickCalibrationWizard, TouchpadTab,
@@ -259,7 +260,7 @@ function SticksTab({ config, onChange }: { config: ProcessingConfig; onChange: (
         <Panel title="Quick setup">
           <div className="preset-row">
             {STICK_PRESETS.map((p) => (
-              <button key={p.id} className="preset" data-tip={p.hint} onClick={() => set(p.apply(c))}>{p.label}</button>
+              <button key={p.id} className="preset" data-tip={p.hint} onClick={() => set(applyStickPreset(p, c))}>{p.label}</button>
             ))}
           </div>
         </Panel>
@@ -298,6 +299,9 @@ function SticksTab({ config, onChange }: { config: ProcessingConfig; onChange: (
             <Switch checked={c.invertY} onChange={(invertY) => set({ invertY })} label="Invert up/down" />
           </Advanced>
         </Panel>
+
+        <StickButtonsPanel key={side} side={side} buttons={c.buttons} onChange={(buttons) => set({ buttons })} processed={processed} />
+        <StickRoutingPanel config={config} onChange={onChange} />
       </div>
 
       <div className="tune-preview">

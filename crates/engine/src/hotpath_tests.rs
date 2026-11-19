@@ -221,6 +221,68 @@ fn steady_state_reports_make_no_heap_allocations() {
     );
 }
 
+#[test]
+fn stick_swapping_and_stick_buttons_make_no_heap_allocations() {
+    use nexus_controller_core::Button;
+    use nexus_input_processing::{ProcessingConfig, StickButtons, StickDirections, StickSource};
+    let (e, _, stamp) = handler();
+    let mut c = ProcessingConfig::default();
+    c.stick_routing.left_output = StickSource::Right;
+    c.stick_routing.right_output = StickSource::Left;
+    c.left_stick.buttons = StickButtons {
+        enabled: true,
+        up: Some(Button::DpadUp),
+        down: Some(Button::DpadDown),
+        left: Some(Button::DpadLeft),
+        right: Some(Button::RightTrigger),
+        directions: StickDirections::Four,
+        passthrough: true,
+        ..StickButtons::default()
+    };
+    e.set_processing(c);
+    let factory: OutputBackendFactory = {
+        let s = stamp.clone();
+        Arc::new(move || {
+            Box::new(TimestampPad {
+                last_submit_ns: s.clone(),
+            })
+        })
+    };
+    let mut h = new_session_handler(&e.shared, &factory, &device());
+    // The left stick sweeps through every direction and the centre.
+    let reports: Vec<Vec<u8>> = [
+        (128, 0),
+        (255, 0),
+        (255, 128),
+        (255, 255),
+        (0, 255),
+        (0, 0),
+        (128, 128),
+    ]
+    .iter()
+    .map(|&(lx, ly)| {
+        let mut p = Payload::neutral();
+        p.lx = lx;
+        p.ly = ly;
+        p.rx = 200;
+        p.usb_report()
+    })
+    .collect();
+    let mut parser = DualSenseParser::new(ConnectionType::Usb);
+    for r in reports.iter().cycle().take(300) {
+        h.on_report(r, parser.parse(r));
+    }
+    let before = stamp.load(Ordering::Acquire);
+    let ((), allocs) = count_allocs(|| {
+        for r in reports.iter().cycle().take(1000) {
+            let parsed = parser.parse(r);
+            h.on_report(r, parsed);
+        }
+    });
+    assert!(stamp.load(Ordering::Acquire) > before);
+    assert_eq!(allocs, 0, "stick mapping must not allocate per report");
+}
+
 /// A pad that, at submit time, records how many raw reports the history
 /// already holds: proves output is sent before that report's bookkeeping.
 struct OrderPad {

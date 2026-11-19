@@ -3226,3 +3226,38 @@ fn exit_releases_held_buttons_and_running_macros_before_removing_the_pad() {
     );
     assert_eq!(log.live(), 0);
 }
+
+#[test]
+fn swapped_sticks_and_a_stick_mapped_to_the_dpad_reach_the_virtual_controller() {
+    use nexus_controller_core::Button;
+    use nexus_input_processing::{StickButtons, StickSource};
+    let (backend, e, log) = passthrough_xbox();
+    let mut c = ProcessingConfig::passthrough();
+    // Physical right stick → the game's left stick; physical left stick → d-pad only.
+    c.stick_routing.left_output = StickSource::Right;
+    c.stick_routing.right_output = StickSource::Off;
+    c.left_stick.buttons = StickButtons {
+        enabled: true,
+        up: Some(Button::DpadUp),
+        down: Some(Button::DpadDown),
+        left: Some(Button::DpadLeft),
+        right: Some(Button::DpadRight),
+        ..StickButtons::default()
+    };
+    e.set_processing(c);
+    let mut p = Payload::neutral();
+    p.ly = 0; // physical left stick fully up
+    p.rx = 255; // physical right stick fully right
+    backend.push_report(PATH, p.usb_report());
+    log.wait("d-pad up and the game's left stick right", |pads| {
+        pads.iter().any(|x| {
+            matches!(x, Pad::Report(_, r) if r.buttons == xusb::DPAD_UP
+                && r.thumb_lx == i16::MAX && r.thumb_ly == 0 && r.thumb_rx == 0 && r.thumb_ry == 0)
+        })
+    });
+    backend.push_report(PATH, Payload::neutral().usb_report());
+    log.wait(
+        "released and centred",
+        |pads| matches!(pads.last(), Some(Pad::Report(_, r)) if r.buttons == 0 && r.thumb_lx == 0),
+    );
+}

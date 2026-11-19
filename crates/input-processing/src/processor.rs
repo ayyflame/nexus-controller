@@ -3,7 +3,8 @@
 //! never allocates while processing a report.
 //!
 //! Order per report:
-//! 1. sticks (calibration → deadzones/curve → per-axis sensitivity → shape)
+//! 1. sticks (calibration → deadzones/curve → per-axis sensitivity → shape),
+//!    then stick-to-button directions and stick routing (swap)
 //! 2. triggers (calibration → deadzone/curve/range → activation threshold)
 //! 3. gyro → right stick
 //! 4. touchpad zones and swipes
@@ -12,7 +13,8 @@
 
 use crate::config::{
     CurvePoint, DeadzoneShape, GyroActivation, GyroHorizontalAxis, LayerMode, ProcessingConfig,
-    RemapRule, ResponseCurve, StickConfig, TouchLayout, TriggerConfig,
+    RemapRule, ResponseCurve, StickButtons, StickConfig, StickDirections, StickSource, TouchLayout,
+    TriggerConfig,
 };
 use crate::InputProcessor;
 use nexus_controller_core::{Button, ControllerState, StickState, TriggerState};
@@ -81,6 +83,9 @@ pub struct ConfiguredProcessor {
     /// Combination buttons hidden until each is released.
     combo_latched: u32,
     layer_toggled: [bool; crate::config::MAX_LAYERS],
+    /// Stick directions currently pressed (left stick, right stick), as
+    /// `DIR_*` bits, for hysteresis and four-way stickiness.
+    stick_dirs: [u8; 2],
     prev_physical: u32,
     gyro: GyroState,
     touch: TouchState,
@@ -111,6 +116,7 @@ impl ConfiguredProcessor {
                 .collect(),
             combo_latched: 0,
             layer_toggled: [false; crate::config::MAX_LAYERS],
+            stick_dirs: [0; 2],
             prev_physical: 0,
             gyro: GyroState::default(),
             touch: TouchState::default(),
@@ -149,6 +155,8 @@ impl ConfiguredProcessor {
         let c = &self.config;
         process_stick(&c.left_stick, &mut state.left_stick);
         process_stick(&c.right_stick, &mut state.right_stick);
+        let stick_presses = self.apply_stick_mapping(state);
+        let c = &self.config;
         process_trigger(&c.left_trigger, &mut state.left_trigger);
         process_trigger(&c.right_trigger, &mut state.right_trigger);
 
@@ -187,9 +195,40 @@ impl ConfiguredProcessor {
                 state,
             );
         }
-        for b in Button::from_mask(overlay | combo_sends) {
+        for b in Button::from_mask(overlay | combo_sends | stick_presses) {
             press(state, b, &self.config);
         }
+    }
+
+    /// Stick-to-button directions and stick routing, on the processed
+    /// sticks. Returns the buttons the sticks press.
+    fn apply_stick_mapping(&mut self, state: &mut ControllerState) -> u32 {
+        let c = &self.config;
+        let physical = [state.left_stick, state.right_stick];
+        let mut feed = physical;
+        let mut presses = 0u32;
+        for (i, b) in [&c.left_stick.buttons, &c.right_stick.buttons]
+            .into_iter()
+            .enumerate()
+        {
+            if !b.enabled {
+                self.stick_dirs[i] = 0;
+                continue;
+            }
+            self.stick_dirs[i] = stick_directions(b, physical[i], self.stick_dirs[i]);
+            presses |= direction_buttons(b, self.stick_dirs[i]);
+            if !b.passthrough {
+                feed[i] = CENTRED;
+            }
+        }
+        let pick = |src: StickSource| match src {
+            StickSource::Left => feed[0],
+            StickSource::Right => feed[1],
+            StickSource::Off => CENTRED,
+        };
+        state.left_stick = pick(c.stick_routing.left_output);
+        state.right_stick = pick(c.stick_routing.right_output);
+        presses
     }
 
     /// Combinations held right now: returns (buttons they press, buttons to
@@ -471,6 +510,72 @@ pub fn process_stick(c: &StickConfig, s: &mut StickState) {
     s.y = y.clamp(-1.0, 1.0);
     s.raw_x = to_raw(s.x);
     s.raw_y = to_raw(-s.y);
+}
+
+// ---- Stick directions -------------------------------------------------------
+
+const CENTRED: StickState = StickState {
+    x: 0.0,
+    y: 0.0,
+    raw_x: 128,
+    raw_y: 128,
+};
+
+pub const DIR_UP: u8 = 1;
+pub const DIR_DOWN: u8 = 2;
+pub const DIR_LEFT: u8 = 4;
+pub const DIR_RIGHT: u8 = 8;
+const VERTICAL: u8 = DIR_UP | DIR_DOWN;
+const HORIZONTAL: u8 = DIR_LEFT | DIR_RIGHT;
+
+/// Directions a stick presses (`DIR_*` bits), given what it pressed before.
+///
+/// A direction presses at its axis threshold and releases only once the stick
+/// is back below the threshold minus the hysteresis. In four-way mode a
+/// diagonal keeps the direction that was already pressed; from the centre
+/// the stronger one (relative to its threshold) wins.
+pub fn stick_directions(b: &StickButtons, s: StickState, prev: u8) -> u8 {
+    let axis = |v: f32, threshold: f32, pos: u8, neg: u8| -> u8 {
+        let on = |bit: u8, magnitude: f32| {
+            if prev & bit != 0 {
+                magnitude > threshold - b.hysteresis
+            } else {
+                magnitude >= threshold
+            }
+        };
+        if v > 0.0 && on(pos, v) {
+            pos
+        } else if v < 0.0 && on(neg, -v) {
+            neg
+        } else {
+            0
+        }
+    };
+    // Up is positive y.
+    let mut d =
+        axis(s.y, b.threshold_y, DIR_UP, DIR_DOWN) | axis(s.x, b.threshold_x, DIR_RIGHT, DIR_LEFT);
+    if b.directions == StickDirections::Four && d & VERTICAL != 0 && d & HORIZONTAL != 0 {
+        let held_v = prev & VERTICAL != 0 && prev & HORIZONTAL == 0;
+        let held_h = prev & HORIZONTAL != 0 && prev & VERTICAL == 0;
+        let keep_vertical = if held_v {
+            true
+        } else if held_h {
+            false
+        } else {
+            s.y.abs() / b.threshold_y >= s.x.abs() / b.threshold_x
+        };
+        d &= if keep_vertical { VERTICAL } else { HORIZONTAL };
+    }
+    d
+}
+
+/// Buttons for a set of pressed directions.
+fn direction_buttons(b: &StickButtons, d: u8) -> u32 {
+    let bit = |dir: u8, button: Option<Button>| match button {
+        Some(x) if d & dir != 0 => x.bit(),
+        _ => 0,
+    };
+    bit(DIR_UP, b.up) | bit(DIR_DOWN, b.down) | bit(DIR_LEFT, b.left) | bit(DIR_RIGHT, b.right)
 }
 
 // ---- Triggers ---------------------------------------------------------------

@@ -284,6 +284,24 @@ export interface StickConfig {
   sensitivityY: number;
   squareOutput: boolean;
   calibration: StickCalibration;
+  /** Pressing buttons by pushing this stick in a direction. */
+  buttons: StickButtons;
+}
+
+/** Which physical stick drives one of the game's sticks. */
+export type StickSource = "left" | "right" | "off";
+export interface StickRouting { leftOutput: StickSource; rightOutput: StickSource }
+export type StickDirections = "eight" | "four";
+export interface StickButtons {
+  enabled: boolean;
+  up: MacroButton | null; down: MacroButton | null; left: MacroButton | null; right: MacroButton | null;
+  /** 0.1–0.95 of full travel. */
+  thresholdX: number; thresholdY: number;
+  /** How far below the threshold before a button releases (0–0.5). */
+  hysteresis: number;
+  directions: StickDirections;
+  /** Keep sending the stick's movement to the game too. */
+  passthrough: boolean;
 }
 
 export interface StickCalibration { centerX: number; centerY: number; minX: number; maxX: number; minY: number; maxY: number }
@@ -331,6 +349,8 @@ export interface ImportReport { profilesAdded: number; macrosAdded: number; rena
 export interface ProcessingConfig {
   leftStick: StickConfig;
   rightStick: StickConfig;
+  /** Which physical stick the game receives as its left and right stick. */
+  stickRouting: StickRouting;
   leftTrigger: TriggerConfig;
   rightTrigger: TriggerConfig;
   remap: RemapRule[];

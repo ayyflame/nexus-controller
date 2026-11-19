@@ -2,15 +2,24 @@
 // to draw previews. The engine is the authority and does the real work.
 
 import type {
-  FeedbackConfig, GyroConfig, ProcessingConfig, ResponseCurve, StickConfig, TouchpadConfig, TriggerConfig,
+  FeedbackConfig, GyroConfig, ProcessingConfig, ResponseCurve, StickButtons, StickConfig, StickRouting, TouchpadConfig,
+  TriggerConfig,
 } from "../types/engine";
 
 export const DEFAULT_CALIBRATION = { centerX: 0, centerY: 0, minX: -1, maxX: 1, minY: -1, maxY: 1 };
+
+export const DEFAULT_STICK_BUTTONS: StickButtons = {
+  enabled: false, up: null, down: null, left: null, right: null,
+  thresholdX: 0.5, thresholdY: 0.5, hysteresis: 0.1, directions: "eight", passthrough: false,
+};
+
+export const DEFAULT_ROUTING: StickRouting = { leftOutput: "left", rightOutput: "right" };
 
 export const DEFAULT_STICK: StickConfig = {
   deadzone: 0.05, outerDeadzone: 0, antiDeadzone: 0, sensitivity: 1,
   curve: { type: "linear" }, shape: "radial", circular: true, invertX: false, invertY: false,
   sensitivityX: 1, sensitivityY: 1, squareOutput: false, calibration: { ...DEFAULT_CALIBRATION },
+  buttons: { ...DEFAULT_STICK_BUTTONS },
 };
 
 export const DEFAULT_TRIGGER: TriggerConfig = {
@@ -36,7 +45,9 @@ export const DEFAULT_FEEDBACK: FeedbackConfig = {
 
 export function defaultProcessing(): ProcessingConfig {
   return {
-    leftStick: { ...DEFAULT_STICK }, rightStick: { ...DEFAULT_STICK },
+    leftStick: { ...DEFAULT_STICK, buttons: { ...DEFAULT_STICK_BUTTONS } },
+    rightStick: { ...DEFAULT_STICK, buttons: { ...DEFAULT_STICK_BUTTONS } },
+    stickRouting: { ...DEFAULT_ROUTING },
     leftTrigger: { ...DEFAULT_TRIGGER }, rightTrigger: { ...DEFAULT_TRIGGER },
     remap: [], layers: [], combos: [], gyro: { ...DEFAULT_GYRO }, touchpad: { ...DEFAULT_TOUCHPAD },
     feedback: { ...DEFAULT_FEEDBACK },
@@ -47,9 +58,11 @@ export function defaultProcessing(): ProcessingConfig {
 export function withDefaults(c: Partial<ProcessingConfig> | null | undefined): ProcessingConfig {
   const d = defaultProcessing();
   if (!c) return d;
-  const stick = (s?: Partial<StickConfig>) => ({ ...DEFAULT_STICK, ...s, calibration: { ...DEFAULT_CALIBRATION, ...s?.calibration } });
+  const stick = (s?: Partial<StickConfig>) => ({
+    ...DEFAULT_STICK, ...s, calibration: { ...DEFAULT_CALIBRATION, ...s?.calibration }, buttons: { ...DEFAULT_STICK_BUTTONS, ...s?.buttons },
+  });
   return {
-    leftStick: stick(c.leftStick), rightStick: stick(c.rightStick),
+    leftStick: stick(c.leftStick), rightStick: stick(c.rightStick), stickRouting: { ...DEFAULT_ROUTING, ...c.stickRouting },
     leftTrigger: { ...DEFAULT_TRIGGER, ...c.leftTrigger }, rightTrigger: { ...DEFAULT_TRIGGER, ...c.rightTrigger },
     remap: c.remap ?? [], layers: c.layers ?? [], combos: c.combos ?? [],
     gyro: { ...d.gyro, ...c.gyro }, touchpad: { ...d.touchpad, ...c.touchpad }, feedback: { ...d.feedback, ...c.feedback },
@@ -68,6 +81,11 @@ export const STICK_PRESETS: Array<{ id: string; label: string; hint: string; app
   { id: "precise", label: "Precise aim", hint: "Deadzone plus a precise curve", apply: () => ({ ...DEFAULT_STICK, deadzone: 0.08, curve: { type: "power", exponent: 1.8 } }) },
   { id: "drift", label: "Worn stick", hint: "Larger deadzone for a drifting stick", apply: () => ({ ...DEFAULT_STICK, deadzone: 0.15 }) },
 ];
+
+/** A quick-setup preset changes how the stick feels, never its calibration or stick buttons. */
+export function applyStickPreset(preset: (typeof STICK_PRESETS)[number], c: StickConfig): StickConfig {
+  return { ...preset.apply(c), calibration: c.calibration, buttons: c.buttons };
+}
 
 export function evaluateCurve(curve: ResponseCurve, n: number): number {
   const x = Math.min(1, Math.max(0, n));
