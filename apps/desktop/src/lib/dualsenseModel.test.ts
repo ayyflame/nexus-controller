@@ -110,3 +110,14 @@ test("the shader version of Midnight Black uses exactly the tested rule's colour
   assert.ok(BLACK_FINISH_GLSL.includes(`smoothstep( ${FINISH_BANDS.print[0].toFixed(4)}, ${FINISH_BANDS.print[1].toFixed(4)}, l )`), "print band");
   assert.match(BLACK_FINISH_GLSL, /uniform float nexusBlack;/);
 });
+
+test("the app's security policy lets the 3D model's embedded textures load", () => {
+  // three.js unpacks a GLB's textures into blob: URLs and fetches them; without
+  // blob: in connect-src and img-src the controller renders untextured (all white).
+  const conf = JSON.parse(readFileSync(new URL("../../src-tauri/tauri.conf.json", import.meta.url), "utf8"));
+  const csp: string = conf.app.security.csp;
+  const directive = (name: string) => csp.split(";").map((d) => d.trim()).find((d) => d.startsWith(`${name} `)) ?? "";
+  assert.match(directive("connect-src"), /(^|\s)blob:(\s|$)/);
+  assert.match(directive("img-src"), /(^|\s)blob:(\s|$)/);
+  assert.doesNotMatch(csp, /\*|https?:\/\/(?!ipc\.localhost)/, "still no outside hosts");
+});
