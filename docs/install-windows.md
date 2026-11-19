@@ -5,10 +5,11 @@ For testers and users. **No developer tools are needed**: no Rust, Node.js, Visu
 
 ## Install
 
-1. Get the installer while signed in to GitHub (the repository is private), in one of two ways:
-   - **From a release (recommended, updates automatically):** open the [Releases page](https://github.com/ayyflame/nexus-controller/releases) and click **`NEXUS_<version>_x64-setup.exe`** under the newest release.
-   - **From a build:** open the [Actions tab](https://github.com/ayyflame/nexus-controller/actions/workflows/windows-release.yml), click the newest green run, and under **Artifacts** click **NEXUS-windows-x64**. This downloads a ZIP; right-click it, choose **Extract All…**, and open the extracted folder. Artifacts expire after 30 days.
-2. Find **`NEXUS_0.1.0_x64-setup.exe`** in your downloads (or the extracted folder).
+1. Get the installer, in one of these ways:
+   - **Newest build (simplest):** [download `NEXUS-latest-x64-setup.exe`](https://github.com/ayyflame/nexus-controller/releases/download/latest-build/NEXUS-latest-x64-setup.exe), the same as the **Download NEXUS** button in the README. It's replaced by every new build of `main`; its checksum is on the [Latest build](https://github.com/ayyflame/nexus-controller/releases/tag/latest-build) page.
+   - **A versioned release:** open the [Releases page](https://github.com/ayyflame/nexus-controller/releases) and click **`NEXUS_<version>_x64-setup.exe`** under the newest release.
+   - **A specific build:** open the [Actions tab](https://github.com/ayyflame/nexus-controller/actions/workflows/windows-release.yml), click a green run, and under **Artifacts** click **NEXUS-windows-x64** (GitHub requires you to be signed in for this). This downloads a ZIP; right-click it, choose **Extract All…**, and open the extracted folder. Artifacts expire after 30 days.
+2. Find the setup file in your downloads (or the extracted folder).
 3. Double-click it.
 4. Windows SmartScreen may show **"Windows protected your PC"**, because the installer is not code-signed yet. Click **More info**, then **Run anyway**.
 5. Follow the setup wizard: **Next → Install → Finish**. No administrator password is needed, because NEXUS installs for your user account only.
