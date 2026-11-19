@@ -207,8 +207,9 @@ pub fn shutdown_runtime(app: &AppHandle) {
             w.stop();
         }
         state.bridge.stop();
-        // Releases controller handles and any virtual devices.
-        state.engine.shutdown();
+        // Releases every button and removes the virtual controllers, without
+        // waiting forever on a driver call that doesn't return.
+        state.engine.shutdown_within(crate::EXIT_RELEASE_TIMEOUT);
     }
 }
 

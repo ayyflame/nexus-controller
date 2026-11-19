@@ -244,6 +244,14 @@ jobs:
             Copy-Item $sig updater/
           }
 
+      - name: Verify install, update and uninstall (this test machine only)
+        # Installs the NSIS build per user, starts NEXUS twice (one copy must
+        # remain), updates over it, uninstalls while it runs, and checks the
+        # startup entry is removed and profiles are kept; then the MSI
+        # uninstall. See scripts/installer-check.ps1.
+        shell: pwsh
+        run: ./scripts/installer-check.ps1 -Installers installers
+
       - name: Verify the app binary has no VC++ runtime dependency
         shell: pwsh
         run: |

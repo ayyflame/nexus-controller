@@ -10,7 +10,8 @@ import { pageHidden } from "../lib/visibility";
 import { ReleaseNotes, UpdateActions } from "../components/UpdateBanner";
 import { Switch } from "../components/macro/common";
 import { ReportInspector } from "../components/ReportInspector";
-import type { HidDiagnostic, LogEntry, RawReport } from "../types/engine";
+import { DEFAULT_BEHAVIOUR, closeText, startupView } from "../lib/windowsIntegration";
+import type { HidDiagnostic, LogEntry, RawReport, WindowBehaviour, WindowsIntegration } from "../types/engine";
 
 function UpdatesCard() {
   const u = useUpdates();
@@ -53,6 +54,59 @@ function UpdatesCard() {
       <p className="small muted" style={{ marginTop: 10 }}>
         Updates are never installed without your OK. Each update is checked against NEXUS's signing key before it runs.
         Profiles, macros, calibration and settings are kept, and a backup of them is saved first.
+      </p>
+    </div>
+  );
+}
+
+function WindowsCard() {
+  const { connection } = useEngine();
+  const ready = connection.kind === "ready";
+  const [state, setState] = useState<WindowsIntegration | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!ready) return;
+    engineApi.getWindowsIntegration().then(setState, (e) => setError(errorMessage(e)));
+  }, [ready]);
+
+  const run = async (f: () => Promise<WindowsIntegration>) => {
+    setBusy(true);
+    setError(null);
+    try { setState(await f()); } catch (e) { setError(errorMessage(e)); } finally { setBusy(false); }
+  };
+  const b = state?.behaviour ?? DEFAULT_BEHAVIOUR;
+  const setB = (patch: Partial<WindowBehaviour>) => void run(() => engineApi.setWindowBehaviour({ ...b, ...patch }));
+  const startup = startupView(ready ? state?.startWithWindows ?? null : { supported: false, enabled: false, disabledInWindows: false, error: null });
+  const off = !ready || !state || busy;
+
+  return (
+    <div className="card">
+      <h2>Windows</h2>
+      <Row label="Start with Windows">
+        <Switch checked={startup.checked} disabled={startup.disabled || busy}
+          onChange={(on) => void run(() => engineApi.setStartWithWindows(on))}
+          label={startup.checked ? "On" : "Off"} />
+      </Row>
+      <p className={`small ${startup.tone === "muted" ? "muted" : startup.tone === "warn" ? "warn-text" : "err-text"}`}>{startup.note}</p>
+      <Row label="When started with Windows">
+        <Switch checked={b.startHidden} disabled={off} onChange={(startHidden) => setB({ startHidden })}
+          label={b.startHidden ? "Start in the tray" : "Open the window"} />
+      </Row>
+      <Row label="Close button">
+        <Switch checked={b.closeToTray} disabled={off} onChange={(closeToTray) => setB({ closeToTray })}
+          label={b.closeToTray ? "Keep running in the tray" : "Quit NEXUS"} />
+      </Row>
+      <Row label="Minimise">
+        <Switch checked={b.minimizeToTray} disabled={off} onChange={(minimizeToTray) => setB({ minimizeToTray })}
+          label={b.minimizeToTray ? "Hide to the tray" : "To the taskbar"} />
+      </Row>
+      <p className="small muted">{closeText(b)}</p>
+      {error && <div className="notice error small">{error}</div>}
+      <p className="small muted" style={{ marginTop: 8 }}>
+        Only one copy of NEXUS runs at a time: opening it again brings back this window. Window size and position are
+        remembered. Quitting releases every button and removes the virtual controller before NEXUS closes.
       </p>
     </div>
   );
@@ -226,8 +280,9 @@ export function Settings() {
           <Row label="Welcome guide"><button className="btn-ghost" onClick={() => { try { localStorage.removeItem("nexus.onboarding.v1"); } catch { /* ignore */ } window.location.reload(); }}>Show again</button></Row>
           <Row label="Platform">{appInfo ? `${appInfo.os} / ${appInfo.arch}` : "—"}</Row>
           <Row label="Data folder"><span className="mono small break">{appInfo?.dataDir ?? "—"}</span></Row>
-          <Row label="Start with Windows"><span className="muted">Planned for a later milestone</span></Row>
         </div>
+
+        <WindowsCard />
 
         <UpdatesCard />
 

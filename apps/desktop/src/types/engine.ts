@@ -341,3 +341,17 @@ export interface ProcessingConfig {
   touchpad: TouchpadConfig;
   feedback: FeedbackConfig;
 }
+
+// ---- Windows integration --------------------------------------------------
+
+/** What closing and minimising the window do, and whether a sign-in start opens it. */
+export interface WindowBehaviour { closeToTray: boolean; minimizeToTray: boolean; startHidden: boolean }
+export interface StartupStatus {
+  /** Start with Windows can be set here (false outside the Windows app). */
+  supported: boolean;
+  enabled: boolean;
+  /** Switched off in Task Manager › Startup apps. */
+  disabledInWindows: boolean;
+  error: string | null;
+}
+export interface WindowsIntegration { behaviour: WindowBehaviour; startWithWindows: StartupStatus }

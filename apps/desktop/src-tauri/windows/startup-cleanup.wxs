@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  NEXUS addition to Tauri's MSI (bundle.windows.wix.fragmentPaths).
+
+  "Start with Windows" is a per-user value NEXUS itself writes:
+  HKCU\Software\Microsoft\Windows\CurrentVersion\Run\NEXUS (plus Task
+  Manager's on/off flag for it). The MSI never writes it, so Windows Installer
+  would not remove it. This removes both on a real uninstall, as the user,
+  without a console window. Not on upgrades (UPGRADINGPRODUCTCODE), so
+  updating keeps the user's choice. Profiles and settings are not touched.
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Fragment>
+    <!-- Referenced by componentGroupRefs in tauri.conf.json so this fragment is linked. -->
+    <ComponentGroup Id="NexusStartupCleanup" />
+
+    <SetProperty Id="NexusRemoveStartupEntry" Sequence="execute" Before="NexusRemoveStartupEntry"
+      Value="&quot;[System64Folder]cmd.exe&quot; /d /c reg.exe delete &quot;HKCU\Software\Microsoft\Windows\CurrentVersion\Run&quot; /v NEXUS /f &amp; reg.exe delete &quot;HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run&quot; /v NEXUS /f &amp; exit 0" />
+    <CustomAction Id="NexusRemoveStartupEntry" BinaryKey="WixCA" DllEntry="WixQuietExec64"
+      Execute="deferred" Impersonate="yes" Return="ignore" />
+
+    <InstallExecuteSequence>
+      <Custom Action="NexusRemoveStartupEntry" Before="InstallFinalize">REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE</Custom>
+    </InstallExecuteSequence>
+  </Fragment>
+</Wix>

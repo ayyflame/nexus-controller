@@ -3139,11 +3139,18 @@ fn a_slow_driver_call_delays_reports_but_none_is_lost_and_each_is_counted() {
     stall.store(60, Ordering::SeqCst);
     // Reports keep arriving while the driver call is stuck; the HID driver
     // queues them (on Windows: up to 32, about 128 ms at 250 Hz).
-    for p in [held(0, 0x20), held(0, 0x40), held(0, 0x20 | 0x40), held(0, 0)] {
+    for p in [
+        held(0, 0x20),
+        held(0, 0x40),
+        held(0, 0x20 | 0x40),
+        held(0, 0),
+    ] {
         backend.push_report(PATH, p.usb_report());
         std::thread::sleep(Duration::from_millis(4));
     }
-    log.wait("all four after the stall", |_| log.reports().len() >= before + 4);
+    log.wait("all four after the stall", |_| {
+        log.reports().len() >= before + 4
+    });
     stall.store(0, Ordering::SeqCst);
     let sent: Vec<u16> = log.reports()[before..before + 4]
         .iter()
@@ -3204,7 +3211,9 @@ fn exit_releases_held_buttons_and_running_macros_before_removing_the_pad() {
         backend.push_report(PATH, report(&[(0, 0x10), R3]));
         std::thread::sleep(Duration::from_millis(4));
     }
-    wait_status(&e, "macro playing", |s| !s.devices[0].playing_macros.is_empty());
+    wait_status(&e, "macro playing", |s| {
+        !s.devices[0].playing_macros.is_empty()
+    });
     let t = Instant::now();
     assert!(e.shutdown_within(Duration::from_secs(2)));
     assert!(t.elapsed() < Duration::from_secs(1));

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { CommandPalette } from "./components/CommandPalette";
 import { Onboarding } from "./components/Onboarding";
 import { Sidebar, type PageId } from "./components/Sidebar";
+import { loadPage, savePage } from "./lib/lastPage";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { EngineProvider, useEngine } from "./hooks/useEngine";
 import { Dashboard } from "./pages/Dashboard";
@@ -40,10 +41,10 @@ function ShellBanner() {
 }
 
 export function App() {
-  const [page, setPage] = useState<PageId>("dashboard");
+  const [page, setPage] = useState<PageId>(loadPage);
   const [tab, setTab] = useState<string | undefined>();
   const [nav, setNav] = useState(0);
-  const navigate = (p: string, t?: string) => { setPage(p as PageId); setTab(t); setNav((n) => n + 1); };
+  const navigate = (p: string, t?: string) => { setPage(p as PageId); setTab(t); setNav((n) => n + 1); savePage(p); };
   useEffect(() => {
     const onNav = (e: Event) => { const d = (e as CustomEvent<{ page: string; tab?: string }>).detail; navigate(d.page, d.tab); };
     window.addEventListener("nexus:navigate", onNav);

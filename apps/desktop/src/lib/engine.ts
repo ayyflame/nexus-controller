@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
-  OutputCheck,
+  OutputCheck, WindowBehaviour, WindowsIntegration,
   AppInfo, CommandError, EngineEvent, HidDiagnostic, EngineStatus, LogEntry, Macro, Profile, RawReport,
   ConfigConflict, DriverStatus, ExportResult, GyroCalibration, ImportMode, ImportPreview, ImportReport, ProcessingConfig,
   ProfileTemplate, RecordingResult, ValidationIssue, VirtualOutputKind,
@@ -40,6 +40,9 @@ export const engineApi = {
   getDefaultProfile: () => invoke<number | null>("get_default_profile"),
   setDefaultProfile: (id: number | null) => invoke<number | null>("set_default_profile", { id }),
   checkVirtualOutput: () => invoke<OutputCheck>("check_virtual_output"),
+  getWindowsIntegration: () => invoke<WindowsIntegration>("get_windows_integration"),
+  setWindowBehaviour: (behaviour: WindowBehaviour) => invoke<WindowsIntegration>("set_window_behaviour", { behaviour }),
+  setStartWithWindows: (enabled: boolean) => invoke<WindowsIntegration>("set_start_with_windows", { enabled }),
   getEventLog: (limit?: number) => invoke<LogEntry[]>("get_event_log", { limit }),
   getRawReports: (limit?: number) => invoke<RawReport[]>("get_raw_reports", { limit }),
   getHidDiagnostics: () => invoke<HidDiagnostic[]>("get_hid_diagnostics"),

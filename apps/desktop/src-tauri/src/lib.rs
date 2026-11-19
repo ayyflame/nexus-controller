@@ -2,16 +2,27 @@
 //! React UI through typed commands and events. The engine runs on its own
 //! threads; this crate only adapts it to Tauri.
 
+mod background;
 mod bridge;
 mod commands;
 mod game_watch;
+mod startup;
+mod tray;
 mod updates;
 
+use background::{CloseAction, WindowBehaviour};
 use nexus_engine::{Engine, EngineConfig};
 use nexus_profile_manager::ProfileStore;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use tauri::{Manager, RunEvent};
+use std::time::Duration;
+use tauri::{Manager, RunEvent, WindowEvent};
+
+/// How long quitting waits for each controller to release its buttons and
+/// remove its virtual controller. A reader stuck in a driver call that never
+/// returns must not keep NEXUS from exiting; Windows then removes the virtual
+/// controller when the process ends (see docs/driver-performance.md).
+pub const EXIT_RELEASE_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub struct AppState {
     pub engine: Arc<Engine>,
@@ -26,6 +37,20 @@ pub struct AppState {
     pub game_watch: std::sync::OnceLock<game_watch::GameWatch>,
     /// Report Inspector captures (diagnostics; kept in memory only).
     pub inspector: Mutex<nexus_engine::inspector::InspectorSession>,
+    /// Close/minimise to tray, start hidden (read on every window event).
+    pub behaviour: Mutex<WindowBehaviour>,
+}
+
+/// Points an existing "Start with Windows" entry at this copy of NEXUS if it
+/// was reinstalled elsewhere. Installed builds only: a development build must
+/// never take over the installed copy's entry.
+fn repair_startup_entry() {
+    #[cfg(all(windows, not(debug_assertions)))]
+    if let Ok(exe) = std::env::current_exe() {
+        if let Err(e) = startup::repair(&mut startup::Registry, &exe) {
+            eprintln!("NEXUS: could not update the startup entry: {e}");
+        }
+    }
 }
 
 fn open_store(data_dir: Option<&PathBuf>) -> (ProfileStore, Option<String>) {
@@ -48,19 +73,60 @@ fn open_store(data_dir: Option<&PathBuf>) -> (ProfileStore, Option<String>) {
 }
 
 pub fn run() {
+    let started_at_sign_in = startup::started_at_sign_in(&std::env::args().collect::<Vec<_>>());
     let app = tauri::Builder::default()
+        // First: a second copy of NEXUS would fight over the DualSense and
+        // create a second virtual controller. It exits at once and the
+        // running copy shows its window instead.
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if background::show_on_second_launch(startup::started_at_sign_in(&args)) {
+                tray::show_main(app);
+            }
+        }))
+        // Window size, position and maximised state across restarts. Never
+        // visibility: whether the window opens is decided below.
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::all()
+                        - tauri_plugin_window_state::StateFlags::VISIBLE,
+                )
+                .build(),
+        )
         // Rust-side only: no updater permission is granted to the webview.
         .plugin(tauri_plugin_updater::Builder::new().build())
-        // Pause the 60 Hz UI status stream while the window is minimised (P6).
         .on_window_event(|window, event| {
+            let Some(state) = window.try_state::<AppState>() else {
+                return;
+            };
+            let behaviour = *state.behaviour.lock().unwrap_or_else(|e| e.into_inner());
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                if background::on_close(behaviour) == CloseAction::HideToTray {
+                    api.prevent_close();
+                    tray::hide_main(window.app_handle());
+                }
+                return;
+            }
+            // Pause the 60 Hz UI status stream while the window is minimised (P6).
             let visible = bridge::visibility_after(event, || window.is_minimized().ok());
-            if let (Some(visible), Some(state)) = (visible, window.try_state::<AppState>()) {
-                state.bridge.set_visible(visible);
+            if let Some(visible) = visible {
+                if background::hide_when_minimised(behaviour, !visible) {
+                    tray::hide_main(window.app_handle());
+                } else {
+                    state.bridge.set_visible(visible);
+                }
             }
         })
-        .setup(|app| {
+        .setup(move |app| {
             let data_dir = app.path().app_data_dir().ok();
             let (mut store, storage_warning) = open_store(data_dir.as_ref());
+            let behaviour = WindowBehaviour::from_saved(
+                store
+                    .get_setting(background::SETTINGS_KEY)
+                    .ok()
+                    .flatten()
+                    .as_deref(),
+            );
             // Start with the default profile, if one is chosen.
             let profile = store.activate_default_profile()?;
 
@@ -86,7 +152,23 @@ pub fn run() {
                 auto_switch: std::sync::atomic::AtomicBool::new(auto_switch),
                 game_watch: std::sync::OnceLock::new(),
                 inspector: Mutex::new(Default::default()),
+                behaviour: Mutex::new(behaviour),
             });
+            repair_startup_entry();
+            if let Err(e) = tray::create(app.handle()) {
+                // Without a tray icon a hidden window could not be reopened,
+                // so closing must quit.
+                eprintln!("NEXUS: no tray icon ({e}); closing the window quits");
+                let state = app.state::<AppState>();
+                let mut b = state.behaviour.lock().unwrap_or_else(|e| e.into_inner());
+                b.close_to_tray = false;
+                b.minimize_to_tray = false;
+            }
+            if background::show_at_launch(behaviour, started_at_sign_in) {
+                tray::show_main(app.handle());
+            } else {
+                app.state::<AppState>().bridge.set_visible(false);
+            }
             if nexus_app_detect::supported() {
                 let watch = game_watch::GameWatch::spawn(app.handle().clone());
                 let _ = app.state::<AppState>().game_watch.set(watch);
@@ -109,6 +191,9 @@ pub fn run() {
             commands::set_active_profile,
             commands::get_default_profile,
             commands::set_default_profile,
+            commands::get_windows_integration,
+            commands::set_window_behaviour,
+            commands::set_start_with_windows,
             commands::set_virtual_output,
             commands::get_output_consent,
             commands::set_output_consent,

@@ -19,6 +19,7 @@
         "minWidth": 1100,
         "minHeight": 700,
         "center": true,
+        "visible": false,
         "backgroundColor": "#111214"
       }
     ],
@@ -46,7 +47,16 @@
       "nsis": {
         "installMode": "currentUser",
         "installerIcon": "icons/icon.ico",
-        "displayLanguageSelector": false
+        "displayLanguageSelector": false,
+        "installerHooks": "windows/hooks.nsh"
+      },
+      "wix": {
+        "fragmentPaths": [
+          "windows/startup-cleanup.wxs"
+        ],
+        "componentGroupRefs": [
+          "NexusStartupCleanup"
+        ]
       }
     },
     "publisher": "NEXUS",

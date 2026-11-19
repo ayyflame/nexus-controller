@@ -208,6 +208,72 @@ pub fn set_default_profile(state: State<'_, AppState>, id: Option<i64>) -> CmdRe
     store.set_default_profile(id).map_err(profile_error)
 }
 
+// ---- Windows integration ----------------------------------------------------
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WindowsIntegration {
+    pub behaviour: crate::background::WindowBehaviour,
+    pub start_with_windows: crate::startup::StartupStatus,
+}
+
+fn startup_status() -> crate::startup::StartupStatus {
+    #[cfg(windows)]
+    {
+        crate::startup::status(&crate::startup::Registry)
+    }
+    #[cfg(not(windows))]
+    {
+        crate::startup::StartupStatus::default()
+    }
+}
+
+fn integration(state: &AppState) -> WindowsIntegration {
+    WindowsIntegration {
+        behaviour: *state.behaviour.lock().unwrap_or_else(|e| e.into_inner()),
+        start_with_windows: startup_status(),
+    }
+}
+
+#[tauri::command]
+pub fn get_windows_integration(state: State<'_, AppState>) -> WindowsIntegration {
+    integration(&state)
+}
+
+#[tauri::command]
+pub fn set_window_behaviour(
+    state: State<'_, AppState>,
+    behaviour: crate::background::WindowBehaviour,
+) -> CmdResult<WindowsIntegration> {
+    {
+        let mut store = state.store.lock().map_err(|_| "profile store poisoned")?;
+        store
+            .set_setting(crate::background::SETTINGS_KEY, &behaviour.to_saved())
+            .map_err(profile_error)?;
+    }
+    *state.behaviour.lock().unwrap_or_else(|e| e.into_inner()) = behaviour;
+    Ok(integration(&state))
+}
+
+#[tauri::command]
+pub fn set_start_with_windows(
+    state: State<'_, AppState>,
+    enabled: bool,
+) -> CmdResult<WindowsIntegration> {
+    #[cfg(windows)]
+    {
+        let exe = std::env::current_exe()
+            .map_err(|e| format!("Could not find the NEXUS program file: {e}"))?;
+        crate::startup::set_enabled(&mut crate::startup::Registry, &exe, enabled)?;
+        Ok(integration(&state))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (enabled, state);
+        Err("Start with Windows is only available on Windows.".into())
+    }
+}
+
 #[tauri::command]
 pub fn create_profile(state: State<'_, AppState>, name: String) -> CmdResult<Profile> {
     let mut store = state.store.lock().map_err(|_| "profile store poisoned")?;

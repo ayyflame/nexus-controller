@@ -374,7 +374,9 @@ impl SlowCalls {
                 self.over_50ms += 1;
             }
         }
-        self.longest_ns = self.longest_ns.max(d.as_nanos().min(u64::MAX as u128) as u64);
+        self.longest_ns = self
+            .longest_ns
+            .max(d.as_nanos().min(u64::MAX as u128) as u64);
     }
 }
 
