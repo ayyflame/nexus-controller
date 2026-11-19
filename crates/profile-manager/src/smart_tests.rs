@@ -18,6 +18,7 @@ fn mac(name: &str, trigger: Option<MacroButton>) -> Macro {
         mode: PlaybackMode::Once,
         repeat_delay_ms: 50,
         block_trigger: true,
+        activation_ms: 0,
         created_at_ms: 0,
         updated_at_ms: 0,
     }

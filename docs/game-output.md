@@ -59,7 +59,7 @@ Controller › Virtual Output › *Virtual controller now* and the Dashboard sho
 - **Reconnecting…:** the virtual controller stopped working and NEXUS is creating it again by itself (1 s, then doubling up to 30 s between tries).
 - **Waiting for your DualSense / Waiting for ViGEmBus / Off:** why there is no virtual controller.
 
-Check it in Windows: Win + R, `joy.cpl`, *Controller (XBOX 360 For Windows)* › Properties.
+Check it in Windows: Win + R, `joy.cpl`, *Controller (XBOX 360 For Windows)* › Properties. Or in NEXUS: **Live Viewer › Output Check** reads the virtual controller back through XInput, the API games use, and compares every button and axis with what NEXUS sent.
 
 ## No stuck buttons
 

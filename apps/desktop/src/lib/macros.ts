@@ -50,6 +50,8 @@ export const LIMITS = {
   minReleaseGapMs: 20,
   maxHoldMs: 10_000,
   maxDelayMs: 10_000,
+  /** Longest hold-to-activate time (engine: MAX_ACTIVATION_MS). */
+  maxActivationMs: 3_000,
   maxSteps: 200,
   maxNameLength: 60,
   maxDescriptionLength: 300,
@@ -112,6 +114,7 @@ export function newMacro(): Macro {
     mode: "once",
     repeatDelayMs: DEFAULT_REPEAT_DELAY_MS,
     blockTrigger: true,
+    activationMs: 0,
     createdAtMs: 0,
     updatedAtMs: 0,
   };

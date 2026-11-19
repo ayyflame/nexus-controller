@@ -104,6 +104,10 @@ impl MacroLibrary {
 #[derive(Clone, Copy, Debug, Default)]
 struct Slot {
     trigger_was_down: bool,
+    /// When the trigger went down (for hold to activate).
+    down_since: Option<Instant>,
+    /// The hold-to-activate time was reached during this press.
+    activated: bool,
     toggled_on: bool,
     started: Option<Instant>,
     /// Set by a stop: the trigger must be released before the macro can
@@ -202,11 +206,31 @@ impl MacroRunner {
                 continue;
             };
             let down = trigger.is_pressed(physical);
-            let edge = down && !slot.trigger_was_down;
+            let press = down && !slot.trigger_was_down;
             slot.trigger_was_down = down;
+            if press {
+                slot.down_since = Some(now);
+                slot.activated = false;
+            }
             if !down {
                 slot.latched = false;
+                slot.down_since = None;
+                slot.activated = false;
             }
+            // Hold to activate: "edge" is the moment the hold time is reached,
+            // "down" means held at least that long. With 0 they are the press.
+            let (edge, down) = if m.activation_ms == 0 {
+                (press, down)
+            } else {
+                let held = slot.down_since.is_some_and(|t| {
+                    now.saturating_duration_since(t).as_millis() as u64 >= m.activation_ms as u64
+                });
+                let first = held && !slot.activated;
+                if first {
+                    slot.activated = true;
+                }
+                (first, held)
+            };
             if slot.latched {
                 // Keep hiding the trigger, but play nothing until released.
                 if m.block_trigger {
@@ -393,6 +417,113 @@ mod tests {
         );
         assert!(sequence_at(&steps, 250).finished);
         assert!(sequence_at(&[], 0).finished);
+    }
+
+    fn hold_to_activate(mode: PlaybackMode) -> Macro {
+        let mut m = two_step(mode);
+        m.activation_ms = 300;
+        m
+    }
+
+    #[test]
+    fn hold_to_activate_once_plays_only_after_the_hold() {
+        let (_lib, mut r) = runner(vec![hold_to_activate(PlaybackMode::Once)]);
+        let t0 = Instant::now();
+        let held = pressed(MacroButton::RightStick);
+        assert!(!frame(&mut r, &held, t0).buttons.south, "not on press");
+        assert!(
+            !frame(&mut r, &held, at(t0, 299)).buttons.south,
+            "not before 300 ms"
+        );
+        assert!(
+            frame(&mut r, &held, at(t0, 300)).buttons.south,
+            "plays once held 300 ms"
+        );
+        // Keeps playing to the end like any Once macro, then stops.
+        let idle = ControllerState::default();
+        assert!(frame(&mut r, &idle, at(t0, 360)).buttons.south);
+        assert!(
+            !frame(&mut r, &idle, at(t0, 700)).buttons.south
+                && !frame(&mut r, &idle, at(t0, 700)).buttons.east
+        );
+    }
+
+    #[test]
+    fn a_quick_tap_does_nothing_with_hold_to_activate() {
+        for mode in [
+            PlaybackMode::Once,
+            PlaybackMode::RepeatWhileHeld,
+            PlaybackMode::Toggle,
+        ] {
+            let (_lib, mut r) = runner(vec![hold_to_activate(mode)]);
+            let t0 = Instant::now();
+            frame(&mut r, &pressed(MacroButton::RightStick), t0);
+            let idle = ControllerState::default();
+            for ms in [150, 400, 800] {
+                let out = frame(&mut r, &idle, at(t0, ms));
+                assert!(
+                    !out.buttons.south && !out.buttons.east,
+                    "{mode:?} at {ms} ms"
+                );
+            }
+            assert!(r.playing().is_empty(), "{mode:?}");
+        }
+    }
+
+    #[test]
+    fn hold_to_activate_repeat_starts_after_the_hold_and_stops_on_release() {
+        let (_lib, mut r) = runner(vec![hold_to_activate(PlaybackMode::RepeatWhileHeld)]);
+        let t0 = Instant::now();
+        let held = pressed(MacroButton::RightStick);
+        frame(&mut r, &held, t0);
+        assert!(!frame(&mut r, &held, at(t0, 200)).buttons.south);
+        assert!(frame(&mut r, &held, at(t0, 310)).buttons.south);
+        let out = frame(&mut r, &ControllerState::default(), at(t0, 320));
+        assert!(
+            !out.buttons.south && !out.buttons.east,
+            "release stops at once"
+        );
+        assert!(r.playing().is_empty());
+    }
+
+    #[test]
+    fn hold_to_activate_toggle_needs_a_long_press_each_way() {
+        let (_lib, mut r) = runner(vec![hold_to_activate(PlaybackMode::Toggle)]);
+        let t0 = Instant::now();
+        let held = pressed(MacroButton::RightStick);
+        let idle = ControllerState::default();
+        frame(&mut r, &held, t0);
+        frame(&mut r, &held, at(t0, 300)); // long press: on
+        frame(&mut r, &idle, at(t0, 320));
+        assert_eq!(r.playing().len(), 1, "toggled on");
+        frame(&mut r, &held, at(t0, 400)); // quick tap: still on
+        frame(&mut r, &idle, at(t0, 450));
+        assert_eq!(r.playing().len(), 1, "a tap doesn't toggle off");
+        frame(&mut r, &held, at(t0, 500)); // long press: off
+        frame(&mut r, &held, at(t0, 800));
+        frame(&mut r, &idle, at(t0, 820));
+        assert!(r.playing().is_empty(), "toggled off");
+        let out = frame(&mut r, &idle, at(t0, 900));
+        assert!(
+            !out.buttons.south && !out.buttons.east,
+            "nothing left pressed"
+        );
+    }
+
+    #[test]
+    fn stop_all_during_a_hold_needs_a_fresh_press() {
+        let (lib, mut r) = runner(vec![hold_to_activate(PlaybackMode::RepeatWhileHeld)]);
+        let t0 = Instant::now();
+        let held = pressed(MacroButton::RightStick);
+        frame(&mut r, &held, t0);
+        frame(&mut r, &held, at(t0, 310));
+        lib.request_stop_all();
+        let out = frame(&mut r, &held, at(t0, 320));
+        assert!(!out.buttons.south && r.playing().is_empty());
+        assert!(
+            !frame(&mut r, &held, at(t0, 900)).buttons.south,
+            "still held: stays stopped"
+        );
     }
 
     #[test]

@@ -60,8 +60,9 @@ pub fn run() {
         })
         .setup(|app| {
             let data_dir = app.path().app_data_dir().ok();
-            let (store, storage_warning) = open_store(data_dir.as_ref());
-            let profile = store.active_profile()?;
+            let (mut store, storage_warning) = open_store(data_dir.as_ref());
+            // Start with the default profile, if one is chosen.
+            let profile = store.activate_default_profile()?;
 
             let engine = Arc::new(Engine::start_default(EngineConfig {
                 initial_output: commands::effective_output(&store, profile.virtual_output),
@@ -98,6 +99,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::get_app_info,
             commands::get_status,
+            commands::check_virtual_output,
             commands::get_event_log,
             commands::get_raw_reports,
             commands::get_hid_diagnostics,
@@ -105,6 +107,8 @@ pub fn run() {
             commands::list_profiles,
             commands::get_active_profile,
             commands::set_active_profile,
+            commands::get_default_profile,
+            commands::set_default_profile,
             commands::set_virtual_output,
             commands::get_output_consent,
             commands::set_output_consent,

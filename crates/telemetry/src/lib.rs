@@ -275,6 +275,75 @@ impl LatencyWindow {
     }
 }
 
+/// Fixed-size window of recent stage durations in **nanoseconds** (the
+/// stages of one report take well under a microsecond to a few microseconds,
+/// too fine for [`LatencyWindow`]). Recording never allocates; values above
+/// ~4.29 s saturate.
+#[derive(Debug)]
+pub struct StageWindow {
+    samples: [u32; LATENCY_WINDOW],
+    len: usize,
+    next: usize,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StageSummary {
+    pub p50_ns: u32,
+    pub p99_ns: u32,
+    pub max_ns: u32,
+    pub samples: u32,
+}
+
+impl Default for StageWindow {
+    fn default() -> Self {
+        Self {
+            samples: [0; LATENCY_WINDOW],
+            len: 0,
+            next: 0,
+        }
+    }
+}
+
+impl StageWindow {
+    pub fn record(&mut self, d: Duration) {
+        self.samples[self.next] = d.as_nanos().min(u32::MAX as u128) as u32;
+        self.next = (self.next + 1) % LATENCY_WINDOW;
+        self.len = (self.len + 1).min(LATENCY_WINDOW);
+    }
+
+    pub fn summary(&self) -> StageSummary {
+        if self.len == 0 {
+            return StageSummary::default();
+        }
+        let mut sorted = self.samples; // copy on the stack
+        let s = &mut sorted[..self.len];
+        s.sort_unstable();
+        let at = |q: f64| s[((s.len() - 1) as f64 * q).round() as usize];
+        StageSummary {
+            p50_ns: at(0.5),
+            p99_ns: at(0.99),
+            max_ns: s[s.len() - 1],
+            samples: self.len as u32,
+        }
+    }
+}
+
+/// Where the time of one report goes, measured on the reader thread.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StageLatency {
+    /// From the moment the report was read to the start of processing
+    /// (parsing and hand-over inside the reader thread).
+    pub input: StageSummary,
+    /// Sticks, triggers, remapping, layers, gyro and touchpad.
+    pub mapping: StageSummary,
+    /// Macro playback.
+    pub macros: StageSummary,
+    /// Handing the frame to the virtual controller driver (ViGEmBus call).
+    pub output: StageSummary,
+}
+
 /// Shared telemetry sink used by the engine.
 pub struct Telemetry {
     log: Mutex<Ring<LogEntry>>,
@@ -428,5 +497,32 @@ mod tests {
         assert_eq!(s.mean_us, 92_000 / 7);
         assert_eq!(s.over_8ms, 2);
         assert_eq!(s.over_50ms, 1);
+    }
+}
+
+#[cfg(test)]
+mod stage_tests {
+    use super::*;
+
+    #[test]
+    fn stage_window_keeps_nanoseconds_and_percentiles() {
+        let mut w = StageWindow::default();
+        assert_eq!(w.summary(), StageSummary::default());
+        for ns in 1..=100u64 {
+            w.record(Duration::from_nanos(ns * 10));
+        }
+        let s = w.summary();
+        assert_eq!(s.samples, 100);
+        assert_eq!(s.max_ns, 1000);
+        assert!((490..=510).contains(&s.p50_ns), "{s:?}");
+        assert!((980..=1000).contains(&s.p99_ns), "{s:?}");
+        // Old samples roll out of the fixed window.
+        for _ in 0..LATENCY_WINDOW {
+            w.record(Duration::from_nanos(7));
+        }
+        assert_eq!(w.summary().max_ns, 7);
+        // Absurd values saturate instead of wrapping.
+        w.record(Duration::from_secs(100));
+        assert_eq!(w.summary().max_ns, u32::MAX);
     }
 }

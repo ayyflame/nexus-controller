@@ -54,6 +54,7 @@ fn populate(s: &mut ProfileStore) -> i64 {
         mode: PlaybackMode::Once,
         repeat_delay_ms: 50,
         block_trigger: true,
+        activation_ms: 0,
         created_at_ms: 0,
         updated_at_ms: 0,
     })
@@ -158,6 +159,7 @@ fn edited_macro_timing_survives_save_duplicate_export_and_import() {
             mode: PlaybackMode::RepeatWhileHeld,
             repeat_delay_ms: 50,
             block_trigger: true,
+            activation_ms: 0,
             created_at_ms: 0,
             updated_at_ms: 0,
         })
@@ -224,6 +226,7 @@ fn timed_macro(name: &str, block_trigger: bool) -> Macro {
         mode: PlaybackMode::RepeatWhileHeld,
         repeat_delay_ms: 50,
         block_trigger,
+        activation_ms: 0,
         created_at_ms: 0,
         updated_at_ms: 0,
     }

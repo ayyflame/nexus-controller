@@ -11,6 +11,8 @@ pub const MIN_HOLD_MS: u32 = 20;
 /// press. Recording keeps at least this gap; the editor warns below it.
 pub const MIN_RELEASE_GAP_MS: u32 = 20;
 pub const MAX_HOLD_MS: u32 = 10_000;
+/// Longest "hold to activate" time.
+pub const MAX_ACTIVATION_MS: u32 = 3_000;
 pub const MAX_DELAY_MS: u32 = 10_000;
 pub const MAX_STEPS: usize = 200;
 pub const MAX_NAME_LEN: usize = 60;
@@ -63,6 +65,12 @@ pub struct Macro {
     /// Hide the trigger button itself from games while it starts a macro.
     #[serde(default = "default_true")]
     pub block_trigger: bool,
+    /// Hold to activate: the trigger must be held this long before the macro
+    /// acts (0 = on press). Once: plays after the hold. Repeat While Held:
+    /// starts repeating after the hold. Toggle: a long press toggles, a tap
+    /// doesn't. Releasing still stops at once.
+    #[serde(default)]
+    pub activation_ms: u32,
     #[serde(default)]
     pub created_at_ms: i64,
     #[serde(default)]
@@ -168,6 +176,12 @@ pub fn validate_macro(m: &Macro, others: &[Macro]) -> Vec<ValidationIssue> {
             ));
         }
     }
+    if m.activation_ms > MAX_ACTIVATION_MS {
+        issues.push(issue(
+            "activationMs",
+            format!("Hold-to-activate time must be at most {MAX_ACTIVATION_MS} ms."),
+        ));
+    }
     if m.repeat_delay_ms > MAX_DELAY_MS {
         issues.push(issue(
             "repeatDelayMs",
@@ -240,6 +254,7 @@ pub(crate) mod tests {
             mode: PlaybackMode::Once,
             repeat_delay_ms: DEFAULT_REPEAT_DELAY_MS,
             block_trigger: true,
+            activation_ms: 0,
             created_at_ms: 0,
             updated_at_ms: 0,
         }

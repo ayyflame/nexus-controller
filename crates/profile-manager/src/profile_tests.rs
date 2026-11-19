@@ -296,3 +296,36 @@ fn out_of_range_calibration_is_limited_when_saved() {
     assert!(c.min_x <= -0.2 && c.max_x >= 0.2);
     assert!(saved.left_trigger.raw_min <= 0.5);
 }
+
+#[test]
+fn default_profile_is_used_at_start_and_cleared_when_deleted() {
+    let dir = std::env::temp_dir().join(format!("nexus-default-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("profiles.db");
+    let _ = std::fs::remove_file(&path);
+    let (game, other);
+    {
+        let mut s = ProfileStore::open(&path).unwrap();
+        assert_eq!(s.default_profile().unwrap(), None, "none chosen at first");
+        game = s.create_profile("Warzone").unwrap().id;
+        other = s.create_profile("Other").unwrap().id;
+        assert_eq!(s.set_default_profile(Some(game)).unwrap(), Some(game));
+        s.set_active_profile(other).unwrap();
+    }
+    {
+        // Next start: the default profile is switched on.
+        let mut s = ProfileStore::open(&path).unwrap();
+        assert_eq!(s.activate_default_profile().unwrap().id, game);
+        assert_eq!(s.active_profile().unwrap().id, game);
+        // Unknown ids are refused; clearing works.
+        assert!(s.set_default_profile(Some(9999)).is_err());
+        assert_eq!(s.set_default_profile(None).unwrap(), None);
+        s.set_default_profile(Some(other)).unwrap();
+        // Deleting the default profile leaves no default (and start-up keeps the active one).
+        s.set_active_profile(game).unwrap();
+        s.delete_profile(other).unwrap();
+        assert_eq!(s.default_profile().unwrap(), None);
+        assert_eq!(s.activate_default_profile().unwrap().id, game);
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

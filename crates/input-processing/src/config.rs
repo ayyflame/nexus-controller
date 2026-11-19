@@ -9,6 +9,10 @@ use serde::{Deserialize, Serialize};
 
 pub const MAX_CURVE_POINTS: usize = 8;
 pub const MAX_LAYERS: usize = 4;
+/// Combinations per profile, buttons per combination, and buttons a combination presses.
+pub const MAX_COMBOS: usize = 8;
+pub const MAX_COMBO_BUTTONS: usize = 3;
+pub const MAX_COMBO_SENDS: usize = 3;
 pub const MAX_EXTRA_ACTIONS: usize = 3;
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -23,6 +27,8 @@ pub struct ProcessingConfig {
     pub remap: Vec<RemapRule>,
     /// Alternate layouts active while a button is held (or toggled).
     pub layers: Vec<MappingLayer>,
+    /// Button combinations: holding several buttons together presses others.
+    pub combos: Vec<ComboRule>,
     pub gyro: GyroConfig,
     pub touchpad: TouchpadConfig,
     /// Lightbar, player LEDs and vibration of the physical DualSense.
@@ -246,6 +252,25 @@ impl RemapRule {
             also: Vec::new(),
         }
     }
+}
+
+/// Holding all of `buttons` together presses `sends` (e.g. L1 + R1 → Triangle).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComboRule {
+    /// 2 or 3 physical buttons held at the same time.
+    pub buttons: Vec<Button>,
+    /// 1 to 3 buttons pressed while the combination is held.
+    pub sends: Vec<Button>,
+    /// Hide the combination's own buttons from games while it is used (they
+    /// stay hidden until each is released, so letting go of one doesn't leak
+    /// a press of the other).
+    #[serde(default = "yes")]
+    pub hide_inputs: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -525,6 +550,28 @@ impl ProcessingConfig {
                 remap: sanitize_rules(&l.remap),
             })
             .collect();
+        // Combinations: 2–3 distinct buttons, 1–3 distinct outputs, no two with
+        // the same buttons (the first wins), at most MAX_COMBOS.
+        let mut combos: Vec<ComboRule> = Vec::new();
+        for c in &self.combos {
+            let mut buttons = c.buttons.clone();
+            buttons.sort_by_key(|b| *b as usize);
+            buttons.dedup();
+            let mut sends = c.sends.clone();
+            sends.dedup();
+            sends.truncate(MAX_COMBO_SENDS);
+            if !(2..=MAX_COMBO_BUTTONS).contains(&buttons.len()) || sends.is_empty() {
+                continue;
+            }
+            if combos.iter().any(|x| x.buttons == buttons) || combos.len() >= MAX_COMBOS {
+                continue;
+            }
+            combos.push(ComboRule {
+                buttons,
+                sends,
+                hide_inputs: c.hide_inputs,
+            });
+        }
         let g = &self.gyro;
         let dg = GyroConfig::default();
         let gyro = GyroConfig {
@@ -564,6 +611,7 @@ impl ProcessingConfig {
             right_trigger: self.right_trigger.sanitized(),
             remap: sanitize_rules(&self.remap),
             layers,
+            combos,
             gyro,
             touchpad,
             feedback,

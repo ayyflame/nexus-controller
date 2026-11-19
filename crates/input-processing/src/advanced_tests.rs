@@ -608,3 +608,158 @@ fn feedback_colours_and_sanitising() {
         "off unless the user enables it"
     );
 }
+
+// ---- Button combinations ----------------------------------------------------
+
+fn combo(buttons: &[Button], sends: &[Button], hide: bool) -> ComboRule {
+    ComboRule {
+        buttons: buttons.to_vec(),
+        sends: sends.to_vec(),
+        hide_inputs: hide,
+    }
+}
+
+fn held(buttons: &[Button]) -> ControllerState {
+    let mut s = ControllerState::default();
+    for b in buttons {
+        b.set(&mut s, true);
+    }
+    s
+}
+
+fn combo_processor(combos: Vec<ComboRule>) -> ConfiguredProcessor {
+    ConfiguredProcessor::new(&ProcessingConfig {
+        combos,
+        ..Default::default()
+    })
+}
+
+#[test]
+fn combination_presses_its_output_and_hides_its_buttons() {
+    let mut p = combo_processor(vec![combo(
+        &[Button::LeftShoulder, Button::RightShoulder],
+        &[Button::North],
+        true,
+    )]);
+    let t0 = Instant::now();
+    let out = step(
+        &mut p,
+        &held(&[Button::LeftShoulder, Button::RightShoulder]),
+        t0,
+    );
+    assert!(out.buttons.north, "L1 + R1 → Triangle");
+    assert!(
+        !out.buttons.left_shoulder && !out.buttons.right_shoulder,
+        "inputs hidden"
+    );
+    // Only one held: no combination, the button works normally.
+    let mut fresh = combo_processor(vec![combo(
+        &[Button::LeftShoulder, Button::RightShoulder],
+        &[Button::North],
+        true,
+    )]);
+    let out = step(&mut fresh, &held(&[Button::LeftShoulder]), t0);
+    assert!(out.buttons.left_shoulder && !out.buttons.north);
+}
+
+#[test]
+fn combination_buttons_stay_hidden_until_released() {
+    let mut p = combo_processor(vec![combo(
+        &[Button::LeftShoulder, Button::RightShoulder],
+        &[Button::North],
+        true,
+    )]);
+    let t0 = Instant::now();
+    step(
+        &mut p,
+        &held(&[Button::LeftShoulder, Button::RightShoulder]),
+        t0,
+    );
+    // Let go of R1 first: L1 is still held but must not leak a press.
+    let out = step(&mut p, &held(&[Button::LeftShoulder]), at(t0, 4));
+    assert!(!out.buttons.left_shoulder && !out.buttons.north);
+    // Released and pressed again on its own: works normally.
+    step(&mut p, &held(&[]), at(t0, 8));
+    let out = step(&mut p, &held(&[Button::LeftShoulder]), at(t0, 12));
+    assert!(out.buttons.left_shoulder);
+}
+
+#[test]
+fn combination_can_keep_its_buttons_visible() {
+    let mut p = combo_processor(vec![combo(
+        &[Button::South, Button::East],
+        &[Button::DpadUp],
+        false,
+    )]);
+    let out = step(
+        &mut p,
+        &held(&[Button::South, Button::East]),
+        Instant::now(),
+    );
+    assert!(out.buttons.south && out.buttons.east && Button::DpadUp.is_pressed(&out));
+}
+
+#[test]
+fn a_larger_combination_wins_over_the_one_it_contains() {
+    let mut p = combo_processor(vec![
+        combo(
+            &[Button::LeftShoulder, Button::RightShoulder],
+            &[Button::North],
+            true,
+        ),
+        combo(
+            &[Button::LeftShoulder, Button::RightShoulder, Button::South],
+            &[Button::West],
+            true,
+        ),
+    ]);
+    let out = step(
+        &mut p,
+        &held(&[Button::LeftShoulder, Button::RightShoulder, Button::South]),
+        Instant::now(),
+    );
+    assert!(out.buttons.west, "the three-button combination fires");
+    assert!(!out.buttons.north, "the two-button one it contains doesn't");
+    assert!(!out.buttons.south);
+}
+
+#[test]
+fn combinations_are_sanitised_and_older_profiles_load() {
+    let c = ProcessingConfig {
+        combos: vec![
+            combo(&[Button::South], &[Button::North], true), // one button: dropped
+            combo(&[Button::South, Button::East], &[], true), // no output: dropped
+            combo(
+                &[Button::East, Button::South, Button::South],
+                &[Button::North],
+                true,
+            ), // deduplicated
+            combo(&[Button::South, Button::East], &[Button::West], true), // same buttons: first wins
+        ],
+        ..Default::default()
+    }
+    .sanitized();
+    assert_eq!(c.combos.len(), 1);
+    assert_eq!(c.combos[0].buttons.len(), 2);
+    assert_eq!(c.combos[0].sends, vec![Button::North]);
+    // A profile saved before combinations existed has no `combos` field.
+    let old: ProcessingConfig = serde_json::from_str(r#"{"remap":[]}"#).unwrap();
+    assert!(old.combos.is_empty());
+    let hide_default: ComboRule =
+        serde_json::from_str(r#"{"buttons":["south","east"],"sends":["north"]}"#).unwrap();
+    assert!(hide_default.hide_inputs, "hiding the inputs is the default");
+    let many = ProcessingConfig {
+        combos: (0..12)
+            .map(|i| {
+                combo(
+                    &[Button::ALL[i], Button::ALL[i + 1]],
+                    &[Button::North],
+                    true,
+                )
+            })
+            .collect(),
+        ..Default::default()
+    }
+    .sanitized();
+    assert_eq!(many.combos.len(), MAX_COMBOS);
+}

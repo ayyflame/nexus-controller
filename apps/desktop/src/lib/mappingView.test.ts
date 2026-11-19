@@ -51,7 +51,7 @@ test("a card shows normal, remapped, combined, disabled and not-sent buttons", (
 test("a card notes macros, layers and the gyro button", () => {
   const m: Macro = {
     id: "m", name: "Rapid", description: "", enabled: true, steps: [{ id: "s", buttons: ["south"], holdMs: 50, delayAfterMs: 50 }],
-    trigger: "rightShoulder", mode: "repeatWhileHeld", repeatDelayMs: 0, blockTrigger: true, createdAtMs: 0, updatedAtMs: 0,
+    trigger: "rightShoulder", mode: "repeatWhileHeld", repeatDelayMs: 0, blockTrigger: true, activationMs: 0, createdAtMs: 0, updatedAtMs: 0,
   };
   assert.deepEqual(card("rightShoulder", cfg(), "xbox360", [m]).notes, ["Macro: Rapid"]);
   const c = cfg({ layers: [{ name: "Shift", activator: "leftStick", mode: "hold", remap: [{ from: "south", to: "east", also: [] }] }] });

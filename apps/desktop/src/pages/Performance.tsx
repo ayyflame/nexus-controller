@@ -4,6 +4,7 @@ import { useEngine } from "../hooks/useEngine";
 import { buildDiagnosticsReport } from "../lib/diagnostics";
 import { errorMessage } from "../lib/engine";
 import { connectionLabel, modelLabel, outputLabel } from "../lib/format";
+import { stageText } from "../lib/outputCheck";
 
 function Kind({ estimate }: { estimate?: boolean }) {
   return estimate
@@ -52,6 +53,11 @@ export function Performance() {
               <tr><td>Input report rate <Kind /></td><td className="right mono">{d.reportRateHz.toFixed(1)} Hz</td></tr>
               <tr><td>NEXUS processing time, median / 99th percentile / max <Kind /></td>
                 <td className="right mono">{d.pipelineLatency.samples ? `${d.pipelineLatency.p50Us} / ${d.pipelineLatency.p99Us} / ${d.pipelineLatency.maxUs} µs` : "—"}</td></tr>
+              <tr><td colSpan={2} className="perf-stages-head">Where that time goes, median / 99th percentile / max</td></tr>
+              <tr><td className="perf-stage">Report hand-over (read → processing starts) <Kind /></td><td className="right mono">{stageText(d.stageLatency.input)}</td></tr>
+              <tr><td className="perf-stage">Mapping: sticks, triggers, remap, layers, gyro, touchpad <Kind /></td><td className="right mono">{stageText(d.stageLatency.mapping)}</td></tr>
+              <tr><td className="perf-stage">Macros <Kind /></td><td className="right mono">{stageText(d.stageLatency.macros)}</td></tr>
+              <tr><td className="perf-stage">Virtual controller driver call (ViGEmBus) <Kind /></td><td className="right mono">{stageText(d.stageLatency.output)}</td></tr>
               <tr><td>Reports received <Kind /></td><td className="right mono">{d.totalReports.toLocaleString()}</td></tr>
               <tr><td>Input errors (unreadable reports) <Kind /></td><td className="right mono">{d.parseErrors.toLocaleString()}</td></tr>
               <tr><td>Dropped reports (from the controller's sequence counter) <Kind estimate /></td><td className="right mono">{d.sequenceGaps.toLocaleString()}</td></tr>
@@ -66,7 +72,7 @@ export function Performance() {
           </table>
         </section>
       ))}
-      <div className="notice dev">End-to-end latency to a game can't be measured by NEXUS alone; it depends on the game and the virtual output driver.</div>
+      <div className="notice dev">These times cover NEXUS itself: from the moment a report is read to the moment the virtual controller has it. How quickly a game reacts after that depends on the game. Live Viewer › Output Check confirms that Windows receives exactly what NEXUS sends.</div>
     </div>
   );
 }

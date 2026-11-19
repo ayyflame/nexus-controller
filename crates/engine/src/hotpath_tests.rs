@@ -95,6 +95,7 @@ fn macro_r3() -> Macro {
         mode: PlaybackMode::RepeatWhileHeld,
         repeat_delay_ms: 40,
         block_trigger: true,
+        activation_ms: 0,
         created_at_ms: 0,
         updated_at_ms: 0,
     }
@@ -140,7 +141,7 @@ fn pct(mut v: Vec<u64>) -> (u64, u64, u64, u64) {
 #[test]
 #[ignore]
 fn hotpath_benchmark() {
-    let (_e, mut h, stamp) = handler();
+    let (e, mut h, stamp) = handler();
     let raw = held_report();
     let mut parser = DualSenseParser::new(ConnectionType::Usb);
     // Released first, so the held trigger is a fresh press and the macro plays.
@@ -151,8 +152,11 @@ fn hotpath_benchmark() {
     }
     let n = 200_000;
     let (mut to_submit, mut total) = (Vec::with_capacity(n), Vec::with_capacity(n));
+    let mut parse = Vec::with_capacity(n);
     for _ in 0..n {
+        let p0 = epoch().elapsed().as_nanos() as u64;
         let parsed = parser.parse(&raw);
+        parse.push(epoch().elapsed().as_nanos() as u64 - p0);
         let start = epoch().elapsed().as_nanos() as u64;
         h.on_report(&raw, parsed);
         let end = epoch().elapsed().as_nanos() as u64;
@@ -165,6 +169,7 @@ fn hotpath_benchmark() {
         }
     });
     for (name, v) in [
+        ("HID report parse", parse),
         ("report entry -> virtual submit", to_submit),
         ("whole handler", total),
     ] {
@@ -175,6 +180,18 @@ fn hotpath_benchmark() {
         "HOTPATH allocations per report: {:.2}",
         allocs as f64 / 1000.0
     );
+    // The engine's own per-stage windows (last 256 reports), as shown in the app.
+    let st = e.status().devices[0].stage_latency;
+    for (name, x) in [
+        ("stage: mapping", st.mapping),
+        ("stage: macros", st.macros),
+        ("stage: virtual output call", st.output),
+    ] {
+        println!(
+            "HOTPATH {name:<31} p50 {:>6} ns  p99 {:>6} ns  max {:>8} ns",
+            x.p50_ns, x.p99_ns, x.max_ns
+        );
+    }
 }
 
 #[test]

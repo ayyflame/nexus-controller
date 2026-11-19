@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CalibrationWizard } from "../components/CalibrationWizard";
 import { ControllerVisual } from "../components/ControllerVisual";
+import { OutputCheck } from "../components/OutputCheck";
 import { calibrationStatus } from "../lib/calibration";
 import { Panel, StickPlot, TriggerMeter, Segmented } from "../components/controller/widgets";
 import { useEngine, usePrimaryDevice } from "../hooks/useEngine";
@@ -22,13 +23,14 @@ import { BUTTONS } from "../lib/macros";
 import { withDefaults } from "../lib/processing";
 import type { ControllerState, DeviceSnapshot, Macro, MacroButton, ProcessingConfig } from "../types/engine";
 
-type Tab = "live" | "analog" | "motion" | "health" | "test" | "drift" | "calibration";
+type Tab = "live" | "analog" | "motion" | "health" | "test" | "output" | "drift" | "calibration";
 const TABS: Array<{ id: Tab; label: string }> = [
   { id: "live", label: "Live" },
   { id: "analog", label: "Sticks & Triggers" },
   { id: "motion", label: "Motion" },
   { id: "health", label: "Health" },
   { id: "test", label: "Controller Test" },
+  { id: "output", label: "Output Check" },
   { id: "drift", label: "Drift Test" },
   { id: "calibration", label: "Calibration" },
 ];
@@ -68,6 +70,7 @@ export function LiveViewer({ initialTab }: { initialTab?: string }) {
           {tab === "motion" && <MotionTab input={device.input} />}
           {tab === "health" && <HealthTab device={device} />}
           {tab === "test" && <TestTab input={device.input} />}
+          {tab === "output" && <OutputCheck />}
           {tab === "drift" && <DriftTab input={device.input} config={config} />}
           {tab === "calibration" && <CalibrationWizard />}
         </div>

@@ -89,6 +89,16 @@ pub fn get_status(state: State<'_, AppState>) -> EngineStatus {
     state.engine.status()
 }
 
+/// Reads the virtual Xbox 360 controller back through XInput and compares it
+/// with what NEXUS sent (Live Viewer › Output Check). Read-only.
+#[tauri::command]
+pub fn check_virtual_output(state: State<'_, AppState>) -> nexus_engine::output_check::OutputCheck {
+    nexus_engine::output_check::check_output(
+        &state.engine.status(),
+        nexus_virtual_controller::xinput::read_slot,
+    )
+}
+
 #[tauri::command]
 pub fn get_event_log(state: State<'_, AppState>, limit: Option<usize>) -> Vec<LogEntry> {
     state.engine.recent_log(limit.unwrap_or(200).min(MAX_LIMIT))
@@ -183,6 +193,19 @@ pub fn set_active_profile(state: State<'_, AppState>, id: i64) -> CmdResult<Prof
     let profile = store.set_active_profile(id).map_err(profile_error)?;
     apply_profile(&state, &store, &profile)?;
     Ok(profile)
+}
+
+/// The profile NEXUS starts with (`None`: whichever was used last).
+#[tauri::command]
+pub fn get_default_profile(state: State<'_, AppState>) -> CmdResult<Option<i64>> {
+    let store = state.store.lock().map_err(|_| "profile store poisoned")?;
+    store.default_profile().map_err(profile_error)
+}
+
+#[tauri::command]
+pub fn set_default_profile(state: State<'_, AppState>, id: Option<i64>) -> CmdResult<Option<i64>> {
+    let mut store = state.store.lock().map_err(|_| "profile store poisoned")?;
+    store.set_default_profile(id).map_err(profile_error)
 }
 
 #[tauri::command]

@@ -18,6 +18,7 @@ import {
   EMPTY_HISTORY, recordEdit, redoRemap, setRemapAlso, setRemapTarget, undoRemap, type RemapHistory,
 } from "../lib/mappingView";
 import { MappingView } from "../components/controller/MappingView";
+import { CombosPanel } from "../components/controller/CombosPanel";
 import {
   CURVE_PRESETS, STICK_PRESETS, curvePresetId, defaultProcessing, processStick, shapeMagnitude, triggerOutput, withDefaults,
 } from "../lib/processing";
@@ -117,7 +118,7 @@ export function Controller({ initialTab }: { initialTab?: string }) {
         {tab === "gyro" && <GyroTab config={draft} onChange={setDraft} />}
         {tab === "touchpad" && <TouchpadTab config={draft} onChange={setDraft} />}
         {tab === "buttons" && <><ButtonsTab key={profile?.id ?? 0} config={draft} onChange={setDraft} output={profile?.virtualOutput ?? "xbox360"}
-          onOpenOutput={() => setTab("output")} /><LayersPanel config={draft} onChange={setDraft} /></>}
+          onOpenOutput={() => setTab("output")} /><LayersPanel config={draft} onChange={setDraft} /><CombosPanel config={draft} onChange={setDraft} /></>}
         {tab === "output" && <OutputTab />}
         {tab === "lighting" && <LightingTab config={draft} onChange={setDraft} />}
       </div>

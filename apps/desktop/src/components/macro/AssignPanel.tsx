@@ -76,6 +76,17 @@ export function AssignPanel({ draft, others, onChange, issues }: {
       </section>
 
       <Advanced>
+        <MsInput label="Hold to activate" value={draft.activationMs ?? 0} min={0} max={LIMITS.maxActivationMs}
+          onChange={(activationMs) => onChange({ activationMs })} />
+        <p className="muted small">
+          {(draft.activationMs ?? 0) === 0
+            ? "0 ms: the macro reacts as soon as the trigger is pressed."
+            : draft.mode === "toggle"
+              ? `Hold the trigger ${draft.activationMs} ms to switch the macro on or off; a quick tap does nothing.`
+              : draft.mode === "repeatWhileHeld"
+                ? `Repeats once the trigger has been held ${draft.activationMs} ms, until you let go.`
+                : `Plays once the trigger has been held ${draft.activationMs} ms; a quick tap does nothing.`}
+        </p>
         {draft.mode !== "once" && (
           <MsInput label="Pause between repeats" value={draft.repeatDelayMs} min={0} max={LIMITS.maxDelayMs}
             onChange={(repeatDelayMs) => onChange({ repeatDelayMs })} />

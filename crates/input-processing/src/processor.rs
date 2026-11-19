@@ -8,6 +8,7 @@
 //! 3. gyro → right stick
 //! 4. touchpad zones and swipes
 //! 5. mapping layers + button remapping (incl. one-to-many)
+//! 6. button combinations (several buttons held → others pressed)
 
 use crate::config::{
     CurvePoint, DeadzoneShape, GyroActivation, GyroHorizontalAxis, LayerMode, ProcessingConfig,
@@ -64,10 +65,21 @@ struct TouchState {
     pulse: Option<(Button, Instant)>,
 }
 
+/// A combination as bit masks (built once per settings change).
+#[derive(Clone, Copy, Debug)]
+struct Combo {
+    buttons: u32,
+    sends: u32,
+    hide: bool,
+}
+
 pub struct ConfiguredProcessor {
     config: ProcessingConfig,
     base: RemapTable,
     layers: Vec<Layer>,
+    combos: Vec<Combo>,
+    /// Combination buttons hidden until each is released.
+    combo_latched: u32,
     layer_toggled: [bool; crate::config::MAX_LAYERS],
     prev_physical: u32,
     gyro: GyroState,
@@ -88,6 +100,16 @@ impl ConfiguredProcessor {
                     table: table(&l.remap),
                 })
                 .collect(),
+            combos: c
+                .combos
+                .iter()
+                .map(|x| Combo {
+                    buttons: x.buttons.iter().fold(0, |m, b| m | b.bit()),
+                    sends: x.sends.iter().fold(0, |m, b| m | b.bit()),
+                    hide: x.hide_inputs,
+                })
+                .collect(),
+            combo_latched: 0,
             layer_toggled: [false; crate::config::MAX_LAYERS],
             prev_physical: 0,
             gyro: GyroState::default(),
@@ -145,7 +167,8 @@ impl ConfiguredProcessor {
             state.buttons.touchpad = false;
         }
 
-        let mut hidden = self.layers.iter().fold(0u32, |m, l| m | l.activator.bit());
+        let (combo_sends, combo_hidden) = self.apply_combos(physical_mask);
+        let mut hidden = self.layers.iter().fold(0u32, |m, l| m | l.activator.bit()) | combo_hidden;
         let g = &self.config.gyro;
         if g.enabled && g.suppress_button && g.activation != GyroActivation::Always {
             if let Some(b) = g.button {
@@ -164,9 +187,38 @@ impl ConfiguredProcessor {
                 state,
             );
         }
-        for b in Button::from_mask(overlay) {
+        for b in Button::from_mask(overlay | combo_sends) {
             press(state, b, &self.config);
         }
+    }
+
+    /// Combinations held right now: returns (buttons they press, buttons to
+    /// hide). A combination contained in a larger one that is also held
+    /// doesn't fire. Hidden buttons stay hidden until released.
+    fn apply_combos(&mut self, physical: u32) -> (u32, u32) {
+        self.combo_latched &= physical;
+        if self.combos.is_empty() {
+            return (0, self.combo_latched);
+        }
+        let held = |c: &Combo| c.buttons & physical == c.buttons;
+        let mut sends = 0u32;
+        for c in &self.combos {
+            if !held(c) {
+                continue;
+            }
+            let covered = self
+                .combos
+                .iter()
+                .any(|o| held(o) && o.buttons != c.buttons && o.buttons & c.buttons == c.buttons);
+            if covered {
+                continue;
+            }
+            sends |= c.sends;
+            if c.hide {
+                self.combo_latched |= c.buttons;
+            }
+        }
+        (sends, self.combo_latched)
     }
 
     fn apply_gyro(&mut self, state: &mut ControllerState, physical: &ControllerState) {

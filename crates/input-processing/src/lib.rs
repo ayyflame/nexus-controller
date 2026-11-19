@@ -12,10 +12,11 @@ mod config;
 mod processor;
 
 pub use config::{
-    find_conflicts, ConfigConflict, CurvePoint, DeadzoneShape, FeedbackConfig, GyroActivation,
-    GyroConfig, GyroHorizontalAxis, LayerMode, MappingLayer, ProcessingConfig, RemapRule,
-    ResponseCurve, StickCalibration, StickConfig, TouchLayout, TouchpadConfig, TriggerConfig,
-    MAX_CURVE_POINTS, MAX_EXTRA_ACTIONS, MAX_LAYERS,
+    find_conflicts, ComboRule, ConfigConflict, CurvePoint, DeadzoneShape, FeedbackConfig,
+    GyroActivation, GyroConfig, GyroHorizontalAxis, LayerMode, MappingLayer, ProcessingConfig,
+    RemapRule, ResponseCurve, StickCalibration, StickConfig, TouchLayout, TouchpadConfig,
+    TriggerConfig, MAX_COMBOS, MAX_COMBO_BUTTONS, MAX_COMBO_SENDS, MAX_CURVE_POINTS,
+    MAX_EXTRA_ACTIONS, MAX_LAYERS,
 };
 pub use processor::{
     evaluate_curve, process_stick, process_trigger, shape_magnitude, trigger_output,

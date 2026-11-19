@@ -27,7 +27,7 @@ use nexus_macro_engine::{
 };
 use nexus_telemetry::{
     unix_millis, IntervalStats, IntervalSummary, LatencySummary, LatencyWindow, LogEntry, LogLevel,
-    RateCounter, RawReport, Telemetry,
+    RateCounter, RawReport, StageLatency, StageWindow, Telemetry,
 };
 use nexus_virtual_controller::drivers::{probe_drivers, DriverStatus};
 use nexus_virtual_controller::{
@@ -90,6 +90,8 @@ pub struct DeviceSnapshot {
     pub active_layer: Option<usize>,
     /// Time NEXUS spends per report: processing, macros and output.
     pub pipeline_latency: LatencySummary,
+    /// The same time split by stage, in nanoseconds.
+    pub stage_latency: StageLatency,
     /// Reports missing according to the controller's sequence counter
     /// (estimate: assumes the counter advances once per report).
     pub sequence_gaps: u64,
@@ -987,6 +989,8 @@ struct EngineSessionHandler {
     pipeline: ProcessingPipeline,
     processing_generation: u64,
     latency: LatencyWindow,
+    /// Per-stage time of each report (nanoseconds), published with `latency`.
+    stages: Stages,
     reports_since_latency_publish: u32,
     macros: MacroRunner,
     last_physical: Option<ControllerState>,
@@ -1116,6 +1120,7 @@ fn new_session_handler(
             playing_macros: Vec::new(),
             active_layer: None,
             pipeline_latency: LatencySummary::default(),
+            stage_latency: StageLatency::default(),
             sequence_gaps: 0,
             report_intervals: IntervalSummary::default(),
             output_reports_sent: 0,
@@ -1142,6 +1147,7 @@ fn new_session_handler(
         pipeline: build_pipeline(&lock(&shared.processing)),
         processing_generation: shared.processing_generation.load(Ordering::Acquire),
         latency: LatencyWindow::default(),
+        stages: Stages::default(),
         reports_since_latency_publish: 0,
         macros: MacroRunner::new(shared.macros.clone()),
         last_physical: None,
@@ -1174,11 +1180,23 @@ impl EngineSessionHandler {
         received: Option<Instant>,
     ) -> (ControllerState, Option<Vec<String>>) {
         self.sync_processing();
+        // Four clock reads per report split the time by stage; macros reuse
+        // one of them as their "now".
+        let t0 = Instant::now();
         let mut out = self.pipeline.run(physical);
-        self.macros.process(physical, &mut out, Instant::now());
+        let t1 = Instant::now();
+        self.macros.process(physical, &mut out, t1);
+        let t2 = Instant::now();
         self.output.submit(&out);
+        let t3 = Instant::now();
+        self.stages.mapping.record(t1 - t0);
+        self.stages.macros.record(t2 - t1);
+        self.stages.output.record(t3 - t2);
         if let Some(received) = received {
-            self.latency.record(received.elapsed());
+            self.latency.record(t3.saturating_duration_since(received));
+            self.stages
+                .input
+                .record(t0.saturating_duration_since(received));
         }
         if let Some(event) = self.output.take_event() {
             self.on_output_event(event);
@@ -1388,12 +1406,17 @@ impl SessionHandler for EngineSessionHandler {
         self.reports_since_latency_publish += 1;
         let latency = (self.reports_since_latency_publish >= 64).then(|| {
             self.reports_since_latency_publish = 0;
-            (self.latency.summary(), self.intervals.summary())
+            (
+                self.latency.summary(),
+                self.intervals.summary(),
+                self.stages.summary(),
+            )
         });
         self.shared.update_device(&self.id, |s| {
-            if let Some((l, i)) = latency {
+            if let Some((l, i, st)) = latency {
                 s.pipeline_latency = l;
                 s.report_intervals = i;
+                s.stage_latency = st;
             }
             s.last_report_ms = Some(unix_millis());
             s.report_rate_hz = rate;
@@ -1497,7 +1520,28 @@ impl SessionHandler for EngineSessionHandler {
     }
 }
 
+/// Per-stage timing windows of one controller's reader thread.
+#[derive(Default)]
+struct Stages {
+    input: StageWindow,
+    mapping: StageWindow,
+    macros: StageWindow,
+    output: StageWindow,
+}
+
+impl Stages {
+    fn summary(&self) -> StageLatency {
+        StageLatency {
+            input: self.input.summary(),
+            mapping: self.mapping.summary(),
+            macros: self.macros.summary(),
+            output: self.output.summary(),
+        }
+    }
+}
+
 pub mod inspector;
+pub mod output_check;
 
 #[cfg(test)]
 mod tests;

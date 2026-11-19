@@ -30,6 +30,7 @@ Built with Tauri 2, React and TypeScript for the UI, and Rust for the engine, wi
 - **Calibration** (*Live Viewer › Calibration*): a guided wizard for both sticks (resting centre, jitter, full range, a recommended deadzone) and both triggers. Nothing is saved until you apply it, and you can go back to the previous calibration.
 - **Button remapping** (*Controller › Mapping*): click any button on the controller, or its card, and choose what it sends: another button, nothing, or two buttons at once. Each card shows what the game receives (e.g. Triangle → Y). Undo/redo and a list view included.
 - **Shift layers:** hold or toggle a button to switch to a second button layout.
+- **Button combinations:** hold 2–3 buttons together to press others (e.g. L1 + R1 → Triangle), optionally hiding the held buttons from the game.
 - **Gyro aiming and touchpad** (optional): gyro onto a stick, touchpad zones and swipes as buttons.
 - **Lighting and vibration** for the controller itself (*Controller › Lighting & Haptics*).
 
@@ -40,20 +41,21 @@ Built with Tauri 2, React and TypeScript for the UI, and Rust for the engine, wi
 
 ### Macro Studio
 - **Record** a macro from the controller or **build it** on a controller layout.
-- **Play Once**, **Repeat While Held** or **Toggle On/Off**.
+- **Play Once**, **Repeat While Held** or **Toggle On/Off**, optionally **hold to activate** (the trigger must be held for a set time first; a quick tap does nothing).
 - Type each action's **press time** and **wait** in milliseconds, edit several at once, scale a recorded rhythm, with a live preview and undo/redo.
 - Warnings when a press is too short or too close to the next for a game to see it; conflicting triggers are blocked; the trigger button can be hidden from games.
 - Macros start from the physical button, so remapping never breaks them.
 
 ### Profiles
 - Each profile keeps its own sticks, triggers, mapping, layers, gyro, touchpad, lighting and output settings.
-- Templates (Standard, Shooter, Racing, Relaxed), rename, duplicate, delete.
+- Templates (Standard, Shooter, Racing, Relaxed), rename, duplicate, delete, and a **default profile** NEXUS starts with.
 - **Automatic switching** when a linked game (`.exe`) starts.
 - Macros are shared by all profiles. Import/export and backups.
 
 ### Live Viewer and diagnostics
 - **Live Viewer** (sidebar): every control and analog value, motion (gyro, accelerometer, tilt), connection health, a guided 10-step controller test, a drift test and the calibration wizard. Read-only apart from calibration.
-- **Performance:** report rate, timing, late and dropped reports, NEXUS processing time.
+- **Output Check** (*Live Viewer*): reads the virtual Xbox controller back through XInput (as games do) and compares every button and axis with what NEXUS sent.
+- **Performance:** report rate, timing, late and dropped reports, NEXUS processing time split by stage (mapping, macros, virtual controller driver call). Measurements: [`docs/performance.md`](docs/performance.md).
 - **Diagnostics** (*Settings › HID Devices*): raw reports, the engine log, a Report Inspector and a shareable diagnostics report (serial numbers and paths masked).
 
 ### Virtual Xbox 360 output
@@ -98,7 +100,9 @@ More detail: [`docs/install-windows.md`](docs/install-windows.md).
 - leave at least **20 ms** between two presses of the same button;
 - make presses at least **40–50 ms** long, because games read the controller once per frame.
 
-**Profiles:** switch from the sidebar, create from templates, and link a game's `.exe` to switch automatically.
+**Profiles:** switch from the sidebar, create from templates, choose a **default** to start with, and link a game's `.exe` to switch automatically.
+
+**Check that games get your input:** *Live Viewer › Output Check* with the virtual controller on. Press buttons and move the sticks: every row should stay green.
 
 **What games receive:**
 - **Buttons:** Cross/Circle/Square/Triangle → A/B/X/Y, L1/R1 → LB/RB, L2/R2 → LT/RT (full analog), Create/Options → Back/Start, PS → Guide.
@@ -127,7 +131,7 @@ Your data lives in `%APPDATA%\com.nexus.controllerengine` (profiles, macros, set
 
 ## Documentation
 
-- **Using NEXUS:** [Installing](docs/install-windows.md) · [Game output](docs/game-output.md) · [Macro Studio](docs/macro-studio.md) · [3D controller view](docs/3d-controller.md) · [Live Viewer](docs/live-viewer.md) · [Calibration](docs/calibration.md) · [Controller photo mode](docs/controller-photo.md) · [HidHide setup](docs/hidhide-setup.md)
+- **Using NEXUS:** [Installing](docs/install-windows.md) · [Game output](docs/game-output.md) · [Macro Studio](docs/macro-studio.md) · [3D controller view](docs/3d-controller.md) · [Live Viewer](docs/live-viewer.md) · [Performance](docs/performance.md) · [Calibration](docs/calibration.md) · [Controller photo mode](docs/controller-photo.md) · [HidHide setup](docs/hidhide-setup.md)
 - **Testing:** [Hardware test plan](tests/m4.5-test-plan.md) · [Hardware verification checklist](tests/hardware-verification.md) · [Update verification](docs/update-verification.md)
 - **Updates and releases:** [Updater setup](docs/updater-setup.md) · [Releasing](docs/releasing.md)
 - **Internals:** [Architecture](docs/architecture.md) · [DualSense report format](docs/dualsense-protocol.md) · [Virtual output and drivers](docs/virtual-output.md) · [Virtual driver evaluation](docs/virtual-driver-evaluation.md) · [Latency audit](docs/latency-audit.md)

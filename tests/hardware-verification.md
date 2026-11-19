@@ -216,3 +216,17 @@ Virtual output must be on (Xbox 360). Run D1–D3 **before** installing HidHide.
 | Driver installed while NEXUS runs | Click **Check again** on the Virtual Output tab. |
 | Online games | Not tested and not targeted. Many online games prohibit macros. NEXUS does not try to avoid anti-cheat detection. |
 | Installer | Not code-signed (personal use); SmartScreen shows a warning on first install. |
+
+## Core functionality (November 2026): needs a real DualSense on Windows
+
+Simulated and CI tests cover the logic; these confirm it on hardware.
+
+| # | Check | Expected |
+|---|---|---|
+| CF1 | Virtual output on (Xbox 360), **Live Viewer › Output Check**, press every button, pull both triggers, move both sticks | Every row stays green; "Windows receives exactly what NEXUS sends" |
+| CF2 | Same, with a game (e.g. Warzone) running in the background | Still green; no differences that stay while input is held still |
+| CF3 | **Performance**, play for 30+ minutes | *Virtual controller driver call* p99 stays well under 1 ms; report rate ~250 Hz; late reports over 50 ms stay at or near 0. Note any spikes |
+| CF4 | **Controller › Mapping › Button combinations**: L1 + R1 → Triangle, hide on | Holding L1+R1 gives Y in `joy.cpl`/Output Check, not LB/RB; releasing one doesn't flash LB/RB; L1 alone still gives LB |
+| CF5 | Macro with **Hold to activate** 300 ms, each mode | A quick tap does nothing; holding fires it; releasing stops Repeat While Held at once |
+| CF6 | Profiles › **Make default**, switch to another profile, restart NEXUS | NEXUS starts on the default profile |
+| CF7 | Unplug the controller while a macro is running and a button is held | The virtual controller is removed; Output Check / `joy.cpl` show nothing stuck; reconnect resumes |

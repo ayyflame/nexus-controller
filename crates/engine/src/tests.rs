@@ -305,6 +305,7 @@ fn jump_macro(mode: PlaybackMode) -> Macro {
         mode,
         repeat_delay_ms: 50,
         block_trigger: true,
+        activation_ms: 0,
         created_at_ms: 0,
         updated_at_ms: 0,
     }
@@ -547,6 +548,41 @@ fn pipeline_latency_is_measured() {
     });
     let l = s.devices[0].pipeline_latency;
     assert!(l.p50_us <= l.p99_us && l.p99_us <= l.max_us);
+}
+
+#[test]
+fn per_stage_latency_is_published_and_adds_up() {
+    let (backend, e) = connected_engine();
+    for _ in 0..70 {
+        backend.push_report(PATH, report(&[]));
+    }
+    let s = wait_status(&e, "stage latency", |s| {
+        s.devices[0].stage_latency.mapping.samples >= 64
+    });
+    let d = &s.devices[0];
+    let st = d.stage_latency;
+    for (name, x) in [
+        ("input", st.input),
+        ("mapping", st.mapping),
+        ("macros", st.macros),
+        ("output", st.output),
+    ] {
+        assert!(x.samples >= 64, "{name}: {x:?}");
+        assert!(
+            x.p50_ns <= x.p99_ns && x.p99_ns <= x.max_ns,
+            "{name}: {x:?}"
+        );
+    }
+    // The stages are parts of the total: their medians can't exceed the total's maximum.
+    let parts = st.input.p50_ns as u64
+        + st.mapping.p50_ns as u64
+        + st.macros.p50_ns as u64
+        + st.output.p50_ns as u64;
+    assert!(
+        parts <= (d.pipeline_latency.max_us as u64 + 1) * 1000,
+        "{parts} ns vs {:?}",
+        d.pipeline_latency
+    );
 }
 
 #[test]
@@ -2963,4 +2999,103 @@ fn stick_and_trigger_calibration_shape_what_the_virtual_pad_receives() {
             .last()
             .is_some_and(|r| r.thumb_lx > 1000 && r.left_trigger == 6)
     });
+}
+
+#[test]
+fn output_check_compares_what_was_sent_with_what_xinput_reads() {
+    use crate::output_check::{check_output, OutputCheck};
+    use nexus_virtual_controller::xinput::XInputPad;
+    let (backend, e, _log) = xbox_engine();
+    // Cross held: the virtual controller is sent A.
+    backend.push_report(PATH, report(&[CROSS]));
+    let mut s = wait_status(&e, "processed", |s| {
+        s.devices[0]
+            .processed
+            .as_ref()
+            .is_some_and(|p| p.buttons.south)
+    });
+    assert_eq!(
+        check_output(&s, |_| unreachable!()),
+        OutputCheck::SlotUnknown,
+        "slot not known yet"
+    );
+    s.devices[0].output.player_index = Some(0);
+    let sent = XInputPad {
+        buttons: xusb::A,
+        ..Default::default()
+    };
+    // Windows reads the same: a match.
+    match check_output(&s, |slot| {
+        assert_eq!(slot, 0);
+        Ok(Some(sent))
+    }) {
+        OutputCheck::Compared {
+            differences,
+            sent: got,
+            ..
+        } => {
+            assert!(differences.is_empty());
+            assert_eq!(got.buttons & xusb::A, xusb::A);
+        }
+        other => panic!("{other:?}"),
+    }
+    // Windows reads nothing pressed: the difference is named.
+    match check_output(&s, |_| Ok(Some(XInputPad::default()))) {
+        OutputCheck::Compared { differences, .. } => {
+            assert_eq!(
+                differences,
+                vec!["A: sent pressed, Windows reads released".to_string()]
+            );
+        }
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(
+        check_output(&s, |_| Ok(None)),
+        OutputCheck::Missing { slot: 0 }
+    );
+    assert_eq!(
+        check_output(&s, |_| Err("no XInput".into())),
+        OutputCheck::Unavailable {
+            reason: "no XInput".into()
+        }
+    );
+    s.devices[0].output.active = None;
+    assert_eq!(
+        check_output(&s, |_| unreachable!()),
+        OutputCheck::NotXbox { active: None }
+    );
+    s.devices.clear();
+    assert_eq!(
+        check_output(&s, |_| unreachable!()),
+        OutputCheck::NoController
+    );
+}
+
+#[test]
+fn a_button_combination_reaches_the_virtual_controller() {
+    use nexus_controller_core::Button;
+    use nexus_input_processing::{ComboRule, ProcessingConfig};
+    let (backend, e, log) = xbox_engine();
+    e.set_processing(ProcessingConfig {
+        combos: vec![ComboRule {
+            buttons: vec![Button::LeftShoulder, Button::RightShoulder],
+            sends: vec![Button::North],
+            hide_inputs: true,
+        }],
+        ..Default::default()
+    });
+    // L1 + R1 held together → the game sees Y, not LB/RB.
+    backend.push_report(PATH, report(&[(1, 0x01 | 0x02)]));
+    log.wait("Y from the combination", |p| {
+        p.iter().any(|x| {
+            matches!(x, Pad::Report(_, r) if r.buttons & xusb::Y != 0
+            && r.buttons & (xusb::LEFT_SHOULDER | xusb::RIGHT_SHOULDER) == 0)
+        })
+    });
+    // Released: Y goes away.
+    backend.push_report(PATH, report(&[]));
+    log.wait(
+        "released",
+        |p| matches!(p.last(), Some(Pad::Report(_, r)) if r.buttons == 0),
+    );
 }

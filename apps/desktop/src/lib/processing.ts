@@ -38,7 +38,7 @@ export function defaultProcessing(): ProcessingConfig {
   return {
     leftStick: { ...DEFAULT_STICK }, rightStick: { ...DEFAULT_STICK },
     leftTrigger: { ...DEFAULT_TRIGGER }, rightTrigger: { ...DEFAULT_TRIGGER },
-    remap: [], layers: [], gyro: { ...DEFAULT_GYRO }, touchpad: { ...DEFAULT_TOUCHPAD },
+    remap: [], layers: [], combos: [], gyro: { ...DEFAULT_GYRO }, touchpad: { ...DEFAULT_TOUCHPAD },
     feedback: { ...DEFAULT_FEEDBACK },
   };
 }
@@ -51,7 +51,7 @@ export function withDefaults(c: Partial<ProcessingConfig> | null | undefined): P
   return {
     leftStick: stick(c.leftStick), rightStick: stick(c.rightStick),
     leftTrigger: { ...DEFAULT_TRIGGER, ...c.leftTrigger }, rightTrigger: { ...DEFAULT_TRIGGER, ...c.rightTrigger },
-    remap: c.remap ?? [], layers: c.layers ?? [],
+    remap: c.remap ?? [], layers: c.layers ?? [], combos: c.combos ?? [],
     gyro: { ...d.gyro, ...c.gyro }, touchpad: { ...d.touchpad, ...c.touchpad }, feedback: { ...d.feedback, ...c.feedback },
   };
 }

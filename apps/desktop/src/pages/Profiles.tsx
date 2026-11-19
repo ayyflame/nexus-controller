@@ -26,11 +26,16 @@ export function Profiles() {
   const [newName, setNewName] = useState("");
   const [renaming, setRenaming] = useState<{ id: number; name: string } | null>(null);
   const [toDelete, setToDelete] = useState<Profile | null>(null);
+  /** The profile NEXUS starts with (null: whichever was used last). */
+  const [defaultId, setDefaultId] = useState<number | null>(null);
   const ready = connection.kind === "ready";
 
   const reload = useCallback(async () => {
     if (!ready) return;
-    try { setProfiles(await engineApi.listProfiles()); } catch (e) { setError(errorMessage(e)); }
+    try {
+      setProfiles(await engineApi.listProfiles());
+      setDefaultId(await engineApi.getDefaultProfile());
+    } catch (e) { setError(errorMessage(e)); }
   }, [ready]);
   useEffect(() => { void reload(); }, [reload, active]);
 
@@ -107,6 +112,7 @@ export function Profiles() {
                   <div className="row gap-sm">
                     <h3>{p.name}</h3>
                     {isActive && <span className="badge">Active</span>}
+                    {defaultId === p.id && <span className="badge default" data-tip="NEXUS starts with this profile">Default</span>}
                   </div>
                 )}
                 <p className="muted small">{summary(p)}</p>
@@ -118,6 +124,10 @@ export function Profiles() {
                     onClick={() => void run(async () => setProfile(await engineApi.setActiveProfile(p.id)))}>Use</button>
                 )}
                 <button className="btn-ghost" onClick={() => setRenaming({ id: p.id, name: p.name })}>Rename</button>
+                <button className="btn-ghost" title={defaultId === p.id ? "NEXUS will start with whichever profile was used last" : "NEXUS starts with this profile"}
+                  onClick={() => void run(async () => setDefaultId(await engineApi.setDefaultProfile(defaultId === p.id ? null : p.id)))}>
+                  {defaultId === p.id ? "Remove default" : "Make default"}
+                </button>
                 <button className="btn-ghost" data-tip="Save this profile to a file you can share"
                   onClick={() => void run(async () => { const r = await engineApi.exportConfig([p.id], false); setNotice(r.path ? `“${p.name}” saved to ${r.path}` : "Couldn't write the file."); })}>Export</button>
                 <button className="btn-ghost" data-tip="Copy all settings and macro choices"

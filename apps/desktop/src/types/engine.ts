@@ -83,6 +83,8 @@ export interface DeviceSnapshot {
   activeLayer: number | null;
   /** Time NEXUS spends per report (processing, macros, output). */
   pipelineLatency: LatencySummary;
+  /** The same time split by stage, in nanoseconds. */
+  stageLatency: StageLatency;
   /** Reports missing per the controller's sequence counter (estimate). */
   sequenceGaps: number;
   /** Time between input reports since connect (USB stability). */
@@ -116,6 +118,19 @@ export interface EngineStats { connects: number; disconnects: number; connection
 export interface GyroCalibration { bias: [number, number, number]; samples: number; steady: boolean }
 
 export interface LatencySummary { p50Us: number; p99Us: number; maxUs: number; samples: number }
+export interface StageSummary { p50Ns: number; p99Ns: number; maxNs: number; samples: number }
+export interface StageLatency { input: StageSummary; mapping: StageSummary; macros: StageSummary; output: StageSummary }
+
+/** One XInput player slot as a game reads it. */
+export interface XInputPad { buttons: number; leftTrigger: number; rightTrigger: number; thumbLx: number; thumbLy: number; thumbRx: number; thumbRy: number }
+/** Result of reading the virtual Xbox controller back through XInput. */
+export type OutputCheck =
+  | { state: "noController" }
+  | { state: "notXbox"; active: VirtualOutputKind | null }
+  | { state: "slotUnknown" }
+  | { state: "unavailable"; reason: string }
+  | { state: "missing"; slot: number }
+  | { state: "compared"; slot: number; sent: XInputPad; read: XInputPad; differences: string[] };
 
 export type DriverPresence = "installed" | "notInstalled" | "unknown";
 export interface DriverStatus { vigembus: DriverPresence; hidhide: DriverPresence }
@@ -208,6 +223,8 @@ export interface Macro {
   mode: PlaybackMode;
   repeatDelayMs: number;
   blockTrigger: boolean;
+  /** Hold to activate: the trigger must be held this long first (0 = on press). */
+  activationMs: number;
   createdAtMs: number;
   updatedAtMs: number;
 }
@@ -274,6 +291,7 @@ export interface TriggerConfig {
   activation: number; curve: number; rawMin: number; rawMax: number;
 }
 
+export interface ComboRule { buttons: MacroButton[]; sends: MacroButton[]; hideInputs: boolean }
 export interface RemapRule { from: MacroButton; to: MacroButton | null; also?: MacroButton[] }
 
 export type LayerMode = "hold" | "toggle";
@@ -315,6 +333,8 @@ export interface ProcessingConfig {
   rightTrigger: TriggerConfig;
   remap: RemapRule[];
   layers: MappingLayer[];
+  /** Holding all of `buttons` presses `sends`. */
+  combos: ComboRule[];
   gyro: GyroConfig;
   touchpad: TouchpadConfig;
   feedback: FeedbackConfig;
