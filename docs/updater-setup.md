@@ -23,7 +23,7 @@ download → plugin verifies signature → "Restart and install"
         → NSIS installer (passive) → NEXUS reopens → version verified
 ```
 
-- The update host is **public and read-only**. It holds only the installer and `latest.json`. The GitHub repository stays private. No GitHub token is in the app.
+- The update host is **public and read-only**. It holds only the installer and `latest.json`. No GitHub token is in the app.
 - The app embeds only the **public** key. The private key exists only on your PC (plus your backups) and in GitHub encrypted secrets.
 - Every download is checked against the public key before it runs, both by the Tauri updater plugin after download and again before install. Unsigned or modified packages are rejected. There is no option to turn this off.
 - Only the **NSIS** installer (`-setup.exe`) is used for updates. The manifest publishes only the `windows-x86_64-nsis` key, so a copy installed from the `.msi` is told to download the new setup `.exe` and is never cross-upgraded into a second installation.

@@ -17,7 +17,7 @@ Close and reopen your terminal afterwards so the new `PATH` takes effect.
 
 ## 2. Get the project
 
-**From GitHub** (once the private repository exists):
+**From GitHub:**
 
 ```powershell
 git clone https://github.com/ayyflame/nexus-controller.git

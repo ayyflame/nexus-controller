@@ -12,7 +12,7 @@ Built with Tauri 2, React and TypeScript for the UI, and Rust for the engine, wi
   <a href="https://github.com/ayyflame/nexus-controller/releases/download/latest-build/NEXUS-latest-x64-setup.exe"><img src="docs/assets/download-button.svg" alt="Download NEXUS — latest build for Windows 11 (64-bit)" width="340"></a>
 </p>
 <p align="center">
-  <sub>Sign in to GitHub first (the repository is private) · <a href="https://github.com/ayyflame/nexus-controller/releases/tag/latest-build">Latest build details and checksum</a> · <a href="https://github.com/ayyflame/nexus-controller/actions/workflows/windows-release.yml?query=branch%3Amain+is%3Asuccess">All builds</a></sub>
+  <sub><a href="https://github.com/ayyflame/nexus-controller/releases/tag/latest-build">Latest build details and checksum</a> · <a href="https://github.com/ayyflame/nexus-controller/actions/workflows/windows-release.yml?query=branch%3Amain+is%3Asuccess">All builds</a></sub>
 </p>
 
 > **Status:** all features below are implemented and covered by automated tests. Hardware checks with a real DualSense, ViGEmBus and games are listed in [`tests/m4.5-test-plan.md`](tests/m4.5-test-plan.md), [`docs/game-output.md`](docs/game-output.md) and [`docs/3d-controller.md`](docs/3d-controller.md). Automatic updates are built but not switched on yet ([Updates](#updates)).
@@ -79,7 +79,7 @@ NEXUS **never installs, bundles or silently configures drivers** and needs no ad
 
 ## Installation
 
-1. **Install NEXUS.** Use the **Download NEXUS** button above while signed in to GitHub, and run `NEXUS-latest-x64-setup.exe`.
+1. **Install NEXUS.** Use the **Download NEXUS** button above and run `NEXUS-latest-x64-setup.exe`.
    - Windows SmartScreen may say *"Windows protected your PC"* because the installer isn't code-signed yet: click **More info › Run anyway**.
    - It installs for your account only; no administrator password needed. Installing over an older version keeps your profiles, macros and settings.
 2. **Install ViGEmBus.** Download `ViGEmBus_1.22.0_x64_x86_arm64.exe` from the [official page](https://github.com/nefarius/ViGEmBus/releases) and run it (the administrator prompt is from ViGEmBus). In NEXUS, **Controller › Virtual Output › Check again** should show **Installed and ready**.
