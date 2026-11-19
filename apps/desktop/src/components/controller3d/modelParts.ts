@@ -6,7 +6,7 @@
 import * as THREE from "three";
 import type { GLTF } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { triggerAngle, type Visual3D } from "../../lib/controller3d";
-import { MODEL_SCALE, PARTS, PRESS_DEPTH, blackFinishPixel, classify, findIslands, frameOf, type Island, type PartFrame, type V3 } from "../../lib/dualsenseModel";
+import { BLACK_FINISH_GLSL, MODEL_SCALE, PARTS, PRESS_DEPTH, classify, findIslands, frameOf, type Island, type PartFrame, type V3 } from "../../lib/dualsenseModel";
 import type { MacroButton } from "../../types/engine";
 
 export interface PartNode {
@@ -25,46 +25,36 @@ export interface PartNode {
 export type Finish = "white" | "black";
 
 /**
- * "white" is the model as made. "black" uses repainted copies of its colour
- * textures (see blackFinishPixel), so plastic, core and printing each get
- * the right shade instead of everything being darkened together.
+ * Adds the Midnight Black recolouring to a material's shader. It is switched
+ * by one uniform, so changing the finish needs no new textures and no shader
+ * rebuild, and nothing reads texture pixels back (which a webview may refuse).
  */
-function blackTexture(source: THREE.Texture): THREE.Texture | null {
-  const img = source.image as CanvasImageSource & { width: number; height: number } | undefined;
-  if (!img || !img.width) return null;
-  const canvas = document.createElement("canvas");
-  canvas.width = img.width;
-  canvas.height = img.height;
-  const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  if (!ctx) return null;
-  ctx.drawImage(img, 0, 0);
-  const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const px = data.data;
-  for (let i = 0; i < px.length; i += 4) {
-    const [r, g, b] = blackFinishPixel(px[i]!, px[i + 1]!, px[i + 2]!);
-    px[i] = r; px[i + 1] = g; px[i + 2] = b;
-  }
-  ctx.putImageData(data, 0, 0);
-  const t = new THREE.CanvasTexture(canvas);
-  // Same sampling as the original, so UVs line up exactly.
-  t.flipY = source.flipY;
-  t.colorSpace = source.colorSpace;
-  t.wrapS = source.wrapS;
-  t.wrapT = source.wrapT;
-  t.channel = source.channel;
-  t.anisotropy = 4;
-  return t;
+function installFinish(m: THREE.MeshStandardMaterial): { value: number } {
+  const uniform = { value: 0 };
+  m.onBeforeCompile = (shader) => {
+    shader.uniforms.nexusBlack = uniform;
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", `#include <common>\n${BLACK_FINISH_GLSL}`)
+      .replace("#include <map_fragment>", `#ifdef USE_MAP
+  vec4 sampledDiffuseColor = texture2D( map, vMapUv );
+  if ( nexusBlack > 0.5 ) sampledDiffuseColor.rgb = nexusBlackFinish( sampledDiffuseColor.rgb );
+  diffuseColor *= sampledDiffuseColor;
+#endif`);
+  };
+  // All NEXUS controller materials share one compiled variant.
+  m.customProgramCacheKey = () => "nexus-finish";
+  return uniform;
 }
 
 export interface BuiltModel {
   root: THREE.Group;
-  /** Repainted colour textures for the black finish, made on first use (original → black). */
-  blackMaps: Map<THREE.Texture, THREE.Texture | null>;
   /**
    * This view's own materials (copies; the loaded model is never changed, so
    * it can be shown again later) with each one's original colour texture.
    */
-  materials: Map<THREE.MeshStandardMaterial, THREE.Texture | null>;
+  materials: THREE.MeshStandardMaterial[];
+  /** Each material's finish switch (0 = white as made, 1 = Midnight Black). */
+  finishUniforms: Array<{ value: number }>;
   parts: Record<MacroButton, PartNode>;
   /** Touch dots on the touchpad (two, like the hardware). */
   touchDots: THREE.Mesh[];
@@ -110,7 +100,9 @@ export function buildModel(gltf: GLTF): BuiltModel {
   root.scale.setScalar(MODEL_SCALE);
   const created: Array<THREE.BufferGeometry | THREE.Material> = [];
   const pieces = new Map<MacroButton, Array<{ geometry: THREE.BufferGeometry; material: THREE.MeshStandardMaterial }>>();
-  const materials = new Map<THREE.MeshStandardMaterial, THREE.Texture | null>();
+  const materials: THREE.MeshStandardMaterial[] = [];
+  const finishUniforms: Array<{ value: number }> = [];
+  const own = (m: THREE.MeshStandardMaterial) => { materials.push(m); finishUniforms.push(installFinish(m)); created.push(m); };
 
   const meshes: THREE.Mesh[] = [];
   gltf.scene.traverse((o) => { if ((o as THREE.Mesh).isMesh) meshes.push(o as THREE.Mesh); });
@@ -124,8 +116,7 @@ export function buildModel(gltf: GLTF): BuiltModel {
     // opaque, which avoids sorting artefacts.
     material.transparent = false;
     material.depthWrite = true;
-    materials.set(material, source.map);
-    created.push(material);
+    own(material);
     const pos = g.getAttribute("position") as THREE.BufferAttribute;
     const index = g.getIndex();
     const islands = findIslands(pos.array as ArrayLike<number>, index ? (index.array as ArrayLike<number>) : null);
@@ -158,8 +149,7 @@ export function buildModel(gltf: GLTF): BuiltModel {
           m.transparent = true;
           m.depthWrite = false;
         }
-        materials.set(m, source.map);
-        created.push(m);
+        own(m);
         pieces.set(b, [...(pieces.get(b) ?? []), { geometry: pg, material: m }]);
       }
     }
@@ -205,29 +195,17 @@ export function buildModel(gltf: GLTF): BuiltModel {
     return m;
   });
 
-  const blackMaps = new Map<THREE.Texture, THREE.Texture | null>();
   return {
-    root, materials, parts, touchDots, blackMaps,
-    dispose: () => {
-      for (const c of created) c.dispose();
-      for (const t of blackMaps.values()) t?.dispose();
-    },
+    root, materials, finishUniforms, parts, touchDots,
+    dispose: () => { for (const c of created) c.dispose(); },
   };
 }
 
 /** Sets the controller's colour. */
 export function applyFinish(model: BuiltModel, finish: Finish): void {
-  for (const [m, original] of model.materials) {
-    let map = original;
-    if (finish === "black" && original) {
-      if (!model.blackMaps.has(original)) model.blackMaps.set(original, blackTexture(original));
-      map = model.blackMaps.get(original) ?? original;
-    }
-    m.map = map;
-    // Black plastic is a touch glossier than the white's matte finish.
-    m.roughness = finish === "black" ? 0.85 : 1;
-    m.color.set(WHITE);
-  }
+  for (const u of model.finishUniforms) u.value = finish === "black" ? 1 : 0;
+  // Black plastic is a touch glossier than the white's matte finish.
+  for (const m of model.materials) m.roughness = finish === "black" ? 0.85 : 1;
 }
 
 /** Colour multipliers so a lit or selected control reads clearly on white or black plastic. */

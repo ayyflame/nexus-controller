@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { BLACK_PLATE, blackFinishPixel, classify, findIslands, frameOf, PARTS, type V3 } from "./dualsenseModel.ts";
+import { BLACK_FINISH_GLSL, BLACK_PLATE, BLACK_PRINT, FINISH_BANDS, blackFinishPixel, classify, findIslands, frameOf, PARTS, type V3 } from "./dualsenseModel.ts";
 import type { MacroButton } from "../types/engine";
 
 /** Reads the shipped GLB without three.js: JSON chunk + binary chunk. */
@@ -100,4 +100,13 @@ test("Midnight Black: white plastic turns near-black, grey printing turns light,
     assert.ok(Math.abs(x - prev) < 45, `smooth near ${v}`);
     prev = x;
   }
+});
+
+test("the shader version of Midnight Black uses exactly the tested rule's colours and bands", () => {
+  const n = (v: number) => (v / 255).toFixed(4);
+  assert.ok(BLACK_FINISH_GLSL.includes(`vec3(${BLACK_PLATE.map(n).join(", ")})`), "plate colour");
+  assert.ok(BLACK_FINISH_GLSL.includes(`vec3(${BLACK_PRINT.map(n).join(", ")})`), "print colour");
+  assert.ok(BLACK_FINISH_GLSL.includes(`smoothstep( ${FINISH_BANDS.white[0].toFixed(4)}, ${FINISH_BANDS.white[1].toFixed(4)}, l )`), "white band");
+  assert.ok(BLACK_FINISH_GLSL.includes(`smoothstep( ${FINISH_BANDS.print[0].toFixed(4)}, ${FINISH_BANDS.print[1].toFixed(4)}, l )`), "print band");
+  assert.match(BLACK_FINISH_GLSL, /uniform float nexusBlack;/);
 });

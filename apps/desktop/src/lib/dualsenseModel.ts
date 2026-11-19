@@ -145,25 +145,52 @@ export const PRESS_DEPTH = 0.012;
 // ---- Midnight Black finish ----------------------------------------------
 // The model's colour textures are painted for a white DualSense: white
 // plastic, a dark grey core, and grey printing (button symbols, lettering).
-// The black finish repaints them: white plastic → near-black, grey printing →
-// light grey (as on a Midnight Black controller), dark parts stay dark.
+// The black finish repaints each texture colour as it is drawn: white
+// plastic → near-black, grey printing → light grey (as on a Midnight Black
+// controller), dark parts stay dark. The rule runs in the graphics shader
+// (BLACK_FINISH_GLSL); blackFinishPixel is the same rule in TypeScript, so
+// it can be tested.
 
-/** Near-black plastic with a slightly cool tint. */
+/** Near-black plastic with a slightly cool tint (sRGB 0–255). */
 export const BLACK_PLATE: V3 = [27, 28, 33];
-/** Light grey printing on black plastic. */
+/** Light grey printing on black plastic (sRGB 0–255). */
 export const BLACK_PRINT: V3 = [176, 178, 184];
+/** Lightness bands (sRGB luminance 0–1): above WHITE is white plastic, between PRINT and WHITE is printing. */
+export const FINISH_BANDS = { white: [0.6, 0.72], print: [0.34, 0.44], keep: 0.85 } as const;
 
 const step = (a: number, b: number, v: number) => {
   const t = Math.min(1, Math.max(0, (v - a) / (b - a)));
   return t * t * (3 - 2 * t);
 };
 
-/** One texture pixel (0–255 sRGB) repainted for the Midnight Black finish. Blends smoothly at edges. */
+/** One texture colour (0–255 sRGB) repainted for the Midnight Black finish. Blends smoothly at edges. */
 export function blackFinishPixel(r: number, g: number, b: number): V3 {
   const l = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
-  const white = step(0.6, 0.72, l);
-  const print = step(0.34, 0.44, l) * (1 - white);
+  const white = step(FINISH_BANDS.white[0], FINISH_BANDS.white[1], l);
+  const print = step(FINISH_BANDS.print[0], FINISH_BANDS.print[1], l) * (1 - white);
   const keep = 1 - white - print;
-  const mix = (i: 0 | 1 | 2, orig: number) => Math.round(white * BLACK_PLATE[i] + print * BLACK_PRINT[i] + keep * orig * 0.85);
+  const mix = (i: 0 | 1 | 2, orig: number) =>
+    Math.round(white * BLACK_PLATE[i] + print * BLACK_PRINT[i] + keep * orig * FINISH_BANDS.keep);
   return [mix(0, r), mix(1, g), mix(2, b)];
 }
+
+const f = (n: number) => n.toFixed(4);
+const vec = (c: V3) => `vec3(${c.map((v) => f(v / 255)).join(", ")})`;
+
+/**
+ * The same rule as GLSL, for three.js's standard material. Textures are
+ * sampled as linear colour, so it converts to sRGB, applies the rule, and
+ * converts back. GLSL's smoothstep is the same curve as `step` above.
+ */
+export const BLACK_FINISH_GLSL = `
+uniform float nexusBlack;
+vec3 nexusBlackFinish( vec3 linear ) {
+  vec3 s = pow( clamp( linear, 0.0, 1.0 ), vec3( 1.0 / 2.2 ) );
+  float l = dot( s, vec3( 0.2126, 0.7152, 0.0722 ) );
+  float white = smoothstep( ${f(FINISH_BANDS.white[0])}, ${f(FINISH_BANDS.white[1])}, l );
+  float print = smoothstep( ${f(FINISH_BANDS.print[0])}, ${f(FINISH_BANDS.print[1])}, l ) * ( 1.0 - white );
+  float keep = 1.0 - white - print;
+  vec3 outS = white * ${vec(BLACK_PLATE)} + print * ${vec(BLACK_PRINT)} + keep * s * ${f(FINISH_BANDS.keep)};
+  return pow( outS, vec3( 2.2 ) );
+}
+`;
