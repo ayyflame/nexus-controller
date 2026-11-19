@@ -119,7 +119,9 @@ export interface GyroCalibration { bias: [number, number, number]; samples: numb
 
 export interface LatencySummary { p50Us: number; p99Us: number; maxUs: number; samples: number }
 export interface StageSummary { p50Ns: number; p99Ns: number; maxNs: number; samples: number }
-export interface StageLatency { input: StageSummary; mapping: StageSummary; macros: StageSummary; output: StageSummary }
+/** Driver calls slower than a report interval (4 ms) or a noticeable stall (50 ms), since the controller connected. */
+export interface SlowCalls { over4ms: number; over50ms: number; longestNs: number; calls: number }
+export interface StageLatency { input: StageSummary; mapping: StageSummary; macros: StageSummary; output: StageSummary; slowOutput?: SlowCalls }
 
 /** One XInput player slot as a game reads it. */
 export interface XInputPad { buttons: number; leftTrigger: number; rightTrigger: number; thumbLx: number; thumbLy: number; thumbRx: number; thumbRy: number }

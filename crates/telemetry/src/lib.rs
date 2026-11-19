@@ -342,6 +342,40 @@ pub struct StageLatency {
     pub macros: StageSummary,
     /// Handing the frame to the virtual controller driver (ViGEmBus call).
     pub output: StageSummary,
+    /// Driver calls slower than a report interval, since the controller connected.
+    pub slow_output: SlowCalls,
+}
+
+/// A driver call slower than this holds up the next DualSense USB report.
+pub const SLOW_CALL: Duration = Duration::from_millis(4);
+/// A driver call slower than this is a stall a player can notice.
+pub const STALLED_CALL: Duration = Duration::from_millis(50);
+
+/// Counts of slow calls and the longest call, kept for the whole connection
+/// (the 256-sample windows forget a rare spike within a second).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SlowCalls {
+    /// Calls that took 4 ms or longer.
+    pub over_4ms: u64,
+    /// Calls that took 50 ms or longer.
+    pub over_50ms: u64,
+    pub longest_ns: u64,
+    /// All calls counted.
+    pub calls: u64,
+}
+
+impl SlowCalls {
+    pub fn record(&mut self, d: Duration) {
+        self.calls += 1;
+        if d >= SLOW_CALL {
+            self.over_4ms += 1;
+            if d >= STALLED_CALL {
+                self.over_50ms += 1;
+            }
+        }
+        self.longest_ns = self.longest_ns.max(d.as_nanos().min(u64::MAX as u128) as u64);
+    }
 }
 
 /// Shared telemetry sink used by the engine.

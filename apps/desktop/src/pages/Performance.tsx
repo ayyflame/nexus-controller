@@ -4,12 +4,18 @@ import { useEngine } from "../hooks/useEngine";
 import { buildDiagnosticsReport } from "../lib/diagnostics";
 import { errorMessage } from "../lib/engine";
 import { connectionLabel, modelLabel, outputLabel } from "../lib/format";
-import { stageText } from "../lib/outputCheck";
+import { slowCallsText, stageText } from "../lib/outputCheck";
+import type { SlowCalls } from "../types/engine";
 
 function Kind({ estimate }: { estimate?: boolean }) {
   return estimate
     ? <span className="kind est" data-tip="Estimated from data the controller sends; not a direct measurement">estimate</span>
     : <span className="kind" data-tip="Measured directly by NEXUS">measured</span>;
+}
+
+function SlowCallsCell({ calls }: { calls: SlowCalls | undefined }) {
+  const s = slowCallsText(calls);
+  return <td className={`right mono perf-slow tone-${s.tone}`}>{s.text}</td>;
 }
 
 export function Performance() {
@@ -58,6 +64,12 @@ export function Performance() {
               <tr><td className="perf-stage">Mapping: sticks, triggers, remap, layers, gyro, touchpad <Kind /></td><td className="right mono">{stageText(d.stageLatency?.mapping)}</td></tr>
               <tr><td className="perf-stage">Macros <Kind /></td><td className="right mono">{stageText(d.stageLatency?.macros)}</td></tr>
               <tr><td className="perf-stage">Virtual controller driver call (ViGEmBus) <Kind /></td><td className="right mono">{stageText(d.stageLatency?.output)}</td></tr>
+              <tr>
+                <td className="perf-stage" data-tip="Since the controller connected. A driver call over 4 ms holds up the next report; over 50 ms is a stall you could notice in a game.">
+                  Slow driver calls <Kind />
+                </td>
+                <SlowCallsCell calls={d.stageLatency?.slowOutput} />
+              </tr>
               <tr><td>Reports received <Kind /></td><td className="right mono">{d.totalReports.toLocaleString()}</td></tr>
               <tr><td>Input errors (unreadable reports) <Kind /></td><td className="right mono">{d.parseErrors.toLocaleString()}</td></tr>
               <tr><td>Dropped reports (from the controller's sequence counter) <Kind estimate /></td><td className="right mono">{d.sequenceGaps.toLocaleString()}</td></tr>

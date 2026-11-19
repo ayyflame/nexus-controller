@@ -1,7 +1,7 @@
 // Output Check (Live Viewer): reads of the virtual Xbox 360 controller back
 // through XInput, compared with what NEXUS sent. Pure helpers, unit-tested.
 
-import type { OutputCheck, StageSummary, XInputPad } from "../types/engine";
+import type { OutputCheck, SlowCalls, StageSummary, XInputPad } from "../types/engine";
 
 export const XBUTTONS: Array<[number, string]> = [
   [0x1000, "A"], [0x2000, "B"], [0x4000, "X"], [0x8000, "Y"], [0x0100, "LB"], [0x0200, "RB"],
@@ -70,4 +70,11 @@ export function formatNs(ns: number): string {
 
 export function stageText(s: StageSummary | undefined): string {
   return s?.samples ? `${formatNs(s.p50Ns)} / ${formatNs(s.p99Ns)} / ${formatNs(s.maxNs)}` : "—";
+}
+
+/** Slow driver calls since the controller connected, and whether they matter. */
+export function slowCallsText(s: SlowCalls | undefined): { text: string; tone: "ok" | "warn" | "bad" } {
+  if (!s?.calls) return { text: "—", tone: "ok" };
+  const text = `${s.over4ms} over 4 ms · ${s.over50ms} over 50 ms · longest ${formatNs(s.longestNs)}`;
+  return { text, tone: s.over50ms > 0 ? "bad" : s.over4ms > 0 ? "warn" : "ok" };
 }

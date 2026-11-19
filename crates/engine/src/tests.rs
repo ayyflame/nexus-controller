@@ -1307,6 +1307,9 @@ struct RecordingPad {
     next: u64,
     /// Simulates whether ViGEmBus is installed.
     installed: Arc<std::sync::atomic::AtomicBool>,
+    /// Simulates a slow driver: each update takes this long (ms). While it
+    /// is `u64::MAX`, updates block until it changes (a hung driver call).
+    stall_ms: Arc<AtomicU64>,
 }
 
 impl VirtualControllerBackend for RecordingPad {
@@ -1334,6 +1337,14 @@ impl VirtualControllerBackend for RecordingPad {
         Ok(VirtualDeviceHandle(self.next))
     }
     fn update(&mut self, h: VirtualDeviceHandle, s: &ControllerState) -> Result<(), OutputError> {
+        let stall = self.stall_ms.load(Ordering::SeqCst);
+        if stall == u64::MAX {
+            while self.stall_ms.load(Ordering::SeqCst) == u64::MAX {
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        } else if stall > 0 {
+            std::thread::sleep(Duration::from_millis(stall));
+        }
         self.log
             .0
             .lock()
@@ -1375,6 +1386,13 @@ fn xbox_engine() -> (MockHidBackend, Engine, PadLog) {
 fn xbox_engine_with(
     installed: Arc<std::sync::atomic::AtomicBool>,
 ) -> (MockHidBackend, Engine, PadLog) {
+    xbox_engine_stalling(installed, Default::default())
+}
+
+fn xbox_engine_stalling(
+    installed: Arc<std::sync::atomic::AtomicBool>,
+    stall_ms: Arc<AtomicU64>,
+) -> (MockHidBackend, Engine, PadLog) {
     let backend = MockHidBackend::new();
     backend.plug(usb_info());
     let log = PadLog::default();
@@ -1387,6 +1405,7 @@ fn xbox_engine_with(
                 log: factory_log.clone(),
                 next: 0,
                 installed: installed.clone(),
+                stall_ms: stall_ms.clone(),
             })
         }),
         EngineConfig {
@@ -2821,6 +2840,7 @@ fn closing_and_restarting_nexus_leaves_no_pad_behind_and_works_again() {
                 log: factory_log.clone(),
                 next: 0,
                 installed: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+                stall_ms: Default::default(),
             })
         }),
         EngineConfig {
@@ -3098,4 +3118,102 @@ fn a_button_combination_reaches_the_virtual_controller() {
         "released",
         |p| matches!(p.last(), Some(Pad::Report(_, r)) if r.buttons == 0),
     );
+}
+
+// ---- Slow and hung virtual controller driver calls (simulated) -------------
+
+fn stalling_xbox() -> (MockHidBackend, Engine, PadLog, Arc<AtomicU64>) {
+    let stall = Arc::new(AtomicU64::new(0));
+    let installed = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let (backend, e, log) = xbox_engine_stalling(installed, stall.clone());
+    log.wait("virtual controller", |p| p.contains(&Pad::Connect(1)));
+    e.set_processing(ProcessingConfig::passthrough());
+    (backend, e, log, stall)
+}
+
+#[test]
+fn a_slow_driver_call_delays_reports_but_none_is_lost_and_each_is_counted() {
+    let (backend, e, log, stall) = stalling_xbox();
+    expect_pad(&backend, &log, &held(0, 0), pad(0), "settled");
+    let before = log.reports().len();
+    stall.store(60, Ordering::SeqCst);
+    // Reports keep arriving while the driver call is stuck; the HID driver
+    // queues them (on Windows: up to 32, about 128 ms at 250 Hz).
+    for p in [held(0, 0x20), held(0, 0x40), held(0, 0x20 | 0x40), held(0, 0)] {
+        backend.push_report(PATH, p.usb_report());
+        std::thread::sleep(Duration::from_millis(4));
+    }
+    log.wait("all four after the stall", |_| log.reports().len() >= before + 4);
+    stall.store(0, Ordering::SeqCst);
+    let sent: Vec<u16> = log.reports()[before..before + 4]
+        .iter()
+        .map(|r| r.buttons)
+        .collect();
+    assert_eq!(
+        sent,
+        [xusb::A, xusb::B, xusb::A | xusb::B, 0],
+        "every report reaches the game, in order, after the stall"
+    );
+    // Counted for the whole connection, not only the last 256 calls.
+    pump(&backend, PATH, 70);
+    let s = wait_status(&e, "slow calls", |s| {
+        s.devices[0].stage_latency.slow_output.over_50ms >= 4
+    });
+    let slow = s.devices[0].stage_latency.slow_output;
+    assert!(slow.over_4ms >= slow.over_50ms);
+    assert!(slow.longest_ns >= 60_000_000, "{slow:?}");
+    assert!(slow.calls >= 64, "{slow:?}");
+}
+
+#[test]
+fn a_hung_driver_call_does_not_keep_nexus_from_exiting() {
+    let (backend, e, log, stall) = stalling_xbox();
+    expect_pad(&backend, &log, &held(0, 0x20), pad(xusb::A), "A held");
+    stall.store(u64::MAX, Ordering::SeqCst);
+    backend.push_report(PATH, held(0, 0x20).usb_report());
+    std::thread::sleep(Duration::from_millis(30)); // the reader is now inside the call
+
+    let t = Instant::now();
+    assert!(!e.shutdown_within(Duration::from_millis(150)));
+    assert!(t.elapsed() < Duration::from_secs(1), "{:?}", t.elapsed());
+    assert!(e
+        .recent_log(5)
+        .iter()
+        .any(|l| l.message.contains("not released within 150 ms")));
+
+    // If the call does return after all, the controller is still released
+    // properly: a neutral frame, then the virtual controller is removed.
+    stall.store(0, Ordering::SeqCst);
+    log.wait("removed", |p| p.contains(&Pad::Disconnect(1)));
+    let all = log.all();
+    let n = all.len();
+    assert_eq!(
+        all[n - 2..],
+        [Pad::Report(1, XusbReport::default()), Pad::Disconnect(1)]
+    );
+    e.shutdown(); // already given up on: returns at once
+}
+
+#[test]
+fn exit_releases_held_buttons_and_running_macros_before_removing_the_pad() {
+    let (backend, e, log) = xbox_engine();
+    e.set_macros(vec![rapid_macro()]);
+    pump(&backend, PATH, 3);
+    // R3 starts the repeating macro; Square is held at the same time.
+    for _ in 0..20 {
+        backend.push_report(PATH, report(&[(0, 0x10), R3]));
+        std::thread::sleep(Duration::from_millis(4));
+    }
+    wait_status(&e, "macro playing", |s| !s.devices[0].playing_macros.is_empty());
+    let t = Instant::now();
+    assert!(e.shutdown_within(Duration::from_secs(2)));
+    assert!(t.elapsed() < Duration::from_secs(1));
+    let all = log.all();
+    let n = all.len();
+    assert_eq!(
+        all[n - 2..],
+        [Pad::Report(1, XusbReport::default()), Pad::Disconnect(1)],
+        "nothing stays pressed in the game"
+    );
+    assert_eq!(log.live(), 0);
 }

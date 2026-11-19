@@ -11,6 +11,7 @@ How long NEXUS takes from a DualSense report to the virtual Xbox 360 controller,
 | Unreadable reports | Performance |
 | NEXUS processing time per report (µs), median / 99th percentile / max | Performance |
 | **The same time split by stage** (ns): report hand-over, mapping, macros, virtual controller driver call | Performance |
+| **Slow driver calls** since the controller connected (over 4 ms, over 50 ms, longest) | Performance |
 | **Whether Windows receives exactly what NEXUS sends** | Live Viewer › Output Check |
 
 Every value is measured on the controller's own reader thread with fixed-size buffers. Measuring adds four clock reads per report and allocates nothing. Values refresh every 64 reports (about 4 times a second).
@@ -43,10 +44,10 @@ The `xinput-loopback` CI job installs ViGEmBus on a GitHub Windows 11 (ARM64) ru
 
 In both failed runs, after a burst of updates, XInput kept showing the pad as neutral for more than 2 seconds, despite keep-alive resends. The failures line up with the runner being starved (in run 2, one batch of 500 paced updates took 8.8 s instead of ~2 s).
 
-**Conclusion:** on that shared cloud VM the driver call is usually 0.1–0.3 ms, but it can occasionally take tens to hundreds of milliseconds, and it ran on NEXUS's input thread. Whether a gaming PC ever does this can only be measured on real hardware, which is what the Performance page's *Virtual controller driver call* row and Live Viewer › Output Check are for. The output path was not restructured: moving the driver call to another thread would add delay to every normal frame, and there's no evidence yet that real PCs need it.
+**Conclusion:** on that shared cloud VM the driver call is usually 0.1–0.3 ms, but it can occasionally take tens to hundreds of milliseconds, and it ran on NEXUS's input thread. Whether a gaming PC ever does this can only be measured on real hardware, which is what the Performance page's *Virtual controller driver call* row and Live Viewer › Output Check are for. The output path was not restructured: moving the driver call to another thread would add delay to every normal frame, and there's no evidence yet that real PCs need it. What a slow call does, the safeguards added, and the design to use if real PCs need it are in [driver-performance.md](driver-performance.md).
 
 ## Rules
 
-- No busy loops: the reader thread waits for reports (the existing 1 s HID read timeout is unchanged).
+- No busy loops: the reader thread waits for reports (the 100 ms HID read timeout and the 1 s DualSense output write timeout are unchanged).
 - No allocations, locks or frontend messages per report in the hot path; the UI receives a status snapshot about 60 times a second.
 - Only change the hot path for speed when a measurement shows a real bottleneck.

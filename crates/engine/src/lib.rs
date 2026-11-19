@@ -27,7 +27,7 @@ use nexus_macro_engine::{
 };
 use nexus_telemetry::{
     unix_millis, IntervalStats, IntervalSummary, LatencySummary, LatencyWindow, LogEntry, LogLevel,
-    RateCounter, RawReport, StageLatency, StageWindow, Telemetry,
+    RateCounter, RawReport, SlowCalls, StageLatency, StageWindow, Telemetry,
 };
 use nexus_virtual_controller::drivers::{probe_drivers, DriverStatus};
 use nexus_virtual_controller::{
@@ -367,6 +367,8 @@ pub struct Engine {
     control: Sender<Control>,
     hotplug: Mutex<Option<nexus_device_manager::HotplugGuard>>,
     supervisor: Mutex<Option<JoinHandle<()>>>,
+    /// Signalled when the supervisor has released every controller.
+    stopped: Mutex<Option<Receiver<()>>>,
 }
 
 impl Engine {
@@ -474,11 +476,13 @@ impl Engine {
 
         let sup_shared = shared.clone();
         let hid_for_engine = hid.clone();
+        let (stopped_tx, stopped) = channel();
         let supervisor = std::thread::Builder::new()
             .name("nexus-supervisor".into())
             .spawn(move || {
                 let manager = DeviceManager::new(hid, drivers, device_config, factory, notify);
                 supervise(manager, sup_shared, control_rx);
+                let _ = stopped_tx.send(());
             })
             .expect("failed to spawn engine supervisor thread");
 
@@ -488,6 +492,7 @@ impl Engine {
             control,
             hotplug: Mutex::new(hotplug),
             supervisor: Mutex::new(Some(supervisor)),
+            stopped: Mutex::new(Some(stopped)),
         }
     }
 
@@ -833,15 +838,47 @@ impl Engine {
     }
 
     /// Stops all controller sessions, releases virtual devices and joins the
-    /// engine threads. Idempotent.
+    /// engine threads. Idempotent. Waits as long as that takes; at app exit
+    /// use [`Engine::shutdown_within`].
     pub fn shutdown(&self) {
+        self.shutdown_within(Duration::MAX);
+    }
+
+    /// Like [`Engine::shutdown`], but gives up waiting after `timeout`.
+    ///
+    /// Each controller's reader thread sends a neutral frame and removes its
+    /// virtual controller before it stops. A reader stuck inside a driver
+    /// call that never returns cannot do that, and must not keep NEXUS from
+    /// exiting: after `timeout` this returns `false` and leaves the threads
+    /// to finish on their own. When the process then exits, Windows closes
+    /// the driver connection and ViGEmBus removes the virtual controller.
+    pub fn shutdown_within(&self, timeout: Duration) -> bool {
         // Stop OS notifications first so none arrive during shutdown.
         *lock(&self.hotplug) = None;
-        let handle = lock(&self.supervisor).take();
-        if let Some(handle) = handle {
-            let _ = self.control.send(Control::Shutdown);
+        let Some(handle) = lock(&self.supervisor).take() else {
+            return true;
+        };
+        let _ = self.control.send(Control::Shutdown);
+        let stopped = lock(&self.stopped).take();
+        let finished = match stopped {
+            // Disconnected: the supervisor ended without signalling (it panicked).
+            Some(rx) => !matches!(rx.recv_timeout(timeout), Err(RecvTimeoutError::Timeout)),
+            None => true,
+        };
+        if finished {
             let _ = handle.join();
+        } else {
+            self.shared.log(
+                LogLevel::Warn,
+                "engine",
+                format!(
+                    "Controllers were not released within {} ms (a driver call is not \
+                     returning). Windows removes the virtual controller when NEXUS exits.",
+                    timeout.as_millis()
+                ),
+            );
         }
+        finished
     }
 }
 
@@ -1192,6 +1229,7 @@ impl EngineSessionHandler {
         self.stages.mapping.record(t1 - t0);
         self.stages.macros.record(t2 - t1);
         self.stages.output.record(t3 - t2);
+        self.stages.slow_output.record(t3 - t2);
         if let Some(received) = received {
             self.latency.record(t3.saturating_duration_since(received));
             self.stages
@@ -1527,6 +1565,7 @@ struct Stages {
     mapping: StageWindow,
     macros: StageWindow,
     output: StageWindow,
+    slow_output: SlowCalls,
 }
 
 impl Stages {
@@ -1536,6 +1575,7 @@ impl Stages {
             mapping: self.mapping.summary(),
             macros: self.macros.summary(),
             output: self.output.summary(),
+            slow_output: self.slow_output,
         }
     }
 }
