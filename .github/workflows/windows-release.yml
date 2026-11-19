@@ -248,6 +248,39 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Update the "Latest build" download
+        # The README's download button points at a fixed address:
+        # releases/download/latest-build/NEXUS-latest-x64-setup.exe. Every
+        # successful build of main (not a versioned release) replaces that file
+        # and moves the tag to this commit. It is a pre-release, so it never
+        # counts as the latest release; the updater doesn't use GitHub Releases.
+        # Created with the workflow token, so it doesn't start this workflow.
+        if: github.ref == 'refs/heads/main' && steps.mode.outputs.release != 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXE: ${{ steps.collect.outputs.exe }}
+        run: |
+          $tag = "latest-build"
+          $name = "NEXUS-latest-x64-setup.exe"
+          Copy-Item "installers/$($env:EXE)" $name
+          $hash = (Get-FileHash $name -Algorithm SHA256).Hash.ToLower()
+          "$hash  $name" | Set-Content "NEXUS-latest-SHA256.txt"
+          $short = $env:GITHUB_SHA.Substring(0, 7)
+          $notes = "Development build of ``main`` at $short ($(Get-Date -AsUTC -Format 'yyyy-MM-dd HH:mm') UTC), from installer $($env:EXE).`n`nNot a versioned release: it is replaced by every new build of main. Versioned releases are listed separately."
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --prerelease --title "Latest build" --notes $notes --target $env:GITHUB_SHA
+            if ($LASTEXITCODE -ne 0) { throw "Creating the Latest build release failed" }
+          } else {
+            gh api -X PATCH "repos/$($env:GITHUB_REPOSITORY)/git/refs/tags/$tag" -f sha=$env:GITHUB_SHA -F force=true | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "Moving the latest-build tag failed" }
+            gh release edit $tag --prerelease --title "Latest build" --notes $notes
+            if ($LASTEXITCODE -ne 0) { throw "Updating the Latest build notes failed" }
+          }
+          gh release upload $tag $name "NEXUS-latest-SHA256.txt" --clobber
+          if ($LASTEXITCODE -ne 0) { throw "Uploading the Latest build installer failed" }
+
       - name: Generate latest.json
         if: steps.mode.outputs.publish == 'true'
         shell: pwsh
