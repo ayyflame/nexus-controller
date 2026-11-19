@@ -68,6 +68,6 @@ export function formatNs(ns: number): string {
   return `${(ns / 1_000_000).toFixed(1)} ms`;
 }
 
-export function stageText(s: StageSummary): string {
-  return s.samples ? `${formatNs(s.p50Ns)} / ${formatNs(s.p99Ns)} / ${formatNs(s.maxNs)}` : "—";
+export function stageText(s: StageSummary | undefined): string {
+  return s?.samples ? `${formatNs(s.p50Ns)} / ${formatNs(s.p99Ns)} / ${formatNs(s.maxNs)}` : "—";
 }

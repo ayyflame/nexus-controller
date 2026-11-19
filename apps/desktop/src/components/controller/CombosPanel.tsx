@@ -38,7 +38,7 @@ export function CombosPanel({ config, onChange }: { config: ProcessingConfig; on
             {slots(c.buttons, MAX_COMBO_BUTTONS, (l) => set(i, { ...c, buttons: l }), "Held button")}
             <span className="combo-arrow" aria-hidden="true">→</span>
             {slots(c.sends, MAX_COMBO_SENDS, (l) => set(i, { ...c, sends: l }), "Presses")}
-            <span className="combo-hide"><Switch checked={c.hideInputs} onChange={(v) => set(i, { ...c, hideInputs: v })} label="Hide the held buttons" /> Hide the held buttons</span>
+            <span className="combo-hide"><Switch checked={c.hideInputs} onChange={(v) => set(i, { ...c, hideInputs: v })} label="Hide the held buttons" /></span>
             <button type="button" className="btn-ghost small danger" onClick={() => set(i, null)}>Remove</button>
             {problem && <p className="warn-text small combo-problem">{problem}</p>}
           </div>

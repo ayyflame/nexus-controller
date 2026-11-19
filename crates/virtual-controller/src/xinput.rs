@@ -84,7 +84,9 @@ pub fn differences(sent: &XInputPad, read: &XInputPad) -> Vec<String> {
 }
 
 /// Reads one XInput slot (0–3): `Ok(None)` if nothing is connected there.
+/// The only unsafe code is the single read-only XInputGetState call.
 #[cfg(windows)]
+#[allow(unsafe_code)]
 pub fn read_slot(slot: u32) -> Result<Option<XInputPad>, String> {
     #[repr(C)]
     #[derive(Default)]

@@ -43,4 +43,5 @@ test("nanosecond formatting for the stage timings", () => {
   assert.equal(formatNs(Number.NaN), "—");
   assert.equal(stageText({ p50Ns: 60, p99Ns: 78, maxNs: 80, samples: 256 }), "60 ns / 78 ns / 80 ns");
   assert.equal(stageText({ p50Ns: 0, p99Ns: 0, maxNs: 0, samples: 0 }), "—");
+  assert.equal(stageText(undefined), "—", "an older status without stage timings doesn't break the page");
 });

@@ -54,10 +54,10 @@ export function Performance() {
               <tr><td>NEXUS processing time, median / 99th percentile / max <Kind /></td>
                 <td className="right mono">{d.pipelineLatency.samples ? `${d.pipelineLatency.p50Us} / ${d.pipelineLatency.p99Us} / ${d.pipelineLatency.maxUs} µs` : "—"}</td></tr>
               <tr><td colSpan={2} className="perf-stages-head">Where that time goes, median / 99th percentile / max</td></tr>
-              <tr><td className="perf-stage">Report hand-over (read → processing starts) <Kind /></td><td className="right mono">{stageText(d.stageLatency.input)}</td></tr>
-              <tr><td className="perf-stage">Mapping: sticks, triggers, remap, layers, gyro, touchpad <Kind /></td><td className="right mono">{stageText(d.stageLatency.mapping)}</td></tr>
-              <tr><td className="perf-stage">Macros <Kind /></td><td className="right mono">{stageText(d.stageLatency.macros)}</td></tr>
-              <tr><td className="perf-stage">Virtual controller driver call (ViGEmBus) <Kind /></td><td className="right mono">{stageText(d.stageLatency.output)}</td></tr>
+              <tr><td className="perf-stage">Report hand-over (read → processing starts) <Kind /></td><td className="right mono">{stageText(d.stageLatency?.input)}</td></tr>
+              <tr><td className="perf-stage">Mapping: sticks, triggers, remap, layers, gyro, touchpad <Kind /></td><td className="right mono">{stageText(d.stageLatency?.mapping)}</td></tr>
+              <tr><td className="perf-stage">Macros <Kind /></td><td className="right mono">{stageText(d.stageLatency?.macros)}</td></tr>
+              <tr><td className="perf-stage">Virtual controller driver call (ViGEmBus) <Kind /></td><td className="right mono">{stageText(d.stageLatency?.output)}</td></tr>
               <tr><td>Reports received <Kind /></td><td className="right mono">{d.totalReports.toLocaleString()}</td></tr>
               <tr><td>Input errors (unreadable reports) <Kind /></td><td className="right mono">{d.parseErrors.toLocaleString()}</td></tr>
               <tr><td>Dropped reports (from the controller's sequence counter) <Kind estimate /></td><td className="right mono">{d.sequenceGaps.toLocaleString()}</td></tr>
