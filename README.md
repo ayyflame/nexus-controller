@@ -19,7 +19,7 @@ Built with Tauri 2, React and TypeScript for the UI, and Rust for the engine, wi
 
 ## Contents
 
-[Features](#features) · [Requirements](#requirements) · [Installation](#installation) · [Using NEXUS](#using-nexus) · [Troubleshooting](#troubleshooting) · [Documentation](#documentation) · [Develop](#develop) · [Credits](#credits)
+[Features](#features) · [Requirements](#requirements) · [Installation](#installation) · [Using NEXUS](#using-nexus) · [Troubleshooting](#troubleshooting) · [Documentation](#documentation) · [Develop](#develop) · [Credits](#credits) · [License](#license)
 
 ## Features
 
@@ -165,7 +165,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cd apps\desktop; npm run typecheck; npm test; npm run build
 ```
 
-- **Installers:** `npm run tauri build` in `apps\desktop`; output in `target\release\bundle\`. Every *Windows release build* run on `main` also refreshes the **Latest build** download.
+- **Installers:** `npm run tauri build` in `apps\desktop`; output in `target\release\bundle\`. Every push to `main` that changes the app is built automatically and refreshes the **Latest build** download.
 - **Releasing a version:** [`docs/releasing.md`](docs/releasing.md). Windows setup: [`docs/windows-setup.md`](docs/windows-setup.md).
 
 **Layout**
@@ -186,3 +186,7 @@ cd apps\desktop; npm run typecheck; npm test; npm run build
 ## Credits
 
 - 3D controller model: **"Playstation 5 Dualsense" by [AHarmlessPotato](https://sketchfab.com/AHarmlessPotato)** ([source](https://sketchfab.com/3d-models/playstation-5-dualsense-878c1f882808477ab81c2fe86d5a3936)), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). NEXUS splits it into separate controls and recolours it at run time. NEXUS is not affiliated with Sony.
+
+## License
+
+NEXUS's code is under the [MIT License](LICENSE): you may use, copy, modify and share it, keeping the copyright notice; it comes with no warranty. The 3D model and other third-party parts keep their own licences; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
