@@ -194,3 +194,39 @@ vec3 nexusBlackFinish( vec3 linear ) {
   return pow( outS, vec3( 2.2 ) );
 }
 `;
+
+// ---- Shell zones (Controller Studio) ----------------------------------------
+// The shell isn't split into separate objects in the file, but its paint
+// regions are distinct: white plastic on top (material 1011, light texture),
+// the white back housing (material 1002), the black centre core (1011, dark
+// texture) and the light bar (1011, glowing texture). The grips are the lower
+// lobes. Each shell triangle is assigned to one zone by these rules.
+
+export type ShellZoneId = "frontShell" | "rearShell" | "gripLeft" | "gripRight" | "centerTrim" | "lightBar" | "stickBases";
+
+/** Below this height and beyond this distance from the middle is a grip (model units). */
+export const GRIP = { y: -0.22, x: 0.42 } as const;
+
+/** Thin rings around the base of each stick cap (material 1011), found like the controls. */
+export const STICK_BASES: Array<{ centre: V3; tolerance: number }> = [
+  { centre: [-0.318, -0.001, 0.311], tolerance: 0.03 },
+  { centre: [0.318, -0.001, 0.311], tolerance: 0.03 },
+];
+
+export function isStickBase(material: string, island: { min: V3; max: V3 }): boolean {
+  if (material !== "1011") return false;
+  const c = centreOf(island);
+  return STICK_BASES.some((s) => dist(c, s.centre) <= s.tolerance);
+}
+
+/**
+ * Zone of one shell triangle from its material, centre (model units), the
+ * lightness of its colour texture (0–1) and the strength of its glow texture.
+ */
+export function shellZoneOf(material: string, centre: V3, lightness: number, glow: number): ShellZoneId {
+  if (material === "1011" && glow > 0.2) return "lightBar";
+  const white = material === "1002" || lightness >= 0.55;
+  if (white && centre[1] < GRIP.y && Math.abs(centre[0]) > GRIP.x) return centre[0] < 0 ? "gripLeft" : "gripRight";
+  if (material === "1002") return "rearShell";
+  return white ? "frontShell" : "centerTrim";
+}

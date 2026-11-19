@@ -104,6 +104,30 @@ export function visualKey(v: Visual3D): string {
   return `${v.connected ? 1 : 0}|${lit}|${st(v.leftStick)}|${st(v.rightStick)}|${r(v.l2)},${r(v.r2)}|${t}`;
 }
 
+/** Smallest stick tilt (radians, ~0.3°) and trigger change that is worth a redraw. */
+export const REDRAW_TOLERANCE = { tilt: 0.005, trigger: 0.006, touch: 0.004 } as const;
+
+/**
+ * Whether `next` looks different from what was last drawn. Small sensor
+ * jitter (a resting stick wobbling by a hair) is not a change, so a still
+ * controller doesn't make the view redraw at the report rate.
+ */
+export function visuallyDifferent(prev: Visual3D, next: Visual3D): boolean {
+  if (prev.connected !== next.connected) return true;
+  for (const k of Object.keys(next.lit) as MacroButton[]) if (prev.lit[k] !== next.lit[k]) return true;
+  const stick = (a: StickPose, b: StickPose) =>
+    a.pressed !== b.pressed || Math.abs(a.rotX - b.rotX) > REDRAW_TOLERANCE.tilt || Math.abs(a.rotY - b.rotY) > REDRAW_TOLERANCE.tilt;
+  if (stick(prev.leftStick, next.leftStick) || stick(prev.rightStick, next.rightStick)) return true;
+  if (Math.abs(prev.l2 - next.l2) > REDRAW_TOLERANCE.trigger || Math.abs(prev.r2 - next.r2) > REDRAW_TOLERANCE.trigger) return true;
+  // Fully released / fully pressed always count, so the ends are drawn exactly.
+  if ((prev.l2 === 0) !== (next.l2 === 0) || (prev.r2 === 0) !== (next.r2 === 0) || (prev.l2 === 1) !== (next.l2 === 1) || (prev.r2 === 1) !== (next.r2 === 1)) return true;
+  if (prev.touches.length !== next.touches.length) return true;
+  return next.touches.some((t, i) => {
+    const p = prev.touches[i]!;
+    return p.id !== t.id || Math.abs(p.u - t.u) > REDRAW_TOLERANCE.touch || Math.abs(p.v - t.v) > REDRAW_TOLERANCE.touch;
+  });
+}
+
 export type Vec3 = [number, number, number];
 
 /** Is a surface facing the camera (so its leader line should show)? */

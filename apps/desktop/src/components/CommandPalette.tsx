@@ -14,6 +14,7 @@ export const SEARCH_ITEMS: PaletteItem[] = [
   { label: "Shift layers", hint: "Controller › Mapping", page: "controller", tab: "buttons", keywords: "layer shift modifier toggle hold" },
   { label: "Virtual controller", hint: "Controller › Virtual Output", page: "controller", tab: "output", keywords: "xbox 360 dualshock ds4 output driver vigem hidhide" },
   { label: "Lightbar & vibration", hint: "Controller › Lighting & Haptics", page: "controller", tab: "lighting", keywords: "light colour color rgb led rumble vibration haptics player" },
+  { label: "Controller Studio", hint: "Customise the 3D controller", page: "studio", keywords: "skin colour color theme design paint custom carbon chrome decal preset look appearance" },
   { label: "Macro Studio", hint: "Create and record macros", page: "macro-studio", keywords: "macro record sequence combo" },
   { label: "Profiles", hint: "Switch, create, games", page: "profiles", keywords: "profile game automatic switch template" },
   { label: "Backup & restore", hint: "Profiles", page: "profiles", keywords: "backup restore export import transfer file" },

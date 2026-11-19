@@ -1,10 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  AT_REST, MAX_TILT, TRIGGER_SWING, VIEWS, ZOOM, facesCamera, fitRadius, orbitBetween, orbitToOffset, stickPose, triggerAngle,
+  AT_REST, MAX_TILT, TRIGGER_SWING, VIEWS, ZOOM, facesCamera, fitRadius, orbitBetween, orbitToOffset, stickPose, triggerAngle, visuallyDifferent,
   visualFrom, visualKey,
 } from "./controller3d.ts";
-import { parseFinish, parseViewMode } from "./controllerViewMode.ts";
+import { parseViewMode } from "./controllerViewMode.ts";
 import { stateOf } from "./diagFixtures.ts";
 import type { ControllerState } from "../types/engine";
 
@@ -95,10 +95,22 @@ test("leader lines only for controls facing the camera", () => {
   assert.equal(facesCamera(face, [0, 0, -10]), false, "rear view hides face-button lines");
 });
 
-test("view preferences: 3D and Midnight Black unless chosen otherwise", () => {
+test("view preference: 3D unless 2D was chosen", () => {
   assert.equal(parseViewMode(null), "3d");
   assert.equal(parseViewMode("flat"), "flat");
   assert.equal(parseViewMode("junk"), "3d");
-  assert.equal(parseFinish(null), "black");
-  assert.equal(parseFinish("white"), "white");
+});
+
+test("sensor jitter on a resting stick is not a visible change; real movement is", () => {
+  const at = (x: number, l2 = 0) => visualFrom(stateOf({ leftStick: { x, y: 0, rawX: 128, rawY: 128 }, leftTrigger: { value: l2, raw: 0, digital: false } }), true);
+  const rest = at(0.04);
+  // Jitter of ±0.006 around a value that sits on a rounding boundary.
+  for (const x of [0.034, 0.046, 0.04, 0.0415]) assert.equal(visuallyDifferent(rest, at(x)), false, `jitter ${x}`);
+  assert.equal(visuallyDifferent(rest, at(0.08)), true, "a real push");
+  assert.equal(visuallyDifferent(at(0.5, 0.002), at(0.5, 0)), true, "fully released is always drawn exactly");
+  assert.equal(visuallyDifferent(at(0.5, 0.5), at(0.5, 0.503)), false);
+  assert.equal(visuallyDifferent(at(0.5, 0.5), at(0.5, 0.52)), true);
+  const pressed = visualFrom(stateOf({ buttons: { north: true } }), true);
+  assert.equal(visuallyDifferent(visualFrom(stateOf(), true), pressed), true, "buttons always count");
+  assert.equal(visuallyDifferent(AT_REST, visualFrom(stateOf(), true)), true, "connecting counts");
 });

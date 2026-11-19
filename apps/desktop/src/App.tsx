@@ -9,6 +9,7 @@ import { MacroStudio } from "./pages/MacroStudio";
 import { Performance } from "./pages/Performance";
 import { Controller } from "./pages/Controller";
 import { LiveViewer } from "./pages/LiveViewer";
+import { ControllerStudio } from "./pages/ControllerStudio";
 import { Profiles } from "./pages/Profiles";
 import { Settings } from "./pages/Settings";
 
@@ -21,6 +22,7 @@ function Page({ id, tab }: { id: PageId; tab?: string }) {
     case "macro-studio": return <MacroStudio />;
     case "controller": return <Controller initialTab={tab} />;
     case "live-viewer": return <LiveViewer initialTab={tab} />;
+    case "studio": return <ControllerStudio />;
   }
 }
 

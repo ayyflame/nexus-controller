@@ -18,7 +18,8 @@ Built with Tauri 2, React and TypeScript for the UI, and Rust for the engine, wi
 - **Sticks** (*Controller › Sticks*): deadzone (radial or axial), outer deadzone, anti-deadzone, sensitivity, response curves with presets or custom points, invert, and circular or square output.
 - **Triggers** (*Controller › Triggers*): deadzone, range, curve, and the point where the trigger counts as pressed.
 - **Calibration** (*Live Viewer › Calibration*): a guided wizard that measures each stick's resting centre, jitter and full range, recommends a deadzone, and measures L2/R2's released and fully pressed ends. Nothing is saved until you review and apply it, and you can reset to the previous calibration ([`docs/calibration.md`](docs/calibration.md)).
-- **Interactive 3D controller**: your DualSense as a 3D model that moves with the real controller: buttons light up, sticks tilt, L2/R2 swing with their pressure, touches show on the touchpad. Drag to rotate, scroll to zoom, front/rear/top views, Midnight Black or White. See [docs/3d-controller.md](docs/3d-controller.md).
+- **Controller Studio** (sidebar): customise the 3D controller's look: colours, real materials (matte, gloss, satin, metallic, chrome, carbon fibre, textured rubber, brushed metal), gradients, patterns, your own graphics, light bar colour and lighting. Ten presets, saved skins with previews, import/export, undo/redo. Only the picture changes, never input or game output. See [docs/controller-studio.md](docs/controller-studio.md).
+- **Interactive 3D controller**: your DualSense as a 3D model that moves with the real controller: buttons light up, sticks tilt, L2/R2 swing with their pressure, touches show on the touchpad. Drag to rotate, scroll to zoom, front/rear/top views, in the skin chosen in Controller Studio. See [docs/3d-controller.md](docs/3d-controller.md).
 - **Button remapping** (*Controller › Mapping*): click any button on the 3D controller, or its card, and choose what it sends: another button, nothing, or two buttons at once. Each card shows what the game receives (for example Triangle → Y). Undo/redo and a list view are included.
 - **Shift layers:** hold a button (or toggle it) to switch to a different button layout while it's active.
 - **Gyro and touchpad** (optional): gyro aiming onto a stick, touchpad zones and swipes as buttons.
@@ -141,7 +142,7 @@ Installing a newer version over an older one keeps your profiles and macros. Mor
 - **Shift layers:** in the layers section of the same tab, pick an activator button (held or toggled) and the mappings that apply while it's active. The activator itself is not sent to the game.
 - **Sticks and triggers:** *Controller › Sticks* and *Controller › Triggers*. Changes apply live, and the plots show your physical input next to the processed result.
 - **Check a mapping:** *Controller › Live*. Click a button on the controller (in 3D or 2D) to see what it sends, which layers change it and which macros it starts.
-- **3D view controls:** drag to rotate, scroll or −/+ to zoom; **Reset**, **Front**, **Rear** and **Top** views; the round swatch switches between Midnight Black and White; **2D** switches to the flat picture.
+- **3D view controls:** drag to rotate, scroll or −/+ to zoom; **Reset**, **Front**, **Rear** and **Top** views; **Studio** opens Controller Studio to change its look; **2D** switches to the flat picture.
 
 ### Create and edit a macro
 
@@ -245,6 +246,7 @@ Installers: `npm run tauri build` in `apps\desktop`, output in `target\release\b
   - [Macro Studio](docs/macro-studio.md)
   - [Optional HidHide setup](docs/hidhide-setup.md)
   - [3D controller view](docs/3d-controller.md)
+  - [Controller Studio](docs/controller-studio.md)
   - [Controller photo mode](docs/controller-photo.md)
   - [Live Viewer and diagnostics](docs/live-viewer.md)
   - [Calibration wizard](docs/calibration.md)

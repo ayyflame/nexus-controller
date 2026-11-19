@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { BLACK_FINISH_GLSL, BLACK_PLATE, BLACK_PRINT, FINISH_BANDS, blackFinishPixel, classify, findIslands, frameOf, PARTS, type V3 } from "./dualsenseModel.ts";
+import { decodePng } from "./pngDecode.test-helper.ts";
+import { BLACK_FINISH_GLSL, BLACK_PLATE, isStickBase, shellZoneOf, BLACK_PRINT, FINISH_BANDS, blackFinishPixel, classify, findIslands, frameOf, PARTS, type V3 } from "./dualsenseModel.ts";
 import type { MacroButton } from "../types/engine";
 
 /** Reads the shipped GLB without three.js: JSON chunk + binary chunk. */
@@ -120,4 +121,64 @@ test("the app's security policy lets the 3D model's embedded textures load", () 
   assert.match(directive("connect-src"), /(^|\s)blob:(\s|$)/);
   assert.match(directive("img-src"), /(^|\s)blob:(\s|$)/);
   assert.doesNotMatch(csp, /\*|https?:\/\/(?!ipc\.localhost)/, "still no outside hosts");
+});
+
+
+test("the shell splits into front, rear, grips and centre trim by the model's own paint regions", () => {
+  const buf = readFileSync(new URL("../assets/models/dualsense.glb", import.meta.url));
+  const jsonLen = buf.readUInt32LE(12);
+  const json = JSON.parse(buf.toString("utf8", 20, 20 + jsonLen));
+  const bin = buf.subarray(20 + jsonLen + 8);
+  const view = (i: number) => { const bv = json.bufferViews[i]; return bin.subarray(bv.byteOffset ?? 0, (bv.byteOffset ?? 0) + bv.byteLength); };
+  const read = (i: number) => {
+    const a = json.accessors[i], bv = json.bufferViews[a.bufferView];
+    const n = a.count * ({ SCALAR: 1, VEC2: 2, VEC3: 3 } as Record<string, number>)[a.type]!;
+    const off = bin.byteOffset + (bv.byteOffset ?? 0) + (a.byteOffset ?? 0);
+    const copy = bin.buffer.slice(off, off + n * (a.componentType === 5123 ? 2 : 4));
+    return a.componentType === 5126 ? new Float32Array(copy) : a.componentType === 5123 ? new Uint16Array(copy) : new Uint32Array(copy);
+  };
+  const counts: Record<string, number> = {};
+  let stickBases = 0;
+  for (const mesh of json.meshes) {
+    const p = mesh.primitives[0];
+    const mat = json.materials[p.material];
+    if (mat.name === "1001") continue;
+    // 1002 (the back housing) is all white plastic and stored as JPEG; only 1011's PNG needs reading.
+    const png = mat.name === "1011"
+      ? decodePng(Buffer.from(view(json.images[json.textures[mat.pbrMetallicRoughness.baseColorTexture.index].source].bufferView)))
+      : null;
+    const pos = read(p.attributes.POSITION) as Float32Array;
+    const uv = read(p.attributes.TEXCOORD_0) as Float32Array;
+    const idx = read(p.indices);
+    for (const isl of findIslands(pos, idx)) {
+      if (classify(mat.name, isl)) continue;
+      if (isStickBase(mat.name, isl)) { stickBases++; continue; }
+      for (const t of isl.triangles) {
+        const c: V3 = [0, 0, 0]; let u = 0, v = 0;
+        for (let k = 0; k < 3; k++) { const i = idx[3 * t + k]!; for (let d = 0; d < 3; d++) c[d] = c[d]! + pos[3 * i + d]! / 3; u += uv[2 * i]! / 3; v += uv[2 * i + 1]! / 3; }
+        let l = 1;
+        if (png) {
+          const px = Math.min(png.width - 1, Math.floor((u % 1) * png.width)), py = Math.min(png.height - 1, Math.floor((v % 1) * png.height));
+          const o = (py * png.width + px) * png.channels;
+          l = png.channels >= 3 ? (0.2126 * png.data[o]! + 0.7152 * png.data[o + 1]! + 0.0722 * png.data[o + 2]!) / 255 : png.data[o]! / 255;
+        }
+        const z = shellZoneOf(mat.name, c, l, 0);
+        counts[z] = (counts[z] ?? 0) + 1;
+      }
+    }
+  }
+  assert.equal(stickBases, 2, "one ring per stick");
+  for (const z of ["frontShell", "rearShell", "gripLeft", "gripRight", "centerTrim"]) assert.ok((counts[z] ?? 0) > 1000, `${z}: ${counts[z]}`);
+  const g = (counts.gripLeft! - counts.gripRight!) / counts.gripLeft!;
+  assert.ok(Math.abs(g) < 0.2, `grips are roughly mirror images (${counts.gripLeft} / ${counts.gripRight})`);
+});
+
+test("zone rules: light bar glow, grips, white plastic and the dark core", () => {
+  assert.equal(shellZoneOf("1011", [0, 0.5, 0.25], 0.2, 0.9), "lightBar");
+  assert.equal(shellZoneOf("1011", [-0.7, -0.5, 0], 0.9, 0), "gripLeft");
+  assert.equal(shellZoneOf("1002", [0.7, -0.5, -0.3], 0.9, 0), "gripRight");
+  assert.equal(shellZoneOf("1002", [0.2, 0.3, -0.3], 0.9, 0), "rearShell");
+  assert.equal(shellZoneOf("1011", [0.6, 0.3, 0.25], 0.9, 0), "frontShell");
+  assert.equal(shellZoneOf("1011", [0.1, -0.1, 0.25], 0.2, 0), "centerTrim");
+  assert.equal(shellZoneOf("1011", [-0.7, -0.5, 0], 0.2, 0), "centerTrim", "dark plastic in a grip stays with the core");
 });

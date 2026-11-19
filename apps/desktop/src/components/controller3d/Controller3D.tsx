@@ -6,14 +6,16 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import modelUrl from "../../assets/models/dualsense.glb?url";
 import {
-  CAMERA_TARGET, VIEWS, ZOOM, facesCamera, fitRadius, orbitBetween, orbitToOffset, visualFrom, visualKey,
+  CAMERA_TARGET, VIEWS, ZOOM, facesCamera, fitRadius, orbitBetween, orbitToOffset, visualFrom, visualKey, visuallyDifferent,
   type Orbit, type ViewName, type Visual3D,
 } from "../../lib/controller3d";
 import { describeState } from "../../lib/controllerView";
 import type { ButtonMark } from "../../lib/buttonMapping";
 import type { ControllerState, MacroButton } from "../../types/engine";
-import { applyFinish, applyVisual, buildModel, type BuiltModel, type Finish } from "./modelParts";
-import { useFinish } from "../../lib/controllerViewMode";
+import { applySkin, applyVisual, buildModel, type BuiltModel } from "./modelParts";
+import { useActiveSkin } from "../../lib/skinStore";
+import { VIEWS as ORBITS } from "../../lib/controller3d";
+import type { ComponentId, LightingId, Skin } from "../../lib/skin";
 
 /** Screen position of each control inside the canvas (CSS px), for leader lines. */
 export type Anchors = Partial<Record<MacroButton, { x: number; y: number; visible: boolean }>>;
@@ -30,6 +32,21 @@ export interface Controller3DProps {
   onFlat?: () => void;
   /** Badge text while there is no live input. */
   offlineLabel?: string;
+  /** Show this skin instead of the active one (Controller Studio's working copy). */
+  skin?: Skin;
+  /** Components not drawn (Studio's visibility toggles). */
+  hidden?: ReadonlySet<ComponentId>;
+  /** Gives the caller a way to capture images of the view. */
+  onReady?: (api: Capture) => void;
+  /** Hide the "Studio" shortcut (inside Controller Studio itself). */
+  inStudio?: boolean;
+  /** Pick any component, shell zones included (Controller Studio). Takes the place of onSelect. */
+  onSelectComponent?: (c: ComponentId) => void;
+}
+
+/** Captures the view as a PNG data URL; optionally with another skin and from the default angle (thumbnails). */
+export interface Capture {
+  image(opts?: { skin?: Skin; defaultAngle?: boolean; width?: number }): string;
 }
 
 /** Credit required by the model's licence (CC BY 4.0). */
@@ -43,7 +60,9 @@ export const MODEL_CREDIT = {
 } as const;
 
 type Request = { kind: "view"; view: ViewName; n: number } | { kind: "zoom"; factor: number; n: number };
-type Pick = { over: (b: MacroButton) => void; out: (b: MacroButton) => void; click: (b: MacroButton) => void };
+type Pick = { all: boolean; over: (c: ComponentId) => void; out: (c: ComponentId) => void; click: (c: ComponentId) => void };
+const SHELL_ZONES = new Set(["frontShell", "rearShell", "gripLeft", "gripRight", "centerTrim", "lightBar", "stickBases"]);
+const isShellZone = (c: ComponentId): c is Exclude<ComponentId, MacroButton> => SHELL_ZONES.has(c);
 
 const MARK_COLOURS = { disabled: "#e26a6a", remapped: "#4fa8b8", macro: "#d6a54b", special: "#9b9ea6" } as const;
 
@@ -52,31 +71,37 @@ const MARK_COLOURS = { disabled: "#e26a6a", remapped: "#4fa8b8", macro: "#d6a54b
  * the input changes, while the camera moves, or when the size changes —
  * nothing runs while everything is still.
  */
-export default function Controller3D({ state, live, selected = null, onSelect, marks, onAnchors, onFlat, offlineLabel }: Controller3DProps) {
-  const vis = visualFrom(state, live);
-  const visKey = visualKey(vis);
-  // Same key → same object, so identical status updates do nothing.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const stableVis = useMemo(() => vis, [visKey]);
+export default function Controller3D({ state, live, selected = null, onSelect, marks, onAnchors, onFlat, offlineLabel, skin: skinProp, hidden, onReady, inStudio, onSelectComponent }: Controller3DProps) {
+  const activeSkin = useActiveSkin();
+  const skin = skinProp ?? activeSkin;
+  // Only a visible change replaces what is drawn: sensor jitter on a resting
+  // stick doesn't cause a redraw (see visuallyDifferent).
+  const drawn = useRef<Visual3D>(visualFrom(state, live));
+  const next = visualFrom(state, live);
+  if (visuallyDifferent(drawn.current, next)) drawn.current = next;
+  const vis = drawn.current;
+  const stableVis = vis;
+  const visKey = useMemo(() => visualKey(vis), [vis]);
   const [hovered, setHovered] = useState<MacroButton | null>(null);
   const [request, setRequest] = useState<Request>({ kind: "view", view: "default", n: 0 });
   const [view, setView] = useState<ViewName | null>("default");
   const [interacted, setInteracted] = useState(false);
   const [credit, setCredit] = useState(false);
-  const [finish, setFinish] = useFinish();
   const counter = useRef(0);
   const go = (v: ViewName) => { setView(v); setRequest({ kind: "view", view: v, n: ++counter.current }); };
   const zoom = (factor: number) => setRequest({ kind: "zoom", factor, n: ++counter.current });
 
   // Callers pass inline handlers; keep the latest in refs so the scene isn't redrawn for them.
-  const selectRef = useRef(onSelect);
-  selectRef.current = onSelect;
-  const canPick = Boolean(onSelect);
+  const selectRef = useRef<((c: ComponentId) => void) | undefined>(undefined);
+  selectRef.current = onSelectComponent ?? (onSelect ? (c: ComponentId) => { if (!isShellZone(c)) onSelect(c); } : undefined);
+  const canPick = Boolean(onSelect || onSelectComponent);
+  const pickAll = Boolean(onSelectComponent);
   const pick = useMemo<Pick | undefined>(() => canPick ? {
-    over: (b) => setHovered(b),
+    all: pickAll,
+    over: (b) => setHovered(isShellZone(b) ? null : b),
     out: (b) => setHovered((h) => (h === b ? null : h)),
     click: (b) => selectRef.current?.(b),
-  } : undefined, [canPick]);
+  } : undefined, [canPick, pickAll]);
   const anchorsRef = useRef(onAnchors);
   anchorsRef.current = onAnchors;
   const reportAnchors = useCallback((a: Anchors) => anchorsRef.current?.(a), []);
@@ -97,9 +122,9 @@ export default function Controller3D({ state, live, selected = null, onSelect, m
         onPointerMissed={() => setHovered(null)}
         onPointerDown={() => setInteracted(true)}
       >
-        <Scene />
+        <Scene lighting={skin.lighting} />
         <CameraRig request={request} onUserMove={userMoved} />
-        <DualSense vis={stableVis} visKey={visKey} selected={selected} hovered={hovered} marks={stableMarks} pick={pick} finish={finish}
+        <DualSense vis={stableVis} visKey={visKey} selected={selected} hovered={hovered} marks={stableMarks} pick={pick} skin={skin} hidden={hidden ?? NONE_HIDDEN} onReady={onReady}
           onAnchors={onAnchors ? reportAnchors : undefined} />
       </Canvas>
 
@@ -114,9 +139,13 @@ export default function Controller3D({ state, live, selected = null, onSelect, m
         <button type="button" aria-label="Zoom out" title="Zoom out" onClick={() => zoom(1.18)}>−</button>
         <button type="button" aria-label="Zoom in" title="Zoom in" onClick={() => zoom(1 / 1.18)}>+</button>
         <span className="c3d-sep" aria-hidden="true" />
-        <button type="button" className={`c3d-finish ${finish}`} onClick={() => setFinish(finish === "black" ? "white" : "black")}
-          title={`Colour: ${finish === "black" ? "Midnight Black" : "White"} (click to change)`}
-          aria-label={`Controller colour: ${finish === "black" ? "Midnight Black" : "White"}. Change`}><i /></button>
+        {!inStudio && (
+          <button type="button" className="c3d-studio" title={`Skin: ${skin.name}. Open Controller Studio to customise`}
+            aria-label={`Skin: ${skin.name}. Open Controller Studio`}
+            onClick={() => window.dispatchEvent(new CustomEvent("nexus:navigate", { detail: { page: "studio" } }))}>
+            <i style={{ background: swatchOf(skin) }} />Studio
+          </button>
+        )}
         {onFlat && <button type="button" onClick={onFlat} title="Show the flat picture">2D</button>}
         <span className="c3d-sep" aria-hidden="true" />
         <button type="button" aria-label="3D model credit" aria-expanded={credit} title="3D model credit" onClick={() => setCredit((c) => !c)}>ⓘ</button>
@@ -132,17 +161,26 @@ export default function Controller3D({ state, live, selected = null, onSelect, m
   );
 }
 
+/** Lighting presets: key, fill and rim lights plus how strong the reflections are. */
+const LIGHTS: Record<LightingId, { env: number; hemi: number; key: [string, number]; fill: [string, number]; rim: [string, number] }> = {
+  studio: { env: 0.6, hemi: 0.35, key: ["#ffffff", 2.0], fill: ["#cfd6ff", 0.5], rim: ["#f0cb72", 0.7] },
+  showroom: { env: 0.95, hemi: 0.5, key: ["#ffffff", 2.4], fill: ["#ffffff", 0.8], rim: ["#ffffff", 0.6] },
+  night: { env: 0.22, hemi: 0.12, key: ["#9fb4ff", 0.9], fill: ["#30406e", 0.25], rim: ["#4fe3ff", 1.2] },
+  neon: { env: 0.3, hemi: 0.15, key: ["#ffffff", 1.0], fill: ["#ff2bd6", 1.3], rim: ["#00f0ff", 1.5] },
+  sunset: { env: 0.45, hemi: 0.25, key: ["#ffb070", 2.0], fill: ["#8a6bff", 0.55], rim: ["#ff7a3c", 1.1] },
+};
+
 /** Lights, reflections and the soft shadow behind the controller. */
-function Scene() {
+function Scene({ lighting }: { lighting: LightingId }) {
   const gl = useThree((s) => s.gl);
   const scene = useThree((s) => s.scene);
+  const L = LIGHTS[lighting] ?? LIGHTS.studio;
   useEffect(() => {
     // Studio-like reflections generated in code, no image file.
     const pmrem = new THREE.PMREMGenerator(gl);
     const room = new RoomEnvironment();
     const env = pmrem.fromScene(room, 0.04).texture;
     scene.environment = env;
-    scene.environmentIntensity = 0.6;
     return () => {
       scene.environment = null;
       env.dispose();
@@ -150,16 +188,17 @@ function Scene() {
       (room as unknown as { dispose?: () => void }).dispose?.();
     };
   }, [gl, scene]);
+  useEffect(() => { scene.environmentIntensity = L.env; }, [scene, L.env]);
   return (
     <>
-      <hemisphereLight args={["#c9ccd6", "#0b0b0d", 0.35]} />
-      <directionalLight position={[3.5, 7, 8]} intensity={2.0} castShadow
+      <hemisphereLight args={["#c9ccd6", "#0b0b0d", L.hemi]} />
+      <directionalLight position={[3.5, 7, 8]} intensity={L.key[1]} color={L.key[0]} castShadow
         shadow-mapSize={[1024, 1024]} shadow-radius={6} shadow-bias={-0.0004} shadow-normalBias={0.02}
         shadow-camera-left={-5} shadow-camera-right={5} shadow-camera-top={5} shadow-camera-bottom={-5}
         shadow-camera-near={1} shadow-camera-far={25} />
-      <directionalLight position={[-7, 2, 5]} intensity={0.5} color="#cfd6ff" />
-      {/* A faint warm rim from behind picks out the edges against the dark page. */}
-      <directionalLight position={[0, 6, -7]} intensity={0.7} color="#f0cb72" />
+      <directionalLight position={[-7, 2, 5]} intensity={L.fill[1]} color={L.fill[0]} />
+      {/* A rim light from behind picks out the edges against the dark page. */}
+      <directionalLight position={[0, 6, -7]} intensity={L.rim[1]} color={L.rim[0]} />
       {/* Backdrop that only shows the shadow. */}
       <mesh position={[0, -0.2, -2.8]} receiveShadow>
         <planeGeometry args={[30, 30]} />
@@ -169,25 +208,76 @@ function Scene() {
   );
 }
 
+const NONE_HIDDEN: ReadonlySet<ComponentId> = new Set();
+
+/** The swatch on the Studio button: the skin's front shell colour (or its base). */
+function swatchOf(skin: Skin): string {
+  return skin.components.frontShell?.color ?? (skin.base === "white" ? "#e9e8ee" : "#1b1c21");
+}
+
 /** The model: loaded once, split into controls, updated only when what is visible changes. */
-function DualSense({ vis, visKey, selected, hovered, marks, pick, onAnchors, finish }: {
-  vis: Visual3D; visKey: string; selected: MacroButton | null; hovered: MacroButton | null; finish: Finish;
+function DualSense({ vis, visKey, selected, hovered, marks, pick, onAnchors, skin, hidden, onReady }: {
+  vis: Visual3D; visKey: string; selected: MacroButton | null; hovered: MacroButton | null;
   marks?: Partial<Record<MacroButton, ButtonMark>>; pick?: Pick; onAnchors?: (a: Anchors) => void;
+  skin: Skin; hidden: ReadonlySet<ComponentId>; onReady?: (api: Capture) => void;
 }) {
   const gltf = useLoader(GLTFLoader, modelUrl);
   const model = useMemo(() => buildModel(gltf), [gltf]);
   useEffect(() => () => model.dispose(), [model]);
   const invalidate = useThree((s) => s.invalidate);
+  const gl = useThree((s) => s.gl);
+  const scene = useThree((s) => s.scene);
+  const camera = useThree((s) => s.camera);
+  // The skin only changes materials; input only changes transforms and glow.
   useLayoutEffect(() => {
-    applyFinish(model, finish);
+    applySkin(model, skin, hidden, invalidate);
+    applyVisual(model, vis, selected, hovered);
+    invalidate();
+  }, [model, skin, hidden, invalidate]); // eslint-disable-line react-hooks/exhaustive-deps
+  useLayoutEffect(() => {
     applyVisual(model, vis, selected, hovered);
     invalidate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [model, visKey, selected, hovered, finish, invalidate]);
+  }, [model, visKey, selected, hovered, invalidate]);
 
-  const buttonOf = (e: ThreeEvent<PointerEvent | MouseEvent>): MacroButton | null => {
+  // Image capture (screenshots, skin thumbnails). Renders once on demand and restores everything.
+  const current = useRef({ skin, hidden, vis, selected, hovered });
+  current.current = { skin, hidden, vis, selected, hovered };
+  useEffect(() => {
+    if (!onReady) return;
+    onReady({
+      image: (opts = {}) => {
+        const c = current.current;
+        const saved = camera.position.clone();
+        if (opts.defaultAngle) {
+          const [x, y, z] = orbitToOffset(ORBITS.default);
+          camera.position.set(CAMERA_TARGET[0] + x, CAMERA_TARGET[1] + y, CAMERA_TARGET[2] + z);
+          camera.lookAt(...CAMERA_TARGET);
+        }
+        if (opts.skin) { applySkin(model, opts.skin, NONE_HIDDEN, invalidate); applyVisual(model, c.vis, null, null); }
+        gl.render(scene, camera);
+        let url = gl.domElement.toDataURL("image/png");
+        if (opts.width && opts.width < gl.domElement.width) {
+          const k = opts.width / gl.domElement.width;
+          const small = document.createElement("canvas");
+          small.width = Math.round(gl.domElement.width * k);
+          small.height = Math.round(gl.domElement.height * k);
+          small.getContext("2d")?.drawImage(gl.domElement, 0, 0, small.width, small.height);
+          url = small.toDataURL("image/png");
+        }
+        if (opts.defaultAngle) { camera.position.copy(saved); camera.lookAt(...CAMERA_TARGET); }
+        if (opts.skin) { applySkin(model, c.skin, c.hidden, invalidate); applyVisual(model, c.vis, c.selected, c.hovered); }
+        invalidate();
+        return url;
+      },
+    });
+  }, [onReady, model, gl, scene, camera, invalidate]);
+
+  /** The control (or, in Studio, any component) under the pointer. */
+  const buttonOf = (e: ThreeEvent<PointerEvent | MouseEvent>): ComponentId | null => {
     for (let o: THREE.Object3D | null = e.object; o; o = o.parent) {
       if (o.userData.button) return o.userData.button as MacroButton;
+      if (pick?.all && o.userData.component) return o.userData.component as ComponentId;
     }
     return null;
   };

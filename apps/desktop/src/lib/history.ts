@@ -3,10 +3,15 @@
 
 export const HISTORY_LIMIT = 100;
 
-export interface HistoryState<T> { past: T[]; present: T; future: T[] }
+export interface HistoryState<T> {
+  past: T[]; present: T; future: T[];
+  /** Key of the last "set" that may be merged with the next one (e.g. dragging a slider). */
+  lastMerge?: string;
+}
 
 export type HistoryAction<T> =
-  | { type: "set"; value: T }
+  /** `merge`: consecutive sets with the same key become one undo step. */
+  | { type: "set"; value: T; merge?: string }
   | { type: "reset"; value: T }
   | { type: "undo" }
   | { type: "redo" };
@@ -15,7 +20,8 @@ export function historyReducer<T>(s: HistoryState<T>, a: HistoryAction<T>): Hist
   switch (a.type) {
     case "set":
       if (Object.is(a.value, s.present)) return s;
-      return { past: [...s.past, s.present].slice(-HISTORY_LIMIT), present: a.value, future: [] };
+      if (a.merge && a.merge === s.lastMerge) return { ...s, present: a.value, future: [] };
+      return { past: [...s.past, s.present].slice(-HISTORY_LIMIT), present: a.value, future: [], lastMerge: a.merge };
     case "reset":
       return { past: [], present: a.value, future: [] };
     case "undo": {

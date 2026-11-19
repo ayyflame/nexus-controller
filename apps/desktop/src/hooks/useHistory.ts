@@ -5,10 +5,11 @@ import { historyReducer, type HistoryState } from "../lib/history";
 export function useHistory<T>(initial: T) {
   const [state, setState] = useState<HistoryState<T>>({ past: [], present: initial, future: [] });
 
-  const set = useCallback((next: T | ((prev: T) => T)) => {
+  /** `merge`: repeated sets with the same key (a slider drag, a colour being picked) are one undo step. */
+  const set = useCallback((next: T | ((prev: T) => T), merge?: string) => {
     setState((s) => {
       const value = typeof next === "function" ? (next as (p: T) => T)(s.present) : next;
-      return historyReducer(s, { type: "set", value });
+      return historyReducer(s, { type: "set", value, merge });
     });
   }, []);
 
