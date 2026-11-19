@@ -124,7 +124,7 @@ function LiveTab({ device, config, onCalibrate }: { device: DeviceSnapshot; conf
         )}
       </Panel>
       <Panel title="Sent to the game" aside={<span className="muted small">after settings, remapping and macros</span>}>
-        <ControllerVisual state={out} live />
+        <ControllerVisual state={out} live flat />
         <p className="muted small">Playing macros: {device.playingMacros.length ? device.playingMacros.length : "none"}</p>
       </Panel>
       <Panel title="Analog values">

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ControllerVisual } from "../ControllerVisual";
+import type { Anchors } from "../controller3d/Controller3D";
 import { buttonMapping, buttonMarks, describeMapping } from "../../lib/buttonMapping";
 import {
   CALLOUTS, CALLOUT_BUTTONS, SHORT_NAMES, calloutFor, gameLabel, leaderLine, resetButton, setRemapAlso, setRemapTarget,
@@ -41,7 +42,9 @@ export function MappingView({ config, onEdit, input, output, macros, onOpenOutpu
   const [hover, setHover] = useState<MacroButton | null>(null);
   const stage = useRef<HTMLDivElement>(null);
   const visual = useRef<HTMLDivElement>(null);
-  const lines = useLeaderLines(stage, visual);
+  // With the 3D model, the lines follow where each control is on screen as the view turns.
+  const [anchors, setAnchors] = useState<Anchors | null>(null);
+  const lines = useLeaderLines(stage, visual, anchors);
   const pressed = new Set(pressedButtons(input));
   const marks = buttonMarks(CALLOUT_BUTTONS, config, macros);
   const toggle = (b: MacroButton) => setSelected((cur) => (cur === b ? null : b));
@@ -88,7 +91,7 @@ export function MappingView({ config, onEdit, input, output, macros, onOpenOutpu
         <div className="map-top">{CALLOUTS.top.map(cardFor)}</div>
         <div className="map-side map-left">{CALLOUTS.left.map(cardFor)}</div>
         <div className="map-visual" ref={visual}>
-          <ControllerVisual state={input} live={input !== null} selected={selected} marks={marks} onSelect={toggle} />
+          <ControllerVisual state={input} live={input !== null} selected={selected} marks={marks} onSelect={toggle} onAnchors={setAnchors} />
         </div>
         <div className="map-side map-right">{CALLOUTS.right.map(cardFor)}</div>
         <div className="map-bottom">{CALLOUTS.bottom.map(cardFor)}</div>
@@ -108,7 +111,9 @@ export function MappingView({ config, onEdit, input, output, macros, onOpenOutpu
  * this runs on resize and when the picture is swapped (drawing / photo), not
  * on every report.
  */
-function useLeaderLines(stage: React.RefObject<HTMLDivElement | null>, visual: React.RefObject<HTMLDivElement | null>): Line[] {
+function useLeaderLines(
+  stage: React.RefObject<HTMLDivElement | null>, visual: React.RefObject<HTMLDivElement | null>, anchors: Anchors | null,
+): Line[] {
   const [lines, setLines] = useState<Line[]>([]);
   const measure = useCallback(() => {
     const root = stage.current;
@@ -116,6 +121,19 @@ function useLeaderLines(stage: React.RefObject<HTMLDivElement | null>, visual: R
     const origin = root.getBoundingClientRect();
     const rel = (r: DOMRect): Box => ({ left: r.left - origin.left, top: r.top - origin.top, width: r.width, height: r.height });
     const next: Line[] = [];
+    // 3D: the model reports where each control is inside its canvas.
+    const canvas = anchors ? visual.current?.querySelector("canvas") : null;
+    if (anchors && canvas) {
+      const c = rel(canvas.getBoundingClientRect());
+      for (const b of CALLOUT_BUTTONS) {
+        const card = root.querySelector(`[data-card="${b}"]`);
+        const a = anchors[b];
+        if (!card || !a || !a.visible) continue;
+        next.push({ button: b, ...leaderLine(SIDE_OF[b], rel(card.getBoundingClientRect()), { left: c.left + a.x, top: c.top + a.y, width: 0, height: 0 }) });
+      }
+      setLines((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
+      return;
+    }
     for (const b of CALLOUT_BUTTONS) {
       const card = root.querySelector(`[data-card="${b}"]`);
       const part = root.querySelector(`.map-visual [data-button="${b}"]`);
@@ -128,7 +146,7 @@ function useLeaderLines(stage: React.RefObject<HTMLDivElement | null>, visual: R
       next.push({ button: b, ...leaderLine(SIDE_OF[b], rel(card.getBoundingClientRect()), box) });
     }
     setLines((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
-  }, [stage]);
+  }, [stage, visual, anchors]);
 
   useLayoutEffect(() => {
     measure();

@@ -8,7 +8,7 @@ DualSense (USB) → NEXUS: sticks, triggers, remapping, layers, macros → virtu
 
 Built with Tauri 2, React and TypeScript for the UI, and Rust for the engine, with SQLite storage and Windows HID. NEXUS is a personal project for its owner and a few friends(Vibe Coded Slop.
 
-> **Status:** the features below are implemented and covered by automated tests. Hardware checks with a physical DualSense, ViGEmBus and real games are tracked in [`tests/m4.5-test-plan.md`](tests/m4.5-test-plan.md) and [`docs/game-output.md`](docs/game-output.md). Automatic updates work in a Windows test but are not live yet (see [Updates](#updates)).
+> **Status:** the features below are implemented and covered by automated tests. Hardware checks with a physical DualSense, ViGEmBus and real games are tracked in [`tests/m4.5-test-plan.md`](tests/m4.5-test-plan.md), [`docs/game-output.md`](docs/game-output.md) and [`docs/3d-controller.md`](docs/3d-controller.md). Automatic updates work in a Windows test but are not live yet (see [Updates](#updates)).
 
 ## Features
 
@@ -18,7 +18,8 @@ Built with Tauri 2, React and TypeScript for the UI, and Rust for the engine, wi
 - **Sticks** (*Controller › Sticks*): deadzone (radial or axial), outer deadzone, anti-deadzone, sensitivity, response curves with presets or custom points, invert, and circular or square output.
 - **Triggers** (*Controller › Triggers*): deadzone, range, curve, and the point where the trigger counts as pressed.
 - **Calibration** (*Live Viewer › Calibration*): a guided wizard that measures each stick's resting centre, jitter and full range, recommends a deadzone, and measures L2/R2's released and fully pressed ends. Nothing is saved until you review and apply it, and you can reset to the previous calibration ([`docs/calibration.md`](docs/calibration.md)).
-- **Button remapping** (*Controller › Mapping*): click any button on the controller picture, or its card, and choose what it sends: another button, nothing, or two buttons at once. Each card shows what the game receives (for example Triangle → Y). Undo/redo and a list view are included.
+- **Interactive 3D controller**: your DualSense as a 3D model that moves with the real controller: buttons light up, sticks tilt, L2/R2 swing with their pressure, touches show on the touchpad. Drag to rotate, scroll to zoom, front/rear/top views, Midnight Black or White. See [docs/3d-controller.md](docs/3d-controller.md).
+- **Button remapping** (*Controller › Mapping*): click any button on the 3D controller, or its card, and choose what it sends: another button, nothing, or two buttons at once. Each card shows what the game receives (for example Triangle → Y). Undo/redo and a list view are included.
 - **Shift layers:** hold a button (or toggle it) to switch to a different button layout while it's active.
 - **Gyro and touchpad** (optional): gyro aiming onto a stick, touchpad zones and swipes as buttons.
 - **Lighting and vibration** for the physical controller (*Controller › Lighting & Haptics*).
@@ -44,7 +45,9 @@ Built with Tauri 2, React and TypeScript for the UI, and Rust for the engine, wi
 
 ### Live view and diagnostics
 
-- **Live controller picture** (Dashboard and *Controller › Live*):
+- **Live controller picture** (Dashboard, *Controller › Live*, *Controller › Mapping* and the Live Viewer):
+  - **3D by default:** the interactive DualSense model described above.
+  - **2D if you prefer:** *Controller › Live › Controller picture › 2D* shows the flat drawing (or your own photo). It's also shown automatically if the PC can't draw 3D.
   - Pressed buttons light up, stick movement is shown, L2/R2 fill with their analog pressure, and touches appear on the touchpad.
   - Your physical input and what is sent to the game are shown side by side.
   - Click a button to see what it is mapped to; small marks flag remapped, macro and disabled buttons.
@@ -95,6 +98,7 @@ Built with Tauri 2, React and TypeScript for the UI, and Rust for the engine, wi
 | **ViGEmBus** 1.22 (free, third-party) | **Needed for games to receive NEXUS output.** Without it, NEXUS still reads and shows your controller, but games see no virtual controller. Official download: [github.com/nefarius/ViGEmBus/releases](https://github.com/nefarius/ViGEmBus/releases) (`ViGEmBus_1.22.0_x64_x86_arm64.exe`). It was retired by its developer in 2023 but still works on Windows 11, which is why NEXUS labels virtual output *experimental*. |
 | **HidHide** (free, third-party) | **Optional, not needed for normal use.** Games with PlayStation support, and Steam Input, may see both the DualSense and NEXUS's Xbox controller, so a press counts twice. HidHide hides the DualSense from everything except NEXUS. Official download: [github.com/nefarius/HidHide/releases](https://github.com/nefarius/HidHide/releases). Without it, turn off PlayStation controller support in the game or in Steam instead. Guide: [`docs/hidhide-setup.md`](docs/hidhide-setup.md). |
 | Microsoft Edge WebView2 Runtime | Part of Windows 11. The installer downloads it if missing. |
+| Graphics with WebGL support | Any Windows 11 PC has it. Used by the 3D controller view. Without it, NEXUS shows the flat picture instead. |
 
 **NEXUS never installs, bundles or silently configures drivers.** You install ViGEmBus (and HidHide, if you want it) yourself from the official pages. NEXUS only checks whether they are present. NEXUS itself needs no administrator rights.
 
@@ -136,7 +140,8 @@ Installing a newer version over an older one keeps your profiles and macros. Mor
 - **Remap buttons:** *Controller › Mapping*. Every button has a card around the controller picture showing what the game receives (Xbox names such as A, LB, Back; DualShock 4 names if that output is chosen). Click a card or the button on the picture, then pick what it **Sends** (itself, another button, or **Disabled**) and optionally a second button under **Also press**. Pressing a button on your controller lights its card. **Undo**, **Redo**, **Reset all** and a **List** view are at the top right.
 - **Shift layers:** in the layers section of the same tab, pick an activator button (held or toggled) and the mappings that apply while it's active. The activator itself is not sent to the game.
 - **Sticks and triggers:** *Controller › Sticks* and *Controller › Triggers*. Changes apply live, and the plots show your physical input next to the processed result.
-- **Check a mapping:** *Controller › Live*. Click a button on the controller picture to see what it sends, which layers change it and which macros it starts.
+- **Check a mapping:** *Controller › Live*. Click a button on the controller (in 3D or 2D) to see what it sends, which layers change it and which macros it starts.
+- **3D view controls:** drag to rotate, scroll or −/+ to zoom; **Reset**, **Front**, **Rear** and **Top** views; the round swatch switches between Midnight Black and White; **2D** switches to the flat picture.
 
 ### Create and edit a macro
 
@@ -223,7 +228,7 @@ Installers: `npm run tauri build` in `apps\desktop`, output in `target\release\b
 
 **Layout:**
 
-- `apps/desktop`: Tauri app (`src-tauri`) and React UI (`src`).
+- `apps/desktop`: Tauri app (`src-tauri`) and React UI (`src`). The 3D model is in `src/assets/models`, the 3D view in `src/components/controller3d`.
 - `crates/`:
   - `controller-core`: state model.
   - `dualsense`: report parsing.
@@ -239,6 +244,7 @@ Installers: `npm run tauri build` in `apps\desktop`, output in `target\release\b
   - [Game output: what games receive, compatibility limits](docs/game-output.md)
   - [Macro Studio](docs/macro-studio.md)
   - [Optional HidHide setup](docs/hidhide-setup.md)
+  - [3D controller view](docs/3d-controller.md)
   - [Controller photo mode](docs/controller-photo.md)
   - [Live Viewer and diagnostics](docs/live-viewer.md)
   - [Calibration wizard](docs/calibration.md)
@@ -271,3 +277,7 @@ Installers: `npm run tauri build` in `apps\desktop`, output in `target\release\b
 - No drivers are installed, bundled or configured by NEXUS.
 - No administrator rights are requested.
 - No game-memory access, injection, aim assistance, recoil manipulation or anti-cheat evasion.
+
+## Credits
+
+- 3D controller model: **"Playstation 5 Dualsense" by [AHarmlessPotato](https://sketchfab.com/AHarmlessPotato)** ([source](https://sketchfab.com/3d-models/playstation-5-dualsense-878c1f882808477ab81c2fe86d5a3936)), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). NEXUS splits it into separate controls and recolours it at run time. NEXUS is not affiliated with Sony.

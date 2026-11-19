@@ -116,7 +116,7 @@ export function Dashboard() {
             {input && <span className="muted mono small">{formatLabel[input.format]}</span>}
           </div>
           <div className="visual-wrap">
-            <ControllerVisual state={live ? input : null} live={live} />
+            <ControllerVisual state={live ? input : null} live={live} offlineLabel={phase.key === "stale" ? "Input stopped" : "No live input"} />
             {!live && <div className="visual-overlay">{phase.key === "stale" ? "Input stopped" : "No live input"}</div>}
           </div>
           {live && input ? <LiveReadout s={input} /> : (
