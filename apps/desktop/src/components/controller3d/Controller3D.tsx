@@ -273,26 +273,31 @@ function DualSense({ vis, visKey, selected, hovered, marks, pick, onAnchors, ski
     });
   }, [onReady, model, gl, scene, camera, invalidate]);
 
-  /** The control (or, in Studio, any component) under the pointer. */
-  const buttonOf = (e: ThreeEvent<PointerEvent | MouseEvent>): ComponentId | null => {
-    for (let o: THREE.Object3D | null = e.object; o; o = o.parent) {
-      if (o.userData.button) return o.userData.button as MacroButton;
-      if (pick?.all && o.userData.component) return o.userData.component as ComponentId;
-    }
-    return null;
-  };
-  const handlers = pick ? {
-    onPointerMove: (e: ThreeEvent<PointerEvent>) => {
-      const b = buttonOf(e);
-      if (b) { e.stopPropagation(); pick.over(b); }
-    },
-    onPointerOut: (e: ThreeEvent<PointerEvent>) => { const b = buttonOf(e); if (b) pick.out(b); },
-    onClick: (e: ThreeEvent<MouseEvent>) => {
-      const b = buttonOf(e);
-      // A drag that rotated the view is not a click.
-      if (b && e.delta <= 4) { e.stopPropagation(); pick.click(b); }
-    },
-  } : {};
+  // Created once per `pick`: new handler functions on every render would count
+  // as changed properties and make the view redraw on every status update.
+  const handlers = useMemo(() => {
+    if (!pick) return {};
+    /** The control (or, in Studio, any component) under the pointer. */
+    const buttonOf = (e: ThreeEvent<PointerEvent | MouseEvent>): ComponentId | null => {
+      for (let o: THREE.Object3D | null = e.object; o; o = o.parent) {
+        if (o.userData.button) return o.userData.button as MacroButton;
+        if (pick.all && o.userData.component) return o.userData.component as ComponentId;
+      }
+      return null;
+    };
+    return {
+      onPointerMove: (e: ThreeEvent<PointerEvent>) => {
+        const b = buttonOf(e);
+        if (b) { e.stopPropagation(); pick.over(b); }
+      },
+      onPointerOut: (e: ThreeEvent<PointerEvent>) => { const b = buttonOf(e); if (b) pick.out(b); },
+      onClick: (e: ThreeEvent<MouseEvent>) => {
+        const b = buttonOf(e);
+        // A drag that rotated the view is not a click.
+        if (b && e.delta <= 4) { e.stopPropagation(); pick.click(b); }
+      },
+    };
+  }, [pick]);
 
   return (
     <>
