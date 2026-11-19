@@ -34,12 +34,21 @@ on:
   workflow_dispatch:
   release:
     types: [published]
+  # Every push to main that changes the app builds it and refreshes the
+  # README's "Latest build" download (free on a public repository).
   # "Bump the version, add release-notes/v<version>.md, push": a push that
-  # adds or changes release notes publishes that version if it has no
-  # release yet (see docs/releasing.md). Other pushes don't run this.
+  # itself adds or changes that version's release notes publishes it if it
+  # has no release yet (see docs/releasing.md). Docs-only pushes don't build.
   push:
     branches: [main]
-    paths: ["release-notes/v*.md"]
+    paths:
+      - "apps/**"
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".cargo/**"
+      - "release-notes/v*.md"
+      - ".github/workflows/windows-release.yml"
 
 permissions:
   contents: write # needed only to attach installers to a release
@@ -76,6 +85,7 @@ jobs:
           S3_ENDPOINT: ${{ vars.UPDATE_S3_ENDPOINT }}
           S3_BUCKET: ${{ vars.UPDATE_S3_BUCKET }}
           PUBLIC_BASE: ${{ vars.UPDATE_PUBLIC_BASE_URL }}
+          PUSHED_COMMITS: ${{ toJSON(github.event.commits) }}
         run: |
           # Every place the version is recorded must agree.
           $conf = (Get-Content apps/desktop/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
@@ -92,8 +102,12 @@ jobs:
           if ($env:EVENT -eq 'push') {
             $notesFile = "release-notes/v$conf.md"
             $released = git ls-remote --tags origin "refs/tags/v$conf"
-            if (-not (Test-Path $notesFile)) {
-              Write-Host "No ${notesFile}: development build of $conf (not published)."
+            # Only a push that itself adds or changes this version's notes is a
+            # release; any other push to main is an ordinary development build.
+            $commits = @($env:PUSHED_COMMITS | ConvertFrom-Json)
+            $touched = @($commits | ForEach-Object { @($_.added) + @($_.modified) }) -contains $notesFile
+            if (-not (Test-Path $notesFile) -or -not $touched) {
+              Write-Host "This push doesn't add or change ${notesFile}: development build of $conf (not published)."
               "release=false" >> $env:GITHUB_OUTPUT; "publish=false" >> $env:GITHUB_OUTPUT; exit 0
             }
             if ($released) {

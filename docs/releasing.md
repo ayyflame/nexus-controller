@@ -20,7 +20,7 @@ Prerequisite: the one-time setup in [updater-setup.md](updater-setup.md). Withou
    ```
    This updates `Cargo.toml`, `Cargo.lock`, `package.json`, `package-lock.json` and `tauri.conf.json`. It refuses versions that are not newer.
 2. **Write the release notes** in `release-notes/v0.1.1.md`. Users see the first few lines in the update notice, and the whole text under *Show all notes*. Keep it short, user-facing and in plain text or simple Markdown. It must not be empty.
-3. **Commit both and push to `main`**, e.g. `Release 0.1.1`. That is all.
+3. **Commit both and push to `main`**, e.g. `Release 0.1.1`. That is all. (Every other push to `main` that changes the app is built automatically as a development build: it refreshes the README's **Latest build** download but publishes no release or update. Only a push that adds or changes `release-notes/v<version>.md` releases that version.)
 4. **CI does the rest** (Actions → *Windows release build*, about 15–25 min). The push adds a release-notes file for a version that has no release yet, so the workflow:
    1. checks the version, notes and secrets
    2. runs all Rust and frontend tests
