@@ -151,9 +151,15 @@ pub fn reconcile(
         restored: false,
         repaired: false,
     };
-    match wanted {
-        None => out.save = Some(current.as_deref().is_some_and(is_ours)),
-        Some(true) if current.is_none() => {
+    let present = current.as_deref().is_some_and(is_ours);
+    match (wanted, present) {
+        // NEXUS's own entry exists, so the user turned it on (here or in an
+        // older version that didn't record the choice): adopt it.
+        (Some(true), true) => {}
+        (_, true) => out.save = Some(true),
+        (None, false) => out.save = Some(false),
+        // Turned on, but the entry is gone (an uninstall-first upgrade).
+        (Some(true), false) if current.is_none() => {
             store.set_run_value(&command_for(exe))?;
             out.restored = true;
         }
@@ -492,6 +498,32 @@ mod tests {
             reconcile(&mut foreign, &exe(), None).unwrap().save,
             Some(false),
             "someone else's entry isn't NEXUS's choice"
+        );
+    }
+
+    #[test]
+    fn an_entry_written_by_an_older_version_after_a_saved_off_is_adopted() {
+        let mut m = Memory {
+            run: Some(command_for(&exe())),
+            ..Default::default()
+        };
+        let r = reconcile(&mut m, &exe(), Some(false)).unwrap();
+        assert_eq!(r.save, Some(true));
+        assert!(!r.restored);
+        // A foreign value under the name is never taken as the user's choice.
+        let mut foreign = Memory {
+            run: Some(r#""C:\Other\nexus.exe""#.into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            reconcile(&mut foreign, &exe(), Some(false)).unwrap().save,
+            None
+        );
+        assert!(
+            !reconcile(&mut foreign, &exe(), Some(true))
+                .unwrap()
+                .restored,
+            "a foreign value is left alone"
         );
     }
 
