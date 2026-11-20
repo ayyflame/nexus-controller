@@ -207,13 +207,45 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}
           PUBLIC_BASE: ${{ vars.UPDATE_PUBLIC_BASE_URL }}
+          # Authenticode signing (docs/code-signing.md). Off until configured.
+          NEXUS_SIGN_PROVIDER: ${{ vars.NEXUS_SIGN_PROVIDER }}
+          NEXUS_SIGN_TIMESTAMP_URL: ${{ vars.NEXUS_SIGN_TIMESTAMP_URL }}
+          NEXUS_SIGN_PFX_BASE64: ${{ secrets.NEXUS_SIGN_PFX_BASE64 }}
+          NEXUS_SIGN_PFX_PASSWORD: ${{ secrets.NEXUS_SIGN_PFX_PASSWORD }}
+          NEXUS_TS_ENDPOINT: ${{ vars.NEXUS_TS_ENDPOINT }}
+          NEXUS_TS_ACCOUNT: ${{ vars.NEXUS_TS_ACCOUNT }}
+          NEXUS_TS_PROFILE: ${{ vars.NEXUS_TS_PROFILE }}
+          AZURE_TENANT_ID: ${{ secrets.NEXUS_TS_AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.NEXUS_TS_AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.NEXUS_TS_AZURE_CLIENT_SECRET }}
         run: |
           $base = $env:PUBLIC_BASE.TrimEnd('/')
           # Embeds the update endpoint and the PUBLIC key in this build only.
-          @{
+          $conf = @{
             bundle = @{ createUpdaterArtifacts = $true }
             plugins = @{ updater = @{ pubkey = $env:PUBKEY.Trim(); endpoints = @("$base/stable/latest.json") } }
-          } | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 release.conf.json
+          }
+          if ($env:NEXUS_SIGN_PROVIDER) {
+            # Credentials go to the runner's temp folder only, never the repo.
+            if ($env:NEXUS_SIGN_PROVIDER -eq 'pfx') {
+              $pfx = Join-Path $env:RUNNER_TEMP 'nexus-sign.pfx'
+              [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:NEXUS_SIGN_PFX_BASE64))
+              $env:NEXUS_SIGN_PFX_PATH = $pfx
+            } elseif ($env:NEXUS_SIGN_PROVIDER -eq 'trusted-signing') {
+              $pkg = Join-Path $env:RUNNER_TEMP 'ts'
+              nuget install Microsoft.Trusted.Signing.Client -OutputDirectory $pkg -NonInteractive | Out-Null
+              $env:NEXUS_TS_DLIB = (Get-ChildItem $pkg -Recurse -Filter Azure.CodeSigning.Dlib.dll | Where-Object { $_.FullName -match 'x64' } | Select-Object -First 1).FullName
+              $env:NEXUS_TS_METADATA = Join-Path $env:RUNNER_TEMP 'ts-metadata.json'
+              @{ Endpoint = $env:NEXUS_TS_ENDPOINT; CodeSigningAccountName = $env:NEXUS_TS_ACCOUNT; CertificateProfileName = $env:NEXUS_TS_PROFILE } |
+                ConvertTo-Json | Set-Content -Encoding utf8 $env:NEXUS_TS_METADATA
+            } else { throw "Unknown NEXUS_SIGN_PROVIDER '$($env:NEXUS_SIGN_PROVIDER)'" }
+            $script = (Resolve-Path ../../scripts/sign-windows.ps1).Path
+            $conf.bundle.windows = @{ signCommand = "pwsh -NoProfile -File `"$script`" %1" }
+            Write-Host "Authenticode signing: $($env:NEXUS_SIGN_PROVIDER)"
+          } else {
+            Write-Host "Authenticode signing is not configured: this release is unsigned (docs/code-signing.md)."
+          }
+          $conf | ConvertTo-Json -Depth 6 | Set-Content -Encoding utf8 release.conf.json
           npx tauri build --config release.conf.json
           if ($LASTEXITCODE -ne 0) { throw "tauri build failed" }
 
@@ -252,17 +284,44 @@ jobs:
         shell: pwsh
         run: ./scripts/installer-check.ps1 -Installers installers
 
-      - name: Report Authenticode signature status (informational)
-        # NEXUS has no code-signing certificate yet (docs/code-signing.md), so
-        # this prints NotSigned. Once signing is set up, make release builds
-        # fail here unless every file is Valid.
+      - name: Report Authenticode signature status
+        # Prints NotSigned until signing is set up (docs/code-signing.md).
+        # A release built with NEXUS_SIGN_PROVIDER set fails unless every file is Valid.
         shell: pwsh
+        env:
+          REQUIRE_VALID: ${{ steps.mode.outputs.release == 'true' && vars.NEXUS_SIGN_PROVIDER != '' }}
         run: |
           $files = @(Get-Item target/release/nexus-desktop.exe) + @(Get-ChildItem installers -Include *.exe, *.msi -Recurse)
+          $bad = @()
           foreach ($f in $files) {
             $sig = Get-AuthenticodeSignature $f.FullName
             Write-Host ("{0,-12} {1}" -f $sig.Status, $f.Name)
+            if ($sig.Status -ne 'Valid') { $bad += $f.Name }
           }
+          if ($env:REQUIRE_VALID -eq 'true' -and $bad.Count -gt 0) { throw "Not validly signed: $($bad -join ', ')" }
+
+      - name: Signing hook self-test (throwaway certificate, this machine only)
+        # Proves scripts/sign-windows.ps1 signs an exe and an installer, using a
+        # self-signed certificate created and trusted nowhere but here. It says
+        # nothing about real signing, which needs a real certificate.
+        shell: pwsh
+        run: |
+          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=NEXUS signing self-test' -CertStoreLocation Cert:\CurrentUser\My -NotAfter (Get-Date).AddDays(1)
+          $pass = [guid]::NewGuid().ToString('N')
+          "::add-mask::$pass"
+          $pfx = Join-Path $env:RUNNER_TEMP 'selftest.pfx'
+          Export-PfxCertificate -Cert $cert -FilePath $pfx -Password (ConvertTo-SecureString $pass -AsPlainText -Force) | Out-Null
+          $work = New-Item -ItemType Directory -Force -Path (Join-Path $env:RUNNER_TEMP 'sign-selftest')
+          Copy-Item target/release/nexus-desktop.exe $work
+          Copy-Item (Get-ChildItem installers -Filter *-setup.exe | Select-Object -First 1).FullName (Join-Path $work 'setup.exe')
+          $env:NEXUS_SIGN_PROVIDER = 'pfx'; $env:NEXUS_SIGN_PFX_PATH = $pfx; $env:NEXUS_SIGN_PFX_PASSWORD = $pass
+          foreach ($f in Get-ChildItem $work -Filter *.exe) {
+            ./scripts/sign-windows.ps1 $f.FullName
+            $sig = Get-AuthenticodeSignature $f.FullName
+            if ($sig.SignerCertificate.Subject -ne 'CN=NEXUS signing self-test') { throw "$($f.Name) was not signed by the hook ($($sig.Status))" }
+            Write-Host "$($f.Name): signed by $($sig.SignerCertificate.Subject) (status $($sig.Status): untrusted on purpose)"
+          }
+          Remove-Item $cert.PSPath, $pfx -Force
 
       - name: Verify the app binary has no VC++ runtime dependency
         shell: pwsh

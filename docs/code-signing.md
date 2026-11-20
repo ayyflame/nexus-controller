@@ -1,53 +1,85 @@
-# Windows code signing (Authenticode): readiness
+# Windows code signing (Authenticode)
 
-**Status: not signed.** No code-signing certificate exists for NEXUS, and the builds are not Authenticode-signed. Every Windows build reports this in its *Report Authenticode signature status* step (`NotSigned`).
+**Status: not signed.** NEXUS has no code-signing certificate, and no build is Authenticode-signed. Every Windows build reports this in *Report Authenticode signature status* (`NotSigned` for the app, the setup `.exe` and the `.msi`). The CI plumbing to sign is ready and self-tested (below); it needs a real certificate from one of the options here.
 
-## What that means for users
+## What unsigned means for users
 
-- Windows SmartScreen shows *"Windows protected your PC"* the first time someone runs the installer. *More info › Run anyway* installs it. The README and `docs/install-windows.md` say so.
-- Some antivirus products are more suspicious of unsigned programs, especially ones that start with Windows.
-- Updates are **not** affected. They are verified with the separate Tauri updater signature (`docs/updater-setup.md`), which Windows doesn't see.
+- Windows SmartScreen shows *"Windows protected your PC"* the first time the installer runs. *More info › Run anyway* installs it. Reputation for unsigned files is per file, so every new build starts from zero.
+- Some antivirus products are more suspicious of unsigned programs, especially ones that start with Windows (NEXUS's *Start with Windows*).
+- Updates are **not** affected. They are verified with the separate Tauri updater signature (`docs/updater-setup.md`). Never use one key for both.
 
-## The two kinds of signature
+## What needs signing
 
-| | Tauri updater signature | Authenticode code signing |
-|---|---|---|
-| Proves | An update came from NEXUS's release key | Who published the program, to Windows |
-| Checked by | NEXUS's updater, before installing | Windows (SmartScreen, UAC, Defender) |
-| Key | `TAURI_SIGNING_PRIVATE_KEY` (GitHub secret) | A certificate from a certificate authority or signing service |
-| State | Built and verified in CI; the key and update host aren't set up yet | **Not set up** |
+| File | Why |
+|---|---|
+| `nexus-desktop.exe` | What Windows starts at sign-in and what antivirus scans; also the file inside every installer |
+| `NEXUS_<v>_x64-setup.exe` (NSIS) and its embedded uninstaller | What users download (SmartScreen) and what the updater runs |
+| `NEXUS_<v>_x64_en-US.msi` | The alternative installer |
 
-They must stay separate: never reuse one key for the other.
+Tauri signs all of these during `tauri build` when `bundle.windows.signCommand` is set, which the release workflow does when a provider is configured. The updater signature is created afterwards, over the signed installer.
 
-## Options
+## Options, compared (checked 2026-11-20)
 
-1. **SignPath Foundation (free for open-source projects).** The repository is public under MIT, so NEXUS may qualify. They sign releases built by GitHub Actions; the certificate is issued to SignPath Foundation with the project named. Needs an application and their GitHub integration.
-2. **Microsoft Trusted Signing** (Azure, a monthly fee). Needs identity validation of an individual or organisation. Tauri can call its CLI through `bundle.windows.signCommand`.
-3. **An OV or EV certificate from a certificate authority** (yearly fee; since 2023 the key must live on a hardware token or cloud HSM, so it can't simply be a GitHub secret). EV used to skip SmartScreen's reputation building; today both build reputation over time.
+| | SignPath Foundation | Microsoft Trusted Signing ("Artifact Signing") | OV/EV certificate from a CA |
+|---|---|---|---|
+| Cost | Free for eligible open-source projects | Monthly fee (Basic tier includes 5,000 signatures/month) | Yearly fee, plus a hardware token or cloud HSM |
+| Who can get it | Open-source projects that pass review | Organisations in the USA, Canada, EU, UK; individual developers in the USA and Canada (Microsoft's docs; individual onboarding has been paused at times, so check the portal) | Anyone who passes the CA's identity checks |
+| Publisher name users see | **SignPath Foundation** (not the project owner) | The validated person or organisation | The validated person or organisation |
+| Key handling | SignPath's HSM; signs only artifacts built by the connected CI | Microsoft-managed; signs via an Azure identity | Must be on a hardware token or cloud HSM since 2023, so a plain PFX in a GitHub secret is not possible for new certificates |
+| Fits NEXUS's CI | Through SignPath's GitHub Action (artifact-based, see below) | Directly, through `scripts/sign-windows.ps1` (`trusted-signing`) | With a cloud-HSM vendor's tool; a PFX (`pfx`) only for legacy or test certificates |
 
-None of these can be set up from the code alone: each needs an account and identity checks by the owner.
+### Is SignPath Foundation appropriate for NEXUS?
 
-## How it plugs in (once there is a certificate)
+Likely yes, subject to their review:
+- **MIT licence (OSI-approved):** ✓
+- **Public GitHub repository:** ✓
+- **Fully automated builds from the repository (GitHub Actions):** ✓
+- **No proprietary code:** ✓. The 3D model is a CC BY 4.0 asset, not code, but mention it in the application. ViGEmBus and HidHide are not bundled.
+- **To do before applying:**
+  - turn on MFA for every maintainer on GitHub (and on SignPath);
+  - add a short code-signing policy page (who builds, who approves releases);
+  - show SignPath's attribution line on the release page.
+- **Uncertain:** whether their review accepts a controller remapper with macros, given anti-cheat concerns some games have. NEXUS doesn't evade anti-cheat or touch game processes, which the application should say.
 
-Tauri signs `nexus-desktop.exe`, the NSIS installer and its uninstaller, and the MSI during `tauri build` when one of these is configured in `apps/desktop/src-tauri/tauri.conf.json` (or in a release-only `--config` file, as the workflow already does for the updater):
+## Recommendation
 
-```json
-{ "bundle": { "windows": {
-  "signCommand": "<signing tool> sign … %1",
-  "digestAlgorithm": "sha256",
-  "timestampUrl": "http://timestamp.digicert.com"
-} } }
-```
+1. **Apply to SignPath Foundation first.** It's free, made for projects like this, and keeps the key off GitHub and off your PC. The cost is that the publisher shown is "SignPath Foundation".
+2. **If the owner is in the USA or Canada, or turns NEXUS into a company:** Microsoft Trusted Signing. It shows the owner's name, and the workflow already supports it. Set the variables and secrets below.
+3. A traditional OV/EV certificate only if neither works.
 
-`certificateThumbprint` can be used instead, for a certificate installed on the build machine.
+## Setting it up
 
-Steps:
-1. Keep credentials in GitHub Actions secrets, separate from the updater secrets. Use the release job only, never pull-request builds.
-2. Add the signing configuration only to the release build step (`windows-release.yml`, *Build installers (release, signed for updates)*). Development builds stay unsigned.
-3. Change *Report Authenticode signature status* to **fail** release builds whose files aren't `Valid`.
-4. Sign before generating `latest.json`. The updater signature covers the final, Authenticode-signed installer.
-5. Re-run the installer check (`scripts/installer-check.ps1`) and the update end-to-end test (`update-e2e.yml`) with signed builds.
+### Microsoft Trusted Signing (supported by the workflow now)
+
+1. Azure portal: create a Trusted Signing account, complete identity validation, and create a **Public Trust** certificate profile.
+2. Create an app registration (service principal) with the *Trusted Signing Certificate Profile Signer* role on that account.
+3. GitHub › Settings › Secrets and variables › Actions:
+   - **Variables:** `NEXUS_SIGN_PROVIDER` = `trusted-signing`, `NEXUS_TS_ENDPOINT` (e.g. `https://eus.codesigning.azure.net`), `NEXUS_TS_ACCOUNT`, `NEXUS_TS_PROFILE`.
+   - **Secrets:** `NEXUS_TS_AZURE_TENANT_ID`, `NEXUS_TS_AZURE_CLIENT_ID`, `NEXUS_TS_AZURE_CLIENT_SECRET`.
+4. Publish a release. The release build installs Microsoft's signing client, Tauri signs each file through `scripts/sign-windows.ps1`, and *Report Authenticode signature status* **fails the release** if any file isn't `Valid`.
+
+### SignPath Foundation (needs their project details first)
+
+1. Apply at signpath.org with the repository URL; complete their onboarding (MFA, policy page, roles).
+2. They provide an organisation ID, a project slug, a signing-policy slug and an API token. Store the token as secret `SIGNPATH_API_TOKEN`; the IDs as variables.
+3. SignPath signs **artifacts uploaded by GitHub Actions** (their `signpath/github-action-submit-signing-request` action), not files on the runner. So the release job changes shape:
+   1. build the app without bundling;
+   2. upload `nexus-desktop.exe` → sign → download;
+   3. bundle the installers around the signed exe;
+   4. upload the installers → sign → download;
+   5. create the updater signature.
+
+   This is **not implemented yet**, because it can only be tested with a real SignPath project. The signing hook and the *must be Valid* check above apply unchanged.
+
+### PFX (legacy or test certificates only)
+
+`NEXUS_SIGN_PROVIDER` = `pfx`, secret `NEXUS_SIGN_PFX_BASE64` (base64 of the `.pfx`), secret `NEXUS_SIGN_PFX_PASSWORD`, optional variable `NEXUS_SIGN_TIMESTAMP_URL`. New publicly trusted certificates can't be exported as PFX, so this is mainly what the self-test uses.
+
+## What is tested in CI today
+
+- **Self-test:** *Signing hook self-test* creates a throwaway self-signed certificate on the GitHub machine and signs a copy of `nexus-desktop.exe` and the setup `.exe` through `scripts/sign-windows.ps1`, then checks the signer. This proves the hook works. It does not make anything trusted, and it never touches the published files.
+- **Release check:** *Report Authenticode signature status* lists every file's status, and fails a release when a provider is configured but a file isn't `Valid`.
 
 ## SmartScreen without signing
 
-Reputation for unsigned files is per file hash, so every new build starts from zero. Users should download only from the README's button or the GitHub release, and can compare the SHA-256 checksum published next to each build (`NEXUS-latest-SHA256.txt`, `SHA256SUMS.txt`).
+Users should download only from the README's button or the GitHub release, and can compare the SHA-256 checksum published with each build (`NEXUS-latest-SHA256.txt`, `SHA256SUMS.txt`).

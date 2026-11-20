@@ -19,7 +19,7 @@ Built with Tauri 2, React and TypeScript for the UI, and Rust for the engine, wi
 
 ## Contents
 
-[Features](#features) · [Requirements](#requirements) · [Installation](#installation) · [Using NEXUS](#using-nexus) · [Troubleshooting](#troubleshooting) · [Documentation](#documentation) · [Develop](#develop) · [Credits](#credits) · [License](#license)
+[Features](#features) · [Requirements](#requirements) · [Installation](#installation) · [Updating and uninstalling](#updating-and-uninstalling) · [Using NEXUS](#using-nexus) · [Known limitations](#known-limitations) · [Troubleshooting](#troubleshooting) · [Documentation](#documentation) · [Develop](#develop) · [Credits](#credits) · [License](#license)
 
 ## Features
 
@@ -104,6 +104,14 @@ NEXUS **never installs, bundles or silently configures drivers** and needs no ad
 
 More detail: [`docs/install-windows.md`](docs/install-windows.md).
 
+## Updating and uninstalling
+
+**Updating (now):** download the newest build with the button above and run it over the installed version. Profiles, macros, calibration and settings are kept, and *Start with Windows* stays as you set it. NEXUS also saves a daily backup you can restore from *Profiles › Restore points*.
+
+**Automatic updates (once switched on):** NEXUS checks shortly after start-up and every 6 hours and shows a notice; nothing installs without your OK. Each update is checked against NEXUS's signing key, your data is backed up first, and a failed update leaves the current version running. To go back a version, install the older setup from its GitHub Release; *Profiles › Restore points › Saved before updating* restores your data as it was. Details: [`docs/updater-setup.md`](docs/updater-setup.md#when-an-update-fails).
+
+**Uninstalling:** Windows *Settings › Apps › Installed apps › NEXUS › Uninstall* (it offers to close NEXUS if it is running). This removes the program, its Start-menu entry and the *Start with Windows* entry. Your data in `%APPDATA%\com.nexus.controllerengine` is kept unless you tick *Delete the application data*, so reinstalling brings everything back. ViGEmBus and HidHide are separate programs: uninstall them from *Installed apps* if no other program needs them.
+
 ## Using NEXUS
 
 **Remap buttons:** *Controller › Mapping*. Click a button on the controller or its card, then choose what it **Sends** and, optionally, a second button under **Also press**. Pressing a button on the controller lights its card. Shift layers are set up below the mapping.
@@ -128,6 +136,19 @@ More detail: [`docs/install-windows.md`](docs/install-windows.md).
 
 Full details: [`docs/game-output.md`](docs/game-output.md).
 
+## Known limitations
+
+- **USB only.** Bluetooth isn't supported, by design.
+- **One controller type out:** games see a virtual **Xbox 360** controller. DualShock 4 output, adaptive triggers, the light bar, gyro and touchpad position aren't passed to games, and rumble from games doesn't reach the DualSense. Games show Xbox button icons.
+- **ViGEmBus is retired** by its developer (2023). It works on Windows 11 today, but if a future Windows update breaks it there are no fixes from upstream. NEXUS labels virtual output *experimental*; the replacement options are evaluated in [`docs/virtual-driver-evaluation.md`](docs/virtual-driver-evaluation.md#long-term-update-2026-11-20-what-could-replace-vigembus).
+- **Anti-cheat:** some games block virtual controllers or macros. NEXUS never hides from anti-cheat or touches game processes; don't use it where a game's rules forbid it.
+- **Player slot:** many games only listen to player 1. If another Xbox-type controller is connected first, NEXUS becomes player 2 (the Dashboard checklist says so).
+- **Double input:** games and Steam with PlayStation support see both the DualSense and NEXUS's Xbox controller unless you turn that support off or use HidHide.
+- **Slow driver calls:** if the virtual-controller driver stalls, NEXUS skips the input it queued meanwhile rather than sending it late; a tap made entirely during such a stall is lost.
+- **Not code-signed yet:** SmartScreen warns on first install ([`docs/code-signing.md`](docs/code-signing.md)).
+- **Windows 11, 64-bit only.** Windows 10 and ARM aren't supported.
+- **Not yet validated** with a real DualSense in games: see the release gate in [`tests/hardware-verification.md`](tests/hardware-verification.md#release-gate).
+
 ## Troubleshooting
 
 | Problem | What to do |
@@ -141,6 +162,7 @@ Full details: [`docs/game-output.md`](docs/game-output.md).
 | A macro press isn't seen | Press time at least 40–50 ms; 20 ms between presses of the same button. |
 | Stick drift, or a stick/trigger not reaching full range | **Live Viewer › Calibration**; **Live Viewer › Drift Test** shows how much a stick drifts. |
 | The 3D controller looks plain white or doesn't change colour | Install the newest build; older builds blocked the model's textures. |
+| The window doesn't open, but the controller works | The window uses Microsoft Edge WebView2. NEXUS starts the controller first and keeps running in the tray; tray › *Open NEXUS* tries again. If it never opens, repair *Microsoft Edge WebView2 Runtime* in *Settings › Apps*. |
 | Closing the window doesn't quit NEXUS | That's on purpose, so games keep the controller: quit from the tray icon (right-click › *Quit NEXUS*), or switch it off under *Settings › Windows › Close button*. |
 | Nothing opens when I start NEXUS | It's already running in the tray, and that copy's window is brought back. If NEXUS was started with Windows, it starts in the tray; click the tray icon. |
 | Something else looks wrong | **Settings › HID Devices › Copy diagnostics report**, paste it into a text file and send it with a description. |
