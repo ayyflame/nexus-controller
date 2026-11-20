@@ -16,7 +16,7 @@ read report (HID, 100 ms timeout) → parse → mapping → macros → ViGEmBus 
 
 | Effect | Short stall (< ~128 ms) | Long stall (> ~128 ms) | Call never returns |
 |---|---|---|---|
-| Input to the game | Delayed by the stall. Windows' HID driver queues the reports (32 by default, about 128 ms at 250 Hz); NEXUS then processes every queued report in order, each with its own driver call, so it catches up within a few ms | As short, but reports older than the 32 queued are dropped by Windows (counted as *Dropped reports* via the sequence counter) | The game keeps the last state that reached the driver. If a button was held, it **stays held** until NEXUS exits |
+| Input to the game | Delayed by the stall. Windows queues the reports that arrive meanwhile (32 by default). **Since November 2026 (stale-input skipping):** if the stall lasted 8 ms or more, NEXUS skips the queued reports and processes only the newest, so the game jumps straight to the current state. Before that, every queued report was replayed after the stall, so old presses reached the game late | As short; Windows itself drops reports beyond its 32-report queue | The game keeps the last state that reached the driver. If a button was held, it **stays held** until NEXUS exits |
 | Macros | Steps due during the stall run late (timing is taken when the report is processed); nothing is skipped | Same | Frozen |
 | Fail-safes (unplug, unreadable reports) | Act after the call returns | Same | Never act |
 | UI | Unaffected: the UI reads a snapshot, and no lock is held during the driver call | Same | The device shows stale values; the Performance page stops updating for that controller |
@@ -26,7 +26,9 @@ read report (HID, 100 ms timeout) → parse → mapping → macros → ViGEmBus 
 
 Simulated evidence (mock driver, `crates/engine/src/tests.rs`):
 
-- `a_slow_driver_call_delays_reports_but_none_is_lost_and_each_is_counted`: with 60 ms per call, four reports sent during the stall all reach the virtual controller, in order, and the slow calls are counted.
+- `after_a_slow_driver_call_stale_presses_are_skipped_not_replayed_late`: during a 60 ms call the player taps Circle and lets go. Circle never reaches the game late; the virtual controller goes from the stalled frame straight to the current state, and the skipped reports are counted (not as *Dropped reports*).
+- `a_held_button_released_during_a_stall_is_released_right_after_it`: a release that happens during a stall is applied as soon as the call returns.
+- `normal_report_timing_never_skips_anything`: at normal timing every tap reaches the game.
 - `a_hung_driver_call_does_not_keep_nexus_from_exiting`: with a call that does not return, shutdown gives up after its timeout (150 ms in the test) instead of hanging. When the call returns after all, the reader still sends a neutral frame and removes the virtual controller.
 
 These are simulations of the driver's timing, not measurements of ViGEmBus on a gaming PC.
@@ -37,11 +39,16 @@ These are simulations of the driver's timing, not measurements of ViGEmBus on a 
 2. **Every way of quitting goes through that release.** These are tray › *Quit NEXUS*, closing the window when *close to tray* is off, and an update. Closing to the tray does **not** release anything, on purpose: the game keeps the virtual controller.
 3. **Slow calls are counted for the whole connection.** The Performance page's *Slow driver calls* row shows how many calls took 4 ms or longer (longer than one USB report interval), how many took 50 ms or longer, and the longest. The p50/p99/max row only covers the last 256 calls (about one second), so a rare spike could be missed; this counter cannot. It costs one comparison per report and allocates nothing.
 
+4. **Stale input is skipped, never replayed late** (`crates/device-manager/src/session.rs`). If one iteration of the reader loop took 8 ms or more (`STALE_INPUT_AFTER`, two USB report intervals), NEXUS reads everything already queued without waiting and keeps only the newest report.
+   - Every DualSense report carries the whole controller state, so nothing that is still pressed or released is lost.
+   - What is lost is a tap made and released entirely during the stall, which is better than pressing it in the game long after the fact.
+   - The Performance page shows the count as *Stale reports skipped after slow calls*.
+   - This is the reader-side half of a latest-frame handoff, without a second thread.
+
 ## Can the current design tolerate slow calls?
 
 - **Occasional calls of a few ms: yes.** The next report is processed a few ms late and nothing is lost.
-- **Rare stalls up to ~128 ms: yes, with visible lag.** Nothing is lost, but the game gets the queued input in a burst after the stall.
-- **Longer stalls: degraded.** Windows drops the oldest queued reports, and NEXUS counts them.
+- **Rare stalls of tens to hundreds of ms: yes, with visible lag.** Input freezes for the stall; afterwards the game gets the current state at once. Old presses are never replayed late; a tap made entirely during the stall is skipped.
 - **A call that never returns: not tolerated.** A held button stays held in the game until NEXUS quits. Quitting now always works. No evidence exists that ViGEmBus 1.22 does this on a normal PC; the CI stalls all ended by themselves.
 
 **Decision:** keep the driver call on the reader thread for now. Moving it to another thread adds a thread hand-off (wake-up latency, typically 10–50 µs but more under load) to *every* frame in order to protect against a problem that hasn't been seen on a real PC. The CF3 hardware check decides this.

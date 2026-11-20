@@ -73,6 +73,8 @@ export function Performance() {
               <tr><td>Reports received <Kind /></td><td className="right mono">{d.totalReports.toLocaleString()}</td></tr>
               <tr><td>Input errors (unreadable reports) <Kind /></td><td className="right mono">{d.parseErrors.toLocaleString()}</td></tr>
               <tr><td>Dropped reports (from the controller's sequence counter) <Kind estimate /></td><td className="right mono">{d.sequenceGaps.toLocaleString()}</td></tr>
+              <tr><td data-tip="After a driver call slower than 8 ms, reports Windows queued meanwhile are out of date. NEXUS skips them and sends only the newest, so no old press reaches the game late.">
+                Stale reports skipped after slow calls <Kind /></td><td className="right mono">{(d.staleReportsSkipped ?? 0).toLocaleString()}</td></tr>
               <tr><td>Time between reports, min / average / max (USB normal ≈ 4 ms) <Kind /></td>
                 <td className="right mono">{d.reportIntervals.intervals ? `${(d.reportIntervals.minUs / 1000).toFixed(2)} / ${(d.reportIntervals.meanUs / 1000).toFixed(2)} / ${(d.reportIntervals.maxUs / 1000).toFixed(1)} ms` : "—"}</td></tr>
               <tr><td>Late reports since connect: over 8 ms / over 50 ms <Kind /></td>

@@ -34,6 +34,9 @@ fn config() -> EngineConfig {
         devices: DeviceManagerConfig {
             scan_interval: Duration::from_millis(10),
             read_timeout: Duration::from_millis(5),
+            // A loaded test machine can pause any thread for over 8 ms;
+            // only the stall tests use the real stale-input threshold.
+            stale_after: Duration::from_secs(1),
         },
         // Mock devices never produce OS device notifications. With
         // notifications on (real Windows), polling would relax to the 5 s
@@ -469,6 +472,7 @@ fn device_change_notification_connects_without_waiting_for_poll() {
             devices: DeviceManagerConfig {
                 scan_interval: Duration::from_secs(60), // polling effectively off
                 read_timeout: Duration::from_millis(5),
+                ..Default::default()
             },
             hotplug: false,
             ..Default::default()
@@ -1386,12 +1390,13 @@ fn xbox_engine() -> (MockHidBackend, Engine, PadLog) {
 fn xbox_engine_with(
     installed: Arc<std::sync::atomic::AtomicBool>,
 ) -> (MockHidBackend, Engine, PadLog) {
-    xbox_engine_stalling(installed, Default::default())
+    xbox_engine_stalling(installed, Default::default(), config().devices.stale_after)
 }
 
 fn xbox_engine_stalling(
     installed: Arc<std::sync::atomic::AtomicBool>,
     stall_ms: Arc<AtomicU64>,
+    stale_after: Duration,
 ) -> (MockHidBackend, Engine, PadLog) {
     let backend = MockHidBackend::new();
     backend.plug(usb_info());
@@ -1410,6 +1415,10 @@ fn xbox_engine_stalling(
         }),
         EngineConfig {
             initial_output: VirtualOutputKind::Xbox360,
+            devices: DeviceManagerConfig {
+                stale_after,
+                ..config().devices
+            },
             ..config()
         },
     );
@@ -3125,51 +3134,102 @@ fn a_button_combination_reaches_the_virtual_controller() {
 fn stalling_xbox() -> (MockHidBackend, Engine, PadLog, Arc<AtomicU64>) {
     let stall = Arc::new(AtomicU64::new(0));
     let installed = Arc::new(std::sync::atomic::AtomicBool::new(true));
-    let (backend, e, log) = xbox_engine_stalling(installed, stall.clone());
+    let (backend, e, log) = xbox_engine_stalling(
+        installed,
+        stall.clone(),
+        nexus_device_manager::STALE_INPUT_AFTER,
+    );
     log.wait("virtual controller", |p| p.contains(&Pad::Connect(1)));
     e.set_processing(ProcessingConfig::passthrough());
     (backend, e, log, stall)
 }
 
 #[test]
-fn a_slow_driver_call_delays_reports_but_none_is_lost_and_each_is_counted() {
+fn after_a_slow_driver_call_stale_presses_are_skipped_not_replayed_late() {
     let (backend, e, log, stall) = stalling_xbox();
     expect_pad(&backend, &log, &held(0, 0), pad(0), "settled");
     let before = log.reports().len();
+    // Cross is pressed and its driver call takes 60 ms.
     stall.store(60, Ordering::SeqCst);
-    // Reports keep arriving while the driver call is stuck; the HID driver
-    // queues them (on Windows: up to 32, about 128 ms at 250 Hz).
-    for p in [
-        held(0, 0x20),
-        held(0, 0x40),
-        held(0, 0x20 | 0x40),
-        held(0, 0),
-    ] {
+    backend.push_report(PATH, held(0, 0x20).usb_report());
+    std::thread::sleep(Duration::from_millis(6)); // the reader is inside the call
+                                                  // Meanwhile the player taps Circle, then Circle + Cross, then lets go.
+                                                  // Windows queues these reports.
+    for p in [held(0, 0x40), held(0, 0x20 | 0x40), held(0, 0)] {
         backend.push_report(PATH, p.usb_report());
         std::thread::sleep(Duration::from_millis(4));
     }
-    log.wait("all four after the stall", |_| {
-        log.reports().len() >= before + 4
+    stall.store(0, Ordering::SeqCst); // later calls are fast again
+    log.wait("the newest state after the stall", |_| {
+        log.reports().len() >= before + 2
     });
-    stall.store(0, Ordering::SeqCst);
-    let sent: Vec<u16> = log.reports()[before..before + 4]
-        .iter()
-        .map(|r| r.buttons)
-        .collect();
+    std::thread::sleep(Duration::from_millis(30));
+    let sent: Vec<u16> = log.reports()[before..].iter().map(|r| r.buttons).collect();
     assert_eq!(
         sent,
-        [xusb::A, xusb::B, xusb::A | xusb::B, 0],
-        "every report reaches the game, in order, after the stall"
+        [xusb::A, 0],
+        "the stalled frame, then straight to the current state: the queued \
+         Circle presses are never sent late"
     );
-    // Counted for the whole connection, not only the last 256 calls.
+    let d = wait_status(&e, "skips published", |s| {
+        s.devices[0].stale_reports_skipped == 2
+    })
+    .devices[0]
+        .clone();
+    assert_eq!(
+        d.sequence_gaps, 0,
+        "skipped reports are not counted as dropped"
+    );
+    // The slow call itself is counted for the whole connection.
     pump(&backend, PATH, 70);
     let s = wait_status(&e, "slow calls", |s| {
-        s.devices[0].stage_latency.slow_output.over_50ms >= 4
+        s.devices[0].stage_latency.slow_output.over_50ms >= 1
     });
     let slow = s.devices[0].stage_latency.slow_output;
     assert!(slow.over_4ms >= slow.over_50ms);
     assert!(slow.longest_ns >= 60_000_000, "{slow:?}");
     assert!(slow.calls >= 64, "{slow:?}");
+}
+
+#[test]
+fn normal_report_timing_never_skips_anything() {
+    let (backend, e, log, _stall) = stalling_xbox();
+    let before = log.reports().len();
+    for i in 0..40u8 {
+        let p = if i % 2 == 0 {
+            held(0, 0x20)
+        } else {
+            held(0, 0)
+        };
+        backend.push_report(PATH, p.usb_report());
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    log.wait("all 40", |_| log.reports().len() >= before + 40);
+    let presses = log.reports()[before..]
+        .iter()
+        .filter(|r| r.buttons == xusb::A)
+        .count();
+    assert_eq!(presses, 20, "every tap reaches the game");
+    assert_eq!(e.status().devices[0].stale_reports_skipped, 0);
+}
+
+#[test]
+fn a_held_button_released_during_a_stall_is_released_right_after_it() {
+    let (backend, e, log, stall) = stalling_xbox();
+    expect_pad(&backend, &log, &held(0, 0x20), pad(xusb::A), "A held");
+    stall.store(80, Ordering::SeqCst);
+    backend.push_report(PATH, held(0, 0x20).usb_report());
+    std::thread::sleep(Duration::from_millis(6));
+    for _ in 0..5 {
+        backend.push_report(PATH, held(0, 0).usb_report()); // released during the stall
+        std::thread::sleep(Duration::from_millis(4));
+    }
+    stall.store(0, Ordering::SeqCst);
+    log.wait(
+        "released",
+        |p| matches!(p.last(), Some(Pad::Report(_, r)) if r.buttons == 0),
+    );
+    assert!(e.status().devices[0].stale_reports_skipped >= 1);
 }
 
 #[test]

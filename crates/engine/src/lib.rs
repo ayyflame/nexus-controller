@@ -95,6 +95,9 @@ pub struct DeviceSnapshot {
     /// Reports missing according to the controller's sequence counter
     /// (estimate: assumes the counter advances once per report).
     pub sequence_gaps: u64,
+    /// Queued reports skipped because a slow iteration (usually a slow
+    /// driver call) made them stale; only the newest was processed.
+    pub stale_reports_skipped: u64,
     /// Time between reports since connect (USB stability).
     pub report_intervals: IntervalSummary,
     /// Output reports (lightbar, LEDs, vibration) sent to this controller.
@@ -1043,6 +1046,10 @@ struct EngineSessionHandler {
     feedback: Feedback,
     last_sequence: Option<u8>,
     sequence_gaps: u64,
+    /// Reports skipped as stale (not counted as dropped by the controller).
+    stale_skipped: u64,
+    /// Skipped reports not yet accounted for in the sequence-gap count.
+    skip_credit: u64,
 }
 
 /// Physical DualSense feedback for one session: sends a report only when
@@ -1159,6 +1166,7 @@ fn new_session_handler(
             pipeline_latency: LatencySummary::default(),
             stage_latency: StageLatency::default(),
             sequence_gaps: 0,
+            stale_reports_skipped: 0,
             report_intervals: IntervalSummary::default(),
             output_reports_sent: 0,
             last_report_ms: None,
@@ -1181,6 +1189,8 @@ fn new_session_handler(
         },
         last_sequence: None,
         sequence_gaps: 0,
+        stale_skipped: 0,
+        skip_credit: 0,
         pipeline: build_pipeline(&lock(&shared.processing)),
         processing_generation: shared.processing_generation.load(Ordering::Acquire),
         latency: LatencyWindow::default(),
@@ -1328,8 +1338,11 @@ impl EngineSessionHandler {
                 let gap = seq.wrapping_sub(prev).wrapping_sub(1);
                 // Large jumps are resets, not losses.
                 if gap > 0 && gap < 64 {
-                    self.sequence_gaps += gap as u64;
+                    // Reports NEXUS skipped itself were not lost by the controller.
+                    let skipped = self.skip_credit.min(gap as u64);
+                    self.sequence_gaps += gap as u64 - skipped;
                 }
+                self.skip_credit = 0;
             }
             self.last_sequence = Some(seq);
         }
@@ -1431,7 +1444,7 @@ impl SessionHandler for EngineSessionHandler {
             self.feed_recording(state);
         }
         self.feedback.update(&self.shared, Instant::now());
-        let (gaps, sent) = (self.sequence_gaps, self.feedback.sent);
+        let (gaps, sent, stale) = (self.sequence_gaps, self.feedback.sent, self.stale_skipped);
         // For display only, after the virtual controller already has this report.
         let layer = self.pipeline.active_layer();
 
@@ -1461,6 +1474,7 @@ impl SessionHandler for EngineSessionHandler {
             s.total_reports = total;
             s.parse_errors = errors;
             s.sequence_gaps = gaps;
+            s.stale_reports_skipped = stale;
             s.output_reports_sent = sent;
             s.active_layer = layer;
             match (physical, processed) {
@@ -1529,6 +1543,11 @@ impl SessionHandler for EngineSessionHandler {
             self.shared
                 .update_device(&self.id, |s| s.report_rate_hz = rate);
         }
+    }
+
+    fn on_stale_skipped(&mut self, count: usize) {
+        self.stale_skipped += count as u64;
+        self.skip_credit += count as u64;
     }
 
     fn take_output(&mut self) -> Option<Vec<u8>> {

@@ -18,6 +18,11 @@ pub struct DeviceManagerConfig {
     pub scan_interval: Duration,
     /// Read timeout; bounds how quickly a reader thread notices a stop request.
     pub read_timeout: Duration,
+    /// If handling one report (or idle tick) took this long, the reports
+    /// Windows queued meanwhile are stale: they are skipped and only the
+    /// newest is processed, so a slow driver call never replays old presses
+    /// late. See [`crate::session::STALE_INPUT_AFTER`].
+    pub stale_after: Duration,
 }
 
 impl Default for DeviceManagerConfig {
@@ -25,6 +30,7 @@ impl Default for DeviceManagerConfig {
         Self {
             scan_interval: Duration::from_millis(1000),
             read_timeout: Duration::from_millis(100),
+            stale_after: crate::session::STALE_INPUT_AFTER,
         }
     }
 }
@@ -251,6 +257,7 @@ impl DeviceManager {
             handler,
             stop: stop.clone(),
             read_timeout: self.config.read_timeout,
+            stale_after: self.config.stale_after,
             ended: self.ended_tx.clone(),
             notify: self.notify.clone(),
         };
@@ -391,6 +398,7 @@ mod tests {
             DeviceManagerConfig {
                 scan_interval: Duration::from_millis(10),
                 read_timeout: Duration::from_millis(5),
+                ..Default::default()
             },
             Box::new(move |_| Box::new(RecHandler(rec.clone()))),
             Arc::new(|| {}),
@@ -458,6 +466,7 @@ mod tests {
             DeviceManagerConfig {
                 scan_interval: Duration::from_millis(10),
                 read_timeout: Duration::from_millis(5),
+                ..Default::default()
             },
             Box::new(move |_| Box::new(PriorityHandler(handler_seen.clone()))),
             Arc::new(|| {}),
@@ -696,6 +705,7 @@ mod tests {
             DeviceManagerConfig {
                 scan_interval: Duration::from_millis(10),
                 read_timeout: Duration::from_millis(5),
+                ..Default::default()
             },
             Box::new(move |d| Box::new(Tagged(d.id.0.clone(), log.clone()))),
             Arc::new(|| {}),

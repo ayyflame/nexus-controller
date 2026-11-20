@@ -87,6 +87,8 @@ export interface DeviceSnapshot {
   stageLatency: StageLatency;
   /** Reports missing per the controller's sequence counter (estimate). */
   sequenceGaps: number;
+  /** Queued reports skipped as stale after a slow driver call (only the newest was processed). */
+  staleReportsSkipped?: number;
   /** Time between input reports since connect (USB stability). */
   reportIntervals: { intervals: number; minUs: number; meanUs: number; maxUs: number; over8ms: number; over50ms: number };
   outputReportsSent: number;

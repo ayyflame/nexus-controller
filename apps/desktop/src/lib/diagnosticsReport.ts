@@ -61,6 +61,7 @@ export function diagnosticsReport(
       totalReports: d.totalReports,
       parseErrors: d.parseErrors,
       sequenceGaps: d.sequenceGaps,
+      staleReportsSkipped: d.staleReportsSkipped ?? 0,
       reportIntervals: d.reportIntervals,
       // Null until the first 64 reports have been measured.
       processingTime: d.pipelineLatency.samples > 0
