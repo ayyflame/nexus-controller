@@ -329,3 +329,88 @@ fn default_profile_is_used_at_start_and_cleared_when_deleted() {
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn stick_swap_and_stick_buttons_are_kept_per_profile_across_restarts() {
+    use nexus_input_processing::{StickButtons, StickDirections, StickRouting, StickSource};
+    let dir = std::env::temp_dir().join(format!("nexus-sticks-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("nexus.db");
+    let buttons = StickButtons {
+        enabled: true,
+        up: Some(Button::DpadUp),
+        down: Some(Button::DpadDown),
+        left: Some(Button::DpadLeft),
+        right: Some(Button::RightTrigger),
+        threshold_x: 0.35,
+        threshold_y: 0.7,
+        hysteresis: 0.15,
+        directions: StickDirections::Four,
+        passthrough: true,
+    };
+    let routing = StickRouting {
+        left_output: StickSource::Right,
+        right_output: StickSource::Left,
+    };
+    let (a_id, b_id) = {
+        let mut s = ProfileStore::open(&path).unwrap();
+        let a = s.active_profile().unwrap();
+        let b = s.create_profile("Menus").unwrap();
+        let mut cfg = a.processing.clone();
+        cfg.stick_routing = routing;
+        cfg.left_stick.buttons = buttons;
+        cfg.left_stick.deadzone = 0.12;
+        s.set_processing(a.id, &cfg).unwrap();
+        let now_b = s.set_active_profile(b.id).unwrap();
+        assert_eq!(
+            now_b.processing.stick_routing,
+            StickRouting::default(),
+            "other profile untouched"
+        );
+        assert!(!now_b.processing.left_stick.buttons.enabled);
+        (a.id, b.id)
+    };
+    let mut s = ProfileStore::open(&path).unwrap();
+    let a = s.set_active_profile(a_id).unwrap();
+    assert_eq!(a.processing.stick_routing, routing);
+    assert_eq!(a.processing.left_stick.buttons, buttons);
+    assert_eq!(
+        a.processing.left_stick.deadzone, 0.12,
+        "existing settings kept alongside"
+    );
+    assert_eq!(
+        s.get_profile(b_id).unwrap().processing.stick_routing,
+        StickRouting::default()
+    );
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn app_settings_survive_a_restart() {
+    // Settings › Windows (close/minimise to tray, start hidden) is stored here.
+    let dir = std::env::temp_dir().join(format!("nexus-settings-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("nexus.db");
+    {
+        let mut s = ProfileStore::open(&path).unwrap();
+        assert_eq!(s.get_setting("window_behaviour").unwrap(), None);
+        s.set_setting("window_behaviour", r#"{"closeToTray":false}"#)
+            .unwrap();
+        s.set_setting(
+            "window_behaviour",
+            r#"{"closeToTray":true,"minimizeToTray":true}"#,
+        )
+        .unwrap();
+    }
+    let s = ProfileStore::open(&path).unwrap();
+    assert_eq!(
+        s.get_setting("window_behaviour").unwrap().as_deref(),
+        Some(r#"{"closeToTray":true,"minimizeToTray":true}"#),
+        "the latest value, once"
+    );
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -256,3 +256,4 @@ The rules are unit-tested and the installer check runs in CI on a GitHub Windows
 | SM6 | 4 directions, roll the stick from up to right | Never both buttons at once; up releases before right presses |
 | SM7 | *Also move the stick in games* on, Precise curve | The d-pad presses and the stick still moves with the curve applied |
 | SM8 | Switch to a profile without stick mapping while a stick-button is held | The button releases at once; nothing stuck |
+| DS1 | **Performance** during 30+ minutes of play | *Stale reports skipped after slow calls* stays at 0 (any skips mean a driver call took 8 ms or more: note when) |

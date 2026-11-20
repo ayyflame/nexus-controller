@@ -10,7 +10,7 @@ mod startup;
 mod tray;
 mod updates;
 
-use background::{CloseAction, WindowBehaviour};
+use background::{WindowBehaviour, WindowChange, WindowResponse};
 use nexus_engine::{Engine, EngineConfig};
 use nexus_profile_manager::ProfileStore;
 use std::path::PathBuf;
@@ -47,7 +47,7 @@ pub struct AppState {
 fn repair_startup_entry() {
     #[cfg(all(windows, not(debug_assertions)))]
     if let Ok(exe) = std::env::current_exe() {
-        if let Err(e) = startup::repair(&mut startup::Registry, &exe) {
+        if let Err(e) = startup::repair(&mut startup::Registry::nexus(), &exe) {
             eprintln!("NEXUS: could not update the startup entry: {e}");
         }
     }
@@ -100,21 +100,23 @@ pub fn run() {
                 return;
             };
             let behaviour = *state.behaviour.lock().unwrap_or_else(|e| e.into_inner());
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                if background::on_close(behaviour) == CloseAction::HideToTray {
-                    api.prevent_close();
+            let change = match event {
+                WindowEvent::CloseRequested { .. } => WindowChange::CloseRequested,
+                // Windows reports minimising as a resize (P6).
+                _ => match bridge::visibility_after(event, || window.is_minimized().ok()) {
+                    Some(visible) => WindowChange::Visibility(visible),
+                    None => return,
+                },
+            };
+            match background::respond(behaviour, change) {
+                WindowResponse::Close => {}
+                WindowResponse::HideToTray => {
+                    if let WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                    }
                     tray::hide_main(window.app_handle());
                 }
-                return;
-            }
-            // Pause the 60 Hz UI status stream while the window is minimised (P6).
-            let visible = bridge::visibility_after(event, || window.is_minimized().ok());
-            if let Some(visible) = visible {
-                if background::hide_when_minimised(behaviour, !visible) {
-                    tray::hide_main(window.app_handle());
-                } else {
-                    state.bridge.set_visible(visible);
-                }
+                WindowResponse::StatusStream(on) => state.bridge.set_visible(on),
             }
         })
         .setup(move |app| {

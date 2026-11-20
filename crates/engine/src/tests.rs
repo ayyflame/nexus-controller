@@ -1314,6 +1314,8 @@ struct RecordingPad {
     /// Simulates a slow driver: each update takes this long (ms). While it
     /// is `u64::MAX`, updates block until it changes (a hung driver call).
     stall_ms: Arc<AtomicU64>,
+    /// While set, every update fails like a driver error.
+    fail: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl VirtualControllerBackend for RecordingPad {
@@ -1341,6 +1343,9 @@ impl VirtualControllerBackend for RecordingPad {
         Ok(VirtualDeviceHandle(self.next))
     }
     fn update(&mut self, h: VirtualDeviceHandle, s: &ControllerState) -> Result<(), OutputError> {
+        if self.fail.load(Ordering::SeqCst) {
+            return Err(OutputError::Backend("simulated driver error".into()));
+        }
         let stall = self.stall_ms.load(Ordering::SeqCst);
         if stall == u64::MAX {
             while self.stall_ms.load(Ordering::SeqCst) == u64::MAX {
@@ -1411,6 +1416,7 @@ fn xbox_engine_stalling(
                 next: 0,
                 installed: installed.clone(),
                 stall_ms: stall_ms.clone(),
+                fail: Default::default(),
             })
         }),
         EngineConfig {
@@ -2850,6 +2856,7 @@ fn closing_and_restarting_nexus_leaves_no_pad_behind_and_works_again() {
                 next: 0,
                 installed: Arc::new(std::sync::atomic::AtomicBool::new(true)),
                 stall_ms: Default::default(),
+                fail: Default::default(),
             })
         }),
         EngineConfig {
@@ -3320,4 +3327,136 @@ fn swapped_sticks_and_a_stick_mapped_to_the_dpad_reach_the_virtual_controller() 
         "released and centred",
         |pads| matches!(pads.last(), Some(Pad::Report(_, r)) if r.buttons == 0 && r.thumb_lx == 0),
     );
+}
+
+// ---- Driver errors and feature interplay (simulated) --------------------------
+
+#[test]
+fn a_driver_error_while_a_button_is_held_leaves_nothing_stuck_after_recovery() {
+    let backend = MockHidBackend::new();
+    backend.plug(usb_info());
+    let log = PadLog::default();
+    let fail = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (factory_log, factory_fail) = (log.clone(), fail.clone());
+    let e = Engine::start(
+        Arc::new(backend.clone()),
+        vec![Arc::new(DualSenseDriver)],
+        Arc::new(move || {
+            Box::new(RecordingPad {
+                log: factory_log.clone(),
+                next: 0,
+                installed: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+                stall_ms: Default::default(),
+                fail: factory_fail.clone(),
+            })
+        }),
+        EngineConfig {
+            initial_output: VirtualOutputKind::Xbox360,
+            processing: ProcessingConfig::passthrough(),
+            ..config()
+        },
+    );
+    wait_status(&e, "connect", |s| s.devices.len() == 1);
+    log.wait("virtual controller", |p| p.contains(&Pad::Connect(1)));
+    expect_pad(&backend, &log, &held(0, 0x20), pad(xusb::A), "A held");
+
+    // The driver starts failing while A is held: the broken virtual
+    // controller is removed (the game sees it unplugged, so A can't stay held).
+    fail.store(true, Ordering::SeqCst);
+    backend.push_report(PATH, held(0, 0x20).usb_report());
+    log.wait("failed pad removed", |p| p.contains(&Pad::Disconnect(1)));
+    wait_status(&e, "retrying shown", |s| s.devices[0].output.retrying);
+    // A is released while the driver is broken.
+    fail.store(false, Ordering::SeqCst);
+    for _ in 0..400 {
+        backend.push_report(PATH, held(0, 0).usb_report());
+        std::thread::sleep(Duration::from_millis(5));
+        if log.all().contains(&Pad::Connect(2)) {
+            break;
+        }
+    }
+    log.wait("re-created", |p| p.contains(&Pad::Connect(2)));
+    log.wait("current state on the new pad", |p| {
+        p.iter().any(|x| matches!(x, Pad::Report(2, _)))
+    });
+    let new_pad: Vec<u16> = log
+        .all()
+        .iter()
+        .filter_map(|p| match p {
+            Pad::Report(2, r) => Some(r.buttons),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        new_pad.iter().all(|b| *b == 0),
+        "A never reappears: {new_pad:?}"
+    );
+    assert_eq!(log.live(), 1, "exactly one virtual controller again");
+    let s = wait_status(&e, "recovered", |s| !s.devices[0].output.retrying);
+    assert!(s.devices[0].output.active.is_some());
+    assert!(e
+        .recent_log(20)
+        .iter()
+        .any(|l| l.message.contains("Virtual controller re-created")));
+}
+
+#[test]
+fn stick_buttons_layers_combinations_and_macros_work_together() {
+    use nexus_controller_core::Button;
+    use nexus_input_processing::{ComboRule, LayerMode, MappingLayer, RemapRule, StickButtons};
+    let (backend, e, log) = passthrough_xbox();
+    let mut c = ProcessingConfig::passthrough();
+    c.left_stick.buttons = StickButtons {
+        enabled: true,
+        up: Some(Button::DpadUp),
+        ..StickButtons::default()
+    };
+    c.layers = vec![MappingLayer {
+        name: "Shift".into(),
+        activator: Button::LeftShoulder,
+        mode: LayerMode::Hold,
+        remap: vec![RemapRule::new(Button::South, Some(Button::East))],
+    }];
+    c.combos = vec![ComboRule {
+        buttons: vec![Button::North, Button::West],
+        sends: vec![Button::Start],
+        hide_inputs: true,
+    }];
+    e.set_processing(c);
+    e.set_macros(vec![jump_macro(PlaybackMode::Once)]); // R3 → holds Cross (A)
+    pump(&backend, PATH, 2);
+
+    // Stick up + L1 (layer) + Cross: d-pad up from the stick, B from the layer.
+    let mut p = held(0, 0x20);
+    p.buttons[1] |= 0x01;
+    p.ly = 0;
+    expect_pad(
+        &backend,
+        &log,
+        &p,
+        pad(xusb::DPAD_UP | xusb::B),
+        "stick + layer",
+    );
+    // Triangle + Square (combination) with the stick still up: Start + d-pad up.
+    let mut p = held(0, 0x80 | 0x10);
+    p.ly = 0;
+    expect_pad(
+        &backend,
+        &log,
+        &p,
+        pad(xusb::DPAD_UP | xusb::START),
+        "stick + combination",
+    );
+    // The macro still starts from R3 and adds A next to the stick's d-pad.
+    let mut p = held(1, 0x80);
+    p.ly = 0;
+    expect_pad(
+        &backend,
+        &log,
+        &p,
+        pad(xusb::DPAD_UP | xusb::A),
+        "stick + macro",
+    );
+    // Everything released: nothing left over.
+    expect_pad(&backend, &log, &Payload::neutral(), pad(0), "released");
 }

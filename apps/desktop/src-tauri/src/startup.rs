@@ -141,12 +141,27 @@ mod registry {
         format!("Could not {what} the Windows startup entry (Windows error {code}).")
     }
 
-    /// HKCU Run and StartupApproved\Run, value `NEXUS`.
-    pub struct Registry;
+    /// HKCU Run and StartupApproved\Run, value `NEXUS` (another name only
+    /// in tests, so they never touch the real entry).
+    pub struct Registry {
+        name: String,
+    }
+
+    impl Registry {
+        pub fn nexus() -> Self {
+            Self::named(RUN_VALUE)
+        }
+
+        pub fn named(name: &str) -> Self {
+            Self {
+                name: name.to_owned(),
+            }
+        }
+    }
 
     impl Registry {
         fn get(&self, key: &str, flags: u32, buf: &mut [u8]) -> Result<Option<usize>, u32> {
-            let (key, name) = (wide(key), wide(RUN_VALUE));
+            let (key, name) = (wide(key), wide(&self.name));
             let mut len = buf.len() as u32;
             // SAFETY: both strings are NUL-terminated and outlive the call;
             // `buf` is writable for `len` bytes and `len` is updated in place.
@@ -170,7 +185,7 @@ mod registry {
         }
 
         fn delete(&self, key: &str) -> Result<(), u32> {
-            let (key, name) = (wide(key), wide(RUN_VALUE));
+            let (key, name) = (wide(key), wide(&self.name));
             // SAFETY: both strings are NUL-terminated and outlive the call.
             #[allow(unsafe_code)]
             let code =
@@ -200,7 +215,7 @@ mod registry {
         }
 
         fn set_run_value(&mut self, command: &str) -> Result<(), String> {
-            let (key, name, data) = (wide(RUN_KEY), wide(RUN_VALUE), wide(command));
+            let (key, name, data) = (wide(RUN_KEY), wide(&self.name), wide(command));
             // SAFETY: NUL-terminated strings that outlive the call; the data
             // length is the UTF-16 byte length including the terminator.
             #[allow(unsafe_code)]
@@ -238,6 +253,42 @@ mod registry {
         fn clear_approval(&mut self) -> Result<(), String> {
             self.delete(APPROVED_KEY).map_err(|e| fail("update", e))
         }
+    }
+}
+
+/// The real registry on Windows, under a throwaway value name, removed again.
+#[cfg(all(test, windows))]
+mod registry_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn start_with_windows_round_trips_through_the_real_registry() {
+        let name = format!("NEXUS-test-{}", std::process::id());
+        let mut r = Registry::named(&name);
+        let exe = PathBuf::from(r"C:\Test\nexus-desktop.exe");
+        let _ = set_enabled(&mut r, &exe, false);
+        assert!(!status(&r).enabled);
+        let s = set_enabled(&mut r, &exe, true).unwrap();
+        assert!(
+            s.enabled && !s.disabled_in_windows && s.error.is_none(),
+            "{s:?}"
+        );
+        assert_eq!(
+            r.run_value().unwrap().as_deref(),
+            Some(command_for(&exe).as_str())
+        );
+        // A reinstall elsewhere is repaired to point at the new copy.
+        let moved = PathBuf::from(r"D:\Games\NEXUS\nexus-desktop.exe");
+        assert!(repair(&mut r, &moved).unwrap());
+        assert_eq!(
+            r.run_value().unwrap().as_deref(),
+            Some(command_for(&moved).as_str())
+        );
+        let s = set_enabled(&mut r, &exe, false).unwrap();
+        assert!(!s.enabled);
+        assert_eq!(r.run_value().unwrap(), None, "nothing left behind");
+        assert_eq!(r.approved().unwrap(), None);
     }
 }
 

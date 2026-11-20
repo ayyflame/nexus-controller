@@ -381,3 +381,81 @@ fn likely_mistakes_are_reported_as_conflicts() {
     );
     assert!(find_conflicts(&raw(), &[]).is_empty());
 }
+
+#[test]
+fn each_of_the_four_directions_presses_its_own_button() {
+    let b = StickButtons {
+        enabled: true,
+        up: Some(Button::North),
+        down: Some(Button::South),
+        left: Some(Button::West),
+        right: Some(Button::East),
+        ..StickButtons::default()
+    };
+    for (stick_on, (x, y), want) in [
+        (true, (0.0, 0.9), Button::North),
+        (true, (0.0, -0.9), Button::South),
+        (true, (-0.9, 0.0), Button::West),
+        (true, (0.9, 0.0), Button::East),
+        (false, (0.0, 0.9), Button::North),
+        (false, (0.0, -0.9), Button::South),
+        (false, (-0.9, 0.0), Button::West),
+        (false, (0.9, 0.0), Button::East),
+    ] {
+        // Left stick and right stick alike.
+        let mut c = raw();
+        let input = if stick_on {
+            c.left_stick.buttons = b;
+            with_sticks((x, y), (0.0, 0.0))
+        } else {
+            c.right_stick.buttons = b;
+            with_sticks((0.0, 0.0), (x, y))
+        };
+        let out = run(&mut ConfiguredProcessor::new(&c), &input);
+        let pressed: Vec<Button> = Button::ALL
+            .into_iter()
+            .filter(|x| x.is_pressed(&out))
+            .collect();
+        assert_eq!(
+            pressed,
+            vec![want],
+            "({x}, {y}) on the {} stick",
+            if stick_on { "left" } else { "right" }
+        );
+    }
+}
+
+#[test]
+fn thresholds_apply_after_the_deadzone_and_curve() {
+    // 30 % deadzone: 0.5 physical → (0.5 − 0.3) / 0.7 ≈ 0.286 processed.
+    let mut c = left_buttons(StickButtons {
+        threshold_y: 0.3,
+        hysteresis: 0.0,
+        ..dpad_buttons()
+    });
+    c.left_stick.deadzone = 0.3;
+    let mut p = ConfiguredProcessor::new(&c);
+    assert!(!run(&mut p, &with_sticks((0.0, 0.5), (0.0, 0.0))).dpad_up());
+    assert!(
+        run(&mut p, &with_sticks((0.0, 0.55), (0.0, 0.0))).dpad_up(),
+        "≈0.357 processed"
+    );
+    // Drift inside the deadzone never presses anything.
+    assert!(!run(&mut p, &with_sticks((0.0, 0.25), (0.0, 0.0))).dpad_up());
+    // A precise curve needs more travel for the same threshold.
+    let mut c = left_buttons(StickButtons {
+        threshold_y: 0.5,
+        hysteresis: 0.0,
+        ..dpad_buttons()
+    });
+    c.left_stick.curve = ResponseCurve::Power { exponent: 2.0 };
+    let mut p = ConfiguredProcessor::new(&c);
+    assert!(
+        !run(&mut p, &with_sticks((0.0, 0.6), (0.0, 0.0))).dpad_up(),
+        "0.6² = 0.36"
+    );
+    assert!(
+        run(&mut p, &with_sticks((0.0, 0.75), (0.0, 0.0))).dpad_up(),
+        "0.75² ≈ 0.56"
+    );
+}

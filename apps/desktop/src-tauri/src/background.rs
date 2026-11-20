@@ -81,6 +81,39 @@ pub fn show_on_second_launch(started_at_sign_in: bool) -> bool {
     !started_at_sign_in
 }
 
+/// What happened to the main window, reduced to what matters here.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WindowChange {
+    /// The close button (or Alt+F4).
+    CloseRequested,
+    /// Minimised (`false`) or shown at a real size again (`true`).
+    Visibility(bool),
+}
+
+/// What NEXUS does about it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WindowResponse {
+    /// Let the window close (NEXUS quits and releases the controller).
+    Close,
+    /// Keep NEXUS running: cancel the close and hide to the tray.
+    HideToTray,
+    /// Pause (`false`) or resume (`true`) the UI status stream.
+    StatusStream(bool),
+}
+
+pub fn respond(b: WindowBehaviour, change: WindowChange) -> WindowResponse {
+    match change {
+        WindowChange::CloseRequested => match on_close(b) {
+            CloseAction::HideToTray => WindowResponse::HideToTray,
+            CloseAction::Quit => WindowResponse::Close,
+        },
+        WindowChange::Visibility(visible) if hide_when_minimised(b, !visible) => {
+            WindowResponse::HideToTray
+        }
+        WindowChange::Visibility(visible) => WindowResponse::StatusStream(visible),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -133,6 +166,36 @@ mod tests {
                 close_to_tray: false,
                 ..Default::default()
             }
+        );
+    }
+
+    #[test]
+    fn window_events_hide_close_or_pause_as_configured() {
+        use WindowChange::*;
+        use WindowResponse::*;
+        let d = WindowBehaviour::default();
+        assert_eq!(respond(d, CloseRequested), HideToTray);
+        assert_eq!(
+            respond(d, Visibility(false)),
+            StatusStream(false),
+            "minimise: taskbar, stream paused"
+        );
+        assert_eq!(
+            respond(d, Visibility(true)),
+            StatusStream(true),
+            "restore: stream resumes"
+        );
+        let tray = WindowBehaviour {
+            close_to_tray: false,
+            minimize_to_tray: true,
+            ..d
+        };
+        assert_eq!(respond(tray, CloseRequested), Close);
+        assert_eq!(respond(tray, Visibility(false)), HideToTray);
+        assert_eq!(
+            respond(tray, Visibility(true)),
+            StatusStream(true),
+            "restoring never hides"
         );
     }
 

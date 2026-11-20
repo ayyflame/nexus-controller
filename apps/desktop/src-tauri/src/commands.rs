@@ -220,7 +220,7 @@ pub struct WindowsIntegration {
 fn startup_status() -> crate::startup::StartupStatus {
     #[cfg(windows)]
     {
-        crate::startup::status(&crate::startup::Registry)
+        crate::startup::status(&crate::startup::Registry::nexus())
     }
     #[cfg(not(windows))]
     {
@@ -264,7 +264,7 @@ pub fn set_start_with_windows(
     {
         let exe = std::env::current_exe()
             .map_err(|e| format!("Could not find the NEXUS program file: {e}"))?;
-        crate::startup::set_enabled(&mut crate::startup::Registry, &exe, enabled)?;
+        crate::startup::set_enabled(&mut crate::startup::Registry::nexus(), &exe, enabled)?;
         Ok(integration(&state))
     }
     #[cfg(not(windows))]
