@@ -29,6 +29,17 @@ function Until([string]$what, [scriptblock]$cond, [int]$seconds = 60) {
   Write-Host "  (timed out after $seconds s waiting for $what)"
   return $false
 }
+function ExplainMissingData {
+  # Evidence for a failed start: data folders, the process, crash events.
+  Write-Host "  --- diagnostics: NEXUS data folders ---"
+  Get-ChildItem (Join-Path $env:APPDATA 'com.nexus.controllerengine'), (Join-Path $env:LOCALAPPDATA 'com.nexus.controllerengine') -Recurse -Depth 1 -ErrorAction SilentlyContinue |
+    Select-Object -First 30 | ForEach-Object { Write-Host "  $($_.FullName)" }
+  Write-Host "  --- diagnostics: processes ---"
+  Get-Process nexus-desktop -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  pid $($_.Id) started $($_.StartTime) responding $($_.Responding) title '$($_.MainWindowTitle)'" }
+  Write-Host "  --- diagnostics: application errors ---"
+  Get-WinEvent -FilterHashtable @{ LogName = 'Application'; Level = 2; StartTime = (Get-Date).AddMinutes(-10) } -ErrorAction SilentlyContinue |
+    Where-Object { $_.Message -match 'nexus' } | Select-Object -First 5 | ForEach-Object { Write-Host "  $($_.TimeCreated) $($_.ProviderName): $($_.Message)" }
+}
 function Value([string]$key) { (Get-ItemProperty -Path $key -Name NEXUS -ErrorAction SilentlyContinue).NEXUS }
 function Copies { @(Get-Process nexus-desktop -ErrorAction SilentlyContinue).Count }
 function UninstallEntry {
@@ -61,7 +72,9 @@ Check "no startup entry after a plain install" (-not (Value $RunKey))
 Write-Host "Start NEXUS, then start it again"
 Start-Process $exe | Out-Null
 Check "NEXUS is running" ([bool](Until 'NEXUS to start' { (Copies) -ge 1 } 60))
-Check "profile database created" ([bool](Until 'nexus.db' { Test-Path (Join-Path $DataDir 'nexus.db') } 60))
+$dbCreated = [bool](Until 'nexus.db' { Test-Path (Join-Path $DataDir 'nexus.db') } 60)
+Check "profile database created" $dbCreated
+if (-not $dbCreated) { ExplainMissingData }
 Start-Sleep -Seconds 3
 Start-Process $exe | Out-Null
 Start-Sleep -Seconds 8
