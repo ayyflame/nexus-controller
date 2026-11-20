@@ -507,6 +507,8 @@ jobs:
           if ($LASTEXITCODE -eq 0) { throw "a tampered installer verified" }
           Write-Host "  ok   a tampered installer is rejected"
           Remove-Item $work -Recurse -Force
+          # The last command failed on purpose; every check above passed.
+          exit 0
 
       - name: Record build provenance
         # A signed statement (GitHub + Sigstore) of which commit and workflow
