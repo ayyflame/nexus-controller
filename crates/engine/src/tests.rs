@@ -3188,7 +3188,10 @@ fn after_a_slow_driver_call_stale_presses_are_skipped_not_replayed_late() {
         "skipped reports are not counted as dropped"
     );
     // The slow call itself is counted for the whole connection.
-    pump(&backend, PATH, 70);
+    for _ in 0..80 {
+        backend.push_report(PATH, Payload::neutral().usb_report());
+        std::thread::sleep(Duration::from_millis(1));
+    }
     let s = wait_status(&e, "slow calls", |s| {
         s.devices[0].stage_latency.slow_output.over_50ms >= 1
     });
@@ -3459,4 +3462,34 @@ fn stick_buttons_layers_combinations_and_macros_work_together() {
     );
     // Everything released: nothing left over.
     expect_pad(&backend, &log, &Payload::neutral(), pad(0), "released");
+}
+
+#[test]
+fn many_slightly_slow_driver_calls_never_build_up_a_backlog_of_old_input() {
+    // Each driver call takes 6 ms (under the 8 ms single-call limit) while
+    // reports arrive every 2 ms. Without catching up, the queue would grow
+    // and a release would reach the game hundreds of ms late.
+    let (backend, e, log, stall) = stalling_xbox();
+    expect_pad(&backend, &log, &held(0, 0x20), pad(xusb::A), "A held");
+    stall.store(6, Ordering::SeqCst);
+    for _ in 0..100 {
+        backend.push_report(PATH, held(0, 0x20).usb_report());
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    let released_at = Instant::now();
+    backend.push_report(PATH, held(0, 0).usb_report());
+    log.wait(
+        "release",
+        |p| matches!(p.last(), Some(Pad::Report(_, r)) if r.buttons == 0),
+    );
+    let lag = released_at.elapsed();
+    stall.store(0, Ordering::SeqCst);
+    assert!(
+        lag < Duration::from_millis(100),
+        "the release reached the game {lag:?} late"
+    );
+    let s = wait_status(&e, "skips counted", |s| {
+        s.devices[0].stale_reports_skipped > 0
+    });
+    assert!(s.devices[0].stale_reports_skipped > 0);
 }

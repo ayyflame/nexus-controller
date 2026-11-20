@@ -73,6 +73,17 @@ pub fn show_at_launch(b: WindowBehaviour, started_at_sign_in: bool) -> bool {
     !(started_at_sign_in && b.start_hidden)
 }
 
+/// The tray icon could not be created: nothing may hide the window, or
+/// NEXUS would keep running with no way to reach it. Applied for this run
+/// only (not saved), so the user's choice returns once the tray works.
+pub fn without_tray() -> WindowBehaviour {
+    WindowBehaviour {
+        close_to_tray: false,
+        minimize_to_tray: false,
+        start_hidden: false,
+    }
+}
+
 /// A second copy of NEXUS was started. NEXUS runs once (two copies would
 /// fight over the DualSense and create two virtual controllers), so the
 /// running copy shows its window instead, unless the second start came from
@@ -196,6 +207,24 @@ mod tests {
             respond(tray, Visibility(true)),
             StatusStream(true),
             "restoring never hides"
+        );
+    }
+
+    #[test]
+    fn without_a_tray_icon_nothing_can_hide_the_window() {
+        let b = without_tray();
+        assert!(
+            show_at_launch(b, true),
+            "even a sign-in start opens the window"
+        );
+        assert_eq!(
+            respond(b, WindowChange::CloseRequested),
+            WindowResponse::Close
+        );
+        assert_eq!(
+            respond(b, WindowChange::Visibility(false)),
+            WindowResponse::StatusStream(false),
+            "minimise stays on the taskbar"
         );
     }
 

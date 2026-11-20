@@ -157,15 +157,21 @@ pub fn run() {
                 behaviour: Mutex::new(behaviour),
             });
             repair_startup_entry();
-            if let Err(e) = tray::create(app.handle()) {
-                // Without a tray icon a hidden window could not be reopened,
-                // so closing must quit.
-                eprintln!("NEXUS: no tray icon ({e}); closing the window quits");
-                let state = app.state::<AppState>();
-                let mut b = state.behaviour.lock().unwrap_or_else(|e| e.into_inner());
-                b.close_to_tray = false;
-                b.minimize_to_tray = false;
-            }
+            // Without a tray icon a hidden window could never be reopened:
+            // closing must quit, minimising must stay on the taskbar, and the
+            // window must open even when Windows started NEXUS at sign-in.
+            let behaviour = match tray::create(app.handle()) {
+                Ok(()) => behaviour,
+                Err(e) => {
+                    eprintln!("NEXUS: no tray icon ({e}); the window stays reachable");
+                    let b = background::without_tray();
+                    *app.state::<AppState>()
+                        .behaviour
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner()) = b;
+                    b
+                }
+            };
             if background::show_at_launch(behaviour, started_at_sign_in) {
                 tray::show_main(app.handle());
             } else {

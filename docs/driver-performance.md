@@ -16,7 +16,7 @@ read report (HID, 100 ms timeout) → parse → mapping → macros → ViGEmBus 
 
 | Effect | Short stall (< ~128 ms) | Long stall (> ~128 ms) | Call never returns |
 |---|---|---|---|
-| Input to the game | Delayed by the stall. Windows queues the reports that arrive meanwhile (32 by default). **Since November 2026 (stale-input skipping):** if the stall lasted 8 ms or more, NEXUS skips the queued reports and processes only the newest, so the game jumps straight to the current state. Before that, every queued report was replayed after the stall, so old presses reached the game late | As short; Windows itself drops reports beyond its 32-report queue | The game keeps the last state that reached the driver. If a button was held, it **stays held** until NEXUS exits |
+| Input to the game | Delayed by the stall. Windows queues the reports that arrive meanwhile (32 by default). **Since November 2026 (stale-input skipping):** if the stall lasted 8 ms or more (or NEXUS fell 8 ms behind over several slow calls), NEXUS skips the queued reports and processes only the newest, so the game jumps straight to the current state. Before that, every queued report was replayed after the stall, so old presses reached the game late | As short; Windows itself drops reports beyond its 32-report queue | The game keeps the last state that reached the driver. If a button was held, it **stays held** until NEXUS exits |
 | Macros | Steps due during the stall run late (timing is taken when the report is processed); nothing is skipped | Same | Frozen |
 | Fail-safes (unplug, unreadable reports) | Act after the call returns | Same | Never act |
 | UI | Unaffected: the UI reads a snapshot, and no lock is held during the driver call | Same | The device shows stale values; the Performance page stops updating for that controller |
@@ -39,9 +39,15 @@ These are simulations of the driver's timing, not measurements of ViGEmBus on a 
 2. **Every way of quitting goes through that release.** These are tray › *Quit NEXUS*, closing the window when *close to tray* is off, and an update. Closing to the tray does **not** release anything, on purpose: the game keeps the virtual controller.
 3. **Slow calls are counted for the whole connection.** The Performance page's *Slow driver calls* row shows how many calls took 4 ms or longer (longer than one USB report interval), how many took 50 ms or longer, and the longest. The p50/p99/max row only covers the last 256 calls (about one second), so a rare spike could be missed; this counter cannot. It costs one comparison per report and allocates nothing.
 
-4. **Stale input is skipped, never replayed late** (`crates/device-manager/src/session.rs`). If one iteration of the reader loop took 8 ms or more (`STALE_INPUT_AFTER`, two USB report intervals), NEXUS reads everything already queued without waiting and keeps only the newest report.
+4. **Stale input is skipped, never replayed late** (`crates/device-manager/src/session.rs`). NEXUS reads everything already queued without waiting and keeps only the newest report when either:
+   - one iteration of the reader loop took 8 ms or more (`STALE_INPUT_AFTER`, two USB report intervals), or
+   - the reader hasn't caught up for 8 ms, i.e. no read has had to wait for the next report. This covers many calls that are each a little slow, e.g. 6 ms each with reports every 4 ms, which would otherwise build up Windows' 32-report queue. A test showed a release reaching the game 413 ms late before this rule, and within 100 ms with it (`many_slightly_slow_driver_calls_never_build_up_a_backlog_of_old_input`).
+
+   What this means in practice:
    - Every DualSense report carries the whole controller state, so nothing that is still pressed or released is lost.
-   - What is lost is a tap made and released entirely during the stall, which is better than pressing it in the game long after the fact.
+   - What is lost is a tap made and released entirely while NEXUS was behind, which is better than pressing it in the game long after the fact.
+   - The one frame already handed to the driver when a call stalls is delivered when the call returns. The newest state follows one driver call later (fractions of a millisecond on a normal call). NEXUS can't take back a frame that is already in the driver's hands.
+   - In normal operation every read waits for the next report, so nothing is skipped.
    - The Performance page shows the count as *Stale reports skipped after slow calls*.
    - This is the reader-side half of a latest-frame handoff, without a second thread.
 

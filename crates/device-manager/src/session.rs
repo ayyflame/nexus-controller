@@ -13,6 +13,10 @@ use std::time::{Duration, Instant};
 /// any DualSense output write) for this long means the reports Windows
 /// queued meanwhile are old: two DualSense USB report intervals.
 pub const STALE_INPUT_AFTER: Duration = Duration::from_millis(8);
+/// A read that waited at least this long found the queue empty: the reader
+/// was caught up. (A queued report is returned in microseconds; the next
+/// report from a DualSense takes 1–4 ms.)
+const CAUGHT_UP_WAIT: Duration = Duration::from_micros(300);
 /// At most this many queued reports are read when skipping (Windows queues
 /// 32 by default), so a device that floods reports can't trap the loop.
 const MAX_SKIP: usize = 512;
@@ -88,15 +92,26 @@ pub(crate) fn run(mut ctx: SessionContext) {
     let mut write_warned = false;
     // The newest queued report, already in `buf`, after stale ones were skipped.
     let mut pending: Option<usize> = None;
+    // Last moment the reader had nothing left to read. If it hasn't been
+    // caught up for `stale_after`, queued reports are stale, whether one
+    // iteration was very slow or many were each a little too slow.
+    let mut caught_up = Instant::now();
     let reason = loop {
         match ctx.stop.load(Ordering::Acquire) {
             STOP_SHUTDOWN => break DisconnectReason::Shutdown,
             STOP_REMOVED => break DisconnectReason::Removed,
             _ => {}
         }
+        let read_began = Instant::now();
         let read = match pending.take() {
             Some(n) => Ok(n),
-            None => ctx.connection.read_report(&mut buf, ctx.read_timeout),
+            None => {
+                let r = ctx.connection.read_report(&mut buf, ctx.read_timeout);
+                if matches!(r, Ok(0)) || read_began.elapsed() >= CAUGHT_UP_WAIT {
+                    caught_up = Instant::now();
+                }
+                r
+            }
         };
         let started = Instant::now();
         match read {
@@ -125,18 +140,20 @@ pub(crate) fn run(mut ctx: SessionContext) {
                 }
             }
         }
-        // A slow iteration (usually a slow virtual controller driver call):
+        // Behind for too long (usually slow virtual controller driver calls):
         // whatever Windows queued meanwhile is stale. Every report carries
         // the controller's full state, so skipping to the newest loses only
-        // presses made and released entirely during the stall, and never
-        // replays an old press late. Nothing is skipped in normal operation.
-        if started.elapsed() >= ctx.stale_after {
+        // presses made and released entirely during the delay, and never
+        // replays an old press or release late. In normal operation every
+        // read waits for the next report, so nothing is skipped.
+        if is_behind(started, caught_up, ctx.stale_after) {
             match skip_stale(ctx.connection.as_mut(), &mut buf) {
                 Ok((latest, skipped)) => {
                     if skipped > 0 {
                         ctx.handler.on_stale_skipped(skipped);
                     }
                     pending = latest;
+                    caught_up = Instant::now();
                 }
                 Err(HidError::Disconnected) | Err(HidError::NotFound) => {
                     break DisconnectReason::Removed
@@ -152,6 +169,14 @@ pub(crate) fn run(mut ctx: SessionContext) {
     drop(ctx.connection);
     let _ = ctx.ended.send((id, reason));
     (ctx.notify)();
+}
+
+/// This iteration took `stale_after`, or the reader hasn't been caught up
+/// (found nothing left to read) for that long.
+fn is_behind(started: Instant, caught_up: Instant, stale_after: Duration) -> bool {
+    let now = Instant::now();
+    now.saturating_duration_since(started) >= stale_after
+        || now.saturating_duration_since(caught_up) >= stale_after
 }
 
 /// Reads every report that is already queued, without waiting. Returns the

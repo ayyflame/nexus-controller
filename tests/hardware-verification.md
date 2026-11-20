@@ -256,4 +256,16 @@ The rules are unit-tested and the installer check runs in CI on a GitHub Windows
 | SM6 | 4 directions, roll the stick from up to right | Never both buttons at once; up releases before right presses |
 | SM7 | *Also move the stick in games* on, Precise curve | The d-pad presses and the stick still moves with the curve applied |
 | SM8 | Switch to a profile without stick mapping while a stick-button is held | The button releases at once; nothing stuck |
-| DS1 | **Performance** during 30+ minutes of play | *Stale reports skipped after slow calls* stays at 0 (any skips mean a driver call took 8 ms or more: note when) |
+| DS1 | **Performance** during 30+ minutes of play | *Stale reports skipped after slow calls* stays at 0 (any skips mean NEXUS fell 8 ms or more behind, almost always because of slow driver calls: note when) |
+
+## Release gate
+
+No release (versioned or announced) until all of these are done on a real Windows 11 PC with a USB DualSense, and the results are recorded here with the date and NEXUS commit:
+
+1. **CF1–CF3, CF7** (Output Check, with Warzone running, 30+ minutes of play on the Performance page, unplug with a held button and a running macro).
+2. **DS1**: no stale skips and no slow driver calls over 50 ms during that play session. Any call over 50 ms means the output-thread design in `docs/driver-performance.md` is needed before a release.
+3. **WI1, WI2, WI5, WI8, WI10** (close to tray during a game, Quit releases everything, start with Windows, single copy, uninstall cleanup).
+4. **SM1, SM4, SM5** (stick swap, stick as d-pad, no flicker near the threshold), if those features are to be used.
+5. A Warzone session with the profile you'll actually play: inputs respond normally, nothing stays pressed after alt-tab, after closing NEXUS to the tray, or after quitting it. NEXUS does not try to avoid anti-cheat; if Warzone rejects virtual controllers or macros, stop using NEXUS there.
+
+Automated results (unit, simulated-engine and installer tests on GitHub's Windows machines) do not count towards this gate.

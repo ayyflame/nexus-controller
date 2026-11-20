@@ -15,7 +15,7 @@ Built with Tauri 2, React and TypeScript for the UI, and Rust for the engine, wi
   <sub><a href="https://github.com/ayyflame/nexus-controller/releases/tag/latest-build">Latest build details and checksum</a> · <a href="https://github.com/ayyflame/nexus-controller/actions/workflows/windows-release.yml?query=branch%3Amain+is%3Asuccess">All builds</a></sub>
 </p>
 
-> **Status:** all features below are implemented and covered by automated tests. Hardware checks with a real DualSense, ViGEmBus and games are listed in [`tests/m4.5-test-plan.md`](tests/m4.5-test-plan.md), [`docs/game-output.md`](docs/game-output.md) and [`docs/3d-controller.md`](docs/3d-controller.md). Automatic updates are built but not switched on yet ([Updates](#updates)).
+> **Status:** all features below are implemented and covered by automated tests (simulated input and GitHub's Windows machines). **None of it has been validated yet with a real DualSense in games, including Warzone, and no release is made until it is:** see the release gate in [`tests/hardware-verification.md`](tests/hardware-verification.md#release-gate). Earlier hardware plans: [`tests/m4.5-test-plan.md`](tests/m4.5-test-plan.md), [`docs/game-output.md`](docs/game-output.md), [`docs/3d-controller.md`](docs/3d-controller.md). Automatic updates are built but not switched on yet ([Updates](#updates)).
 
 ## Contents
 
@@ -56,13 +56,14 @@ Built with Tauri 2, React and TypeScript for the UI, and Rust for the engine, wi
 ### Live Viewer and diagnostics
 - **Live Viewer** (sidebar): every control and analog value, motion (gyro, accelerometer, tilt), connection health, a guided 10-step controller test, a drift test and the calibration wizard. Read-only apart from calibration.
 - **Output Check** (*Live Viewer*): reads the virtual Xbox controller back through XInput (as games do) and compares every button and axis with what NEXUS sent.
-- **Performance:** report rate, timing, late and dropped reports, NEXUS processing time split by stage (mapping, macros, virtual controller driver call), and slow driver calls since the controller connected. Measurements: [`docs/performance.md`](docs/performance.md); what a slow driver call does: [`docs/driver-performance.md`](docs/driver-performance.md).
+- **Performance:** report rate, timing, late and dropped reports, NEXUS processing time split by stage (mapping, macros, virtual controller driver call), slow driver calls since the controller connected, and stale reports skipped. Measurements: [`docs/performance.md`](docs/performance.md); what a slow driver call does: [`docs/driver-performance.md`](docs/driver-performance.md).
 - **Diagnostics** (*Settings › HID Devices*): raw reports, the engine log, a Report Inspector and a shareable diagnostics report (serial numbers and paths masked).
 
 ### Virtual Xbox 360 output
 - Games see a standard *Controller (XBOX 360 For Windows)* after all processing, remapping and macros.
 - NEXUS shows whether it's connected, its player slot, and when it's reconnecting after a driver error.
 - **No stuck buttons:** a neutral state is sent when the virtual controller goes away, when NEXUS quits, on a profile change while the controller is silent, and after 8 unreadable reports in a row.
+- **No late presses:** if NEXUS falls 8 ms or more behind (usually because the virtual controller driver was slow), it skips the reports Windows queued meanwhile and sends only the newest state. Old presses are never replayed late; a tap made entirely during such a delay is dropped.
 
 ### Running in the background
 - **Tray icon:** NEXUS keeps running in the notification area. Click it to open the window; right-click for *Stop all macros* and *Quit NEXUS*.
