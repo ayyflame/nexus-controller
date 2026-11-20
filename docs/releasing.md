@@ -22,14 +22,14 @@ Prerequisite: the one-time setup in [release-setup-checklist.md](release-setup-c
 2. **Write the release notes** in `release-notes/v0.1.1.md`. Users see the first few lines in the update notice, and the whole text under *Show all notes*. Keep it short, user-facing and in plain text or simple Markdown. It must not be empty.
 3. **Commit both and push to `main`**, e.g. `Release 0.1.1`. That is all. (Every other push to `main` that changes the app is built automatically as a development build: it refreshes the README's **Latest build** download but publishes no release or update. Only a push that adds or changes `release-notes/v<version>.md` releases that version.)
 4. **CI does the rest** (Actions → *Windows release build*, about 15–25 min). The push adds a release-notes file for a version that has no release yet, so the workflow:
-   1. checks the version, the notes, and that updates **and** signing are fully configured
+   1. checks the version, the notes, that the commit is on `main`, and that updates **and** signing are fully configured
    2. runs all Rust and frontend tests (Rust 1.100.0, Node 22.23.5 and every action pinned)
    3. builds the installers. They are Authenticode-signed during the build (Trusted Signing or a certificate), or after it by SignPath, which waits for your approval in SignPath.
-   4. stops unless every file has a valid signature, then runs the installer and uninstaller checks on the signed files
+   4. stops unless every file has a valid, timestamped signature from the expected signer, then runs the installer and uninstaller checks on the signed files
    5. creates the updater signature over the final setup (`tauri signer sign`), records `SHA256SUMS.txt`, `build-info.txt` and a provenance attestation
    6. generates `latest.json`, refusing a URL that doesn't name that setup, a signature that doesn't verify, or a version that isn't newer
    7. uploads the installer, then `latest.json`
-   8. re-downloads both from the public URL and verifies them
+   8. re-downloads both from the public URL: the manifest must name exactly `stable/<version>/<installer>`, and the downloaded installer must be byte-for-byte the one it signed
    9. creates the GitHub Release `v0.1.1` with the notes, the `.exe`, the `.msi`, `SHA256SUMS.txt` and `build-info.txt`
 5. **Installed copies pick it up** about 20 s after their next start, every 6 hours while running, or at once with **Settings → Updates → Check for updates**.
 

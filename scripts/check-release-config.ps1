@@ -10,6 +10,7 @@
 #             TAURI_UPDATER_PUBKEY, UPDATE_PUBLIC_BASE_URL, UPDATE_S3_ENDPOINT, UPDATE_S3_BUCKET (variables)
 #             UPDATE_S3_ACCESS_KEY_ID, UPDATE_S3_SECRET_ACCESS_KEY (secrets)
 #   signing:  NEXUS_SIGN_PROVIDER = signpath | trusted-signing | pfx, plus that provider's values
+#             (trusted-signing and pfx also need NEXUS_SIGN_EXPECTED_SUBJECT; SignPath's signer is fixed)
 param([switch]$Quiet)
 $ErrorActionPreference = 'Stop'
 $problems = New-Object System.Collections.Generic.List[string]
@@ -71,6 +72,7 @@ switch ($provider) {
     Need AZURE_TENANT_ID 'secret NEXUS_TS_AZURE_TENANT_ID'
     Need AZURE_CLIENT_ID 'secret NEXUS_TS_AZURE_CLIENT_ID'
     Need AZURE_CLIENT_SECRET 'secret NEXUS_TS_AZURE_CLIENT_SECRET'
+    Need NEXUS_SIGN_EXPECTED_SUBJECT 'variable: the name in the signing certificate, checked on every signed file'
     $ep = Val NEXUS_TS_ENDPOINT
     if ($ep -and $ep -notmatch '^https://[a-z0-9-]+\.codesigning\.azure\.net/?$') { $problems.Add('NEXUS_TS_ENDPOINT should look like https://<region>.codesigning.azure.net') }
   }
@@ -78,6 +80,7 @@ switch ($provider) {
     Need NEXUS_SIGN_PFX_BASE64 'secret: base64 of the .pfx'
     Need NEXUS_SIGN_PFX_PASSWORD 'secret: the .pfx password'
     Need NEXUS_SIGN_TIMESTAMP_URL 'variable: timestamp server (required for releases)'
+    Need NEXUS_SIGN_EXPECTED_SUBJECT 'variable: the name in the signing certificate, checked on every signed file'
   }
   { [string]::IsNullOrWhiteSpace($_) } {
     $problems.Add('NEXUS_SIGN_PROVIDER is not set: releases must be Authenticode-signed (signpath, trusted-signing or pfx; see docs/code-signing.md)')

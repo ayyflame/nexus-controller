@@ -121,7 +121,9 @@ The app checks `UPDATE_PUBLIC_BASE_URL/stable/latest.json`. That URL and the pub
 
 ## 4. First release
 
-Follow [releasing.md](releasing.md) and publish **v0.1.0** as the first updater-enabled release. Builds downloaded before this (workflow artifacts) don't contain the update settings. Install the v0.1.0 release once by hand, and updates are automatic from then on.
+Follow [release-setup-checklist.md](release-setup-checklist.md) §6 and publish **v0.2.0** as the first updater-enabled release (every earlier build is 0.1.0). Builds downloaded before this (workflow artifacts, *Latest build*) don't contain the update settings. Install the v0.2.0 release once by hand, and updates are automatic from then on.
+
+Then work through [update-verification.md](update-verification.md) with v0.2.1.
 
 Then work through [update-verification.md](update-verification.md) with v0.1.1.
 

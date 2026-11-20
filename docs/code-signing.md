@@ -54,7 +54,7 @@ Likely yes, subject to their review:
 1. Azure portal: create a Trusted Signing account, complete identity validation, and create a **Public Trust** certificate profile.
 2. Create an app registration (service principal) with the *Trusted Signing Certificate Profile Signer* role on that account.
 3. GitHub › Settings › Secrets and variables › Actions:
-   - **Variables:** `NEXUS_SIGN_PROVIDER` = `trusted-signing`, `NEXUS_TS_ENDPOINT` (e.g. `https://eus.codesigning.azure.net`), `NEXUS_TS_ACCOUNT`, `NEXUS_TS_PROFILE`.
+   - **Variables:** `NEXUS_SIGN_PROVIDER` = `trusted-signing`, `NEXUS_TS_ENDPOINT` (e.g. `https://eus.codesigning.azure.net`), `NEXUS_TS_ACCOUNT`, `NEXUS_TS_PROFILE`, and `NEXUS_SIGN_EXPECTED_SUBJECT` (the validated name, as it appears in the certificate).
    - **Secrets:** `NEXUS_TS_AZURE_TENANT_ID`, `NEXUS_TS_AZURE_CLIENT_ID`, `NEXUS_TS_AZURE_CLIENT_SECRET`.
 4. Publish a release. The release build installs Microsoft's signing client, Tauri signs each file through `scripts/sign-windows.ps1`, and *Report Authenticode signature status* **fails the release** if any file isn't `Valid`.
 
@@ -73,12 +73,12 @@ One limitation: Tauri patches `nexus-desktop.exe` separately for each installer 
 
 ### PFX (legacy or test certificates only)
 
-`NEXUS_SIGN_PROVIDER` = `pfx`, secret `NEXUS_SIGN_PFX_BASE64` (base64 of the `.pfx`), secret `NEXUS_SIGN_PFX_PASSWORD`, optional variable `NEXUS_SIGN_TIMESTAMP_URL`. New publicly trusted certificates can't be exported as PFX, so this is mainly what the self-test uses.
+`NEXUS_SIGN_PROVIDER` = `pfx`, secret `NEXUS_SIGN_PFX_BASE64` (base64 of the `.pfx`), secret `NEXUS_SIGN_PFX_PASSWORD`, variable `NEXUS_SIGN_TIMESTAMP_URL` (required for releases), variable `NEXUS_SIGN_EXPECTED_SUBJECT`. New publicly trusted certificates can't be exported as PFX, so this is mainly what the self-test uses.
 
 ## What is tested in CI today
 
 - **Self-test:** *Signing hook self-test* creates a throwaway self-signed certificate on the GitHub machine and signs a copy of `nexus-desktop.exe` and the setup `.exe` through `scripts/sign-windows.ps1`, then checks the signer. This proves the hook works. It does not make anything trusted, and it never touches the published files.
-- **Release check:** *Report Authenticode signature status* lists every file's status, and fails a release when a provider is configured but a file isn't `Valid`.
+- **Release check:** *Require valid Authenticode signatures* stops a release unless every file is `Valid`, signed by the expected signer (*SignPath Foundation* for SignPath, otherwise `NEXUS_SIGN_EXPECTED_SUBJECT`), and timestamped, so signatures stay valid after the certificate expires. A SignPath request that is denied, fails or isn't approved within 30 minutes fails the run before anything is published.
 
 ## SmartScreen without signing
 
