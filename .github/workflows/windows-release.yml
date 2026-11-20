@@ -252,6 +252,18 @@ jobs:
         shell: pwsh
         run: ./scripts/installer-check.ps1 -Installers installers
 
+      - name: Report Authenticode signature status (informational)
+        # NEXUS has no code-signing certificate yet (docs/code-signing.md), so
+        # this prints NotSigned. Once signing is set up, make release builds
+        # fail here unless every file is Valid.
+        shell: pwsh
+        run: |
+          $files = @(Get-Item target/release/nexus-desktop.exe) + @(Get-ChildItem installers -Include *.exe, *.msi -Recurse)
+          foreach ($f in $files) {
+            $sig = Get-AuthenticodeSignature $f.FullName
+            Write-Host ("{0,-12} {1}" -f $sig.Status, $f.Name)
+          }
+
       - name: Verify the app binary has no VC++ runtime dependency
         shell: pwsh
         run: |

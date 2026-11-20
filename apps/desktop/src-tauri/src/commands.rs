@@ -498,6 +498,17 @@ pub fn set_profile_games(
     store.set_profile_games(id, &games).map_err(profile_error)
 }
 
+/// Programs recently in the foreground (newest first), to link a game to a
+/// profile by picking it. Empty where game detection isn't supported.
+#[tauri::command]
+pub fn recent_programs(state: State<'_, AppState>) -> Vec<String> {
+    state
+        .game_watch
+        .get()
+        .map(|w| w.recent())
+        .unwrap_or_default()
+}
+
 #[tauri::command]
 pub fn get_auto_switch(state: State<'_, AppState>) -> bool {
     state.auto_switch.load(Ordering::Acquire)
@@ -659,6 +670,43 @@ pub fn create_backup(app: tauri::AppHandle, state: State<'_, AppState>) -> CmdRe
         return Err("Couldn't write the backup file to Documents\\NEXUS\\Backups.".into());
     }
     Ok(ExportResult { path, json })
+}
+
+/// Where restore points live: NEXUS's own copies, then manual backups.
+fn restore_dirs(app: &tauri::AppHandle, state: &AppState) -> Vec<std::path::PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(d) = state.data_dir.as_ref() {
+        dirs.push(d.join("backups"));
+    }
+    if let Some(d) = exports_dir(app, "Backups") {
+        dirs.push(d);
+    }
+    dirs
+}
+
+/// Every backup NEXUS made (daily, before a restore, before an update, and
+/// manual ones), newest first.
+#[tauri::command]
+pub fn list_restore_points(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Vec<crate::restore::RestorePoint> {
+    crate::restore::list(&restore_dirs(&app, &state))
+}
+
+/// A restore point as a configuration file, for the normal preview and
+/// replace flow (which saves a safety copy first).
+#[tauri::command]
+pub fn read_restore_point(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> CmdResult<String> {
+    Ok(crate::restore::read(
+        &restore_dirs(&app, &state),
+        &id,
+        env!("CARGO_PKG_VERSION"),
+    )?)
 }
 
 /// Exports the whole macro library (no profiles) to Documents\\NEXUS\\Exports.

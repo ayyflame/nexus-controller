@@ -6,6 +6,7 @@ mod background;
 mod bridge;
 mod commands;
 mod game_watch;
+mod restore;
 mod startup;
 mod tray;
 mod updates;
@@ -132,6 +133,18 @@ pub fn run() {
             // Start with the default profile, if one is chosen.
             let profile = store.activate_default_profile()?;
 
+            // One automatic backup per day (kept 14 days), restorable from
+            // Profiles › Restore points.
+            if let Some(dir) = data_dir.as_ref() {
+                if let Err(e) = restore::daily_backup(
+                    &store,
+                    &dir.join("backups"),
+                    &commands::stamp(),
+                    env!("CARGO_PKG_VERSION"),
+                ) {
+                    eprintln!("NEXUS: daily backup failed: {e}");
+                }
+            }
             let engine = Arc::new(Engine::start_default(EngineConfig {
                 initial_output: commands::effective_output(&store, profile.virtual_output),
                 processing: profile.processing.clone(),
@@ -225,6 +238,7 @@ pub fn run() {
             commands::finish_gyro_calibration,
             commands::find_conflicts,
             commands::set_profile_games,
+            commands::recent_programs,
             commands::get_auto_switch,
             commands::set_auto_switch,
             commands::list_templates,
@@ -233,6 +247,8 @@ pub fn run() {
             commands::preview_import,
             commands::import_config,
             commands::create_backup,
+            commands::list_restore_points,
+            commands::read_restore_point,
             commands::export_macros,
             commands::get_update_status,
             commands::check_for_updates,

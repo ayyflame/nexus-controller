@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { ControllerVisual } from "../components/ControllerVisual";
+import { SetupChecklist } from "../components/SetupChecklist";
 import { Icon } from "../components/Icons";
 import { StatusPill, useControllerPhase } from "../components/StatusPill";
 import { useEngine, usePrimaryDevice } from "../hooks/useEngine";
@@ -74,6 +75,8 @@ export function Dashboard() {
         </div>
         <StatusPill tone={phase.tone}>{phase.label}</StatusPill>
       </header>
+
+      <SetupChecklist />
 
       <section className="stat-grid six">
         <StatCard

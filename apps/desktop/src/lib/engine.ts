@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
-  OutputCheck, WindowBehaviour, WindowsIntegration,
+  OutputCheck, RestorePoint, WindowBehaviour, WindowsIntegration,
   AppInfo, CommandError, EngineEvent, HidDiagnostic, EngineStatus, LogEntry, Macro, Profile, RawReport,
   ConfigConflict, DriverStatus, ExportResult, GyroCalibration, ImportMode, ImportPreview, ImportReport, ProcessingConfig,
   ProfileTemplate, RecordingResult, ValidationIssue, VirtualOutputKind,
@@ -66,6 +66,9 @@ export const engineApi = {
   finishGyroCalibration: () => invoke<GyroCalibration>("finish_gyro_calibration"),
   findConflicts: (config: ProcessingConfig) => invoke<ConfigConflict[]>("find_conflicts", { config }),
   setProfileGames: (id: number, games: string[]) => invoke<Profile>("set_profile_games", { id, games }),
+  recentPrograms: () => invoke<string[]>("recent_programs"),
+  listRestorePoints: () => invoke<RestorePoint[]>("list_restore_points"),
+  readRestorePoint: (id: string) => invoke<string>("read_restore_point", { id }),
   getAutoSwitch: () => invoke<boolean>("get_auto_switch"),
   setAutoSwitch: (enabled: boolean) => invoke<void>("set_auto_switch", { enabled }),
   listTemplates: () => invoke<ProfileTemplate[]>("list_templates"),

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DIAGNOSTICS_VERSION, PROCESSING_TIME_DEFINITION, diagnosticsReport } from "./diagnosticsReport.ts";
+import { DIAGNOSTICS_VERSION, PROCESSING_TIME_DEFINITION, diagnosticsReport, scrubUserPaths } from "./diagnosticsReport.ts";
 import type { AppInfo, DeviceSnapshot, EngineStatus } from "../types/engine";
 
 const appInfo: AppInfo = {
@@ -85,4 +85,33 @@ test("report contains no personal paths and no macro or profile contents", () =>
   for (const forbidden of ["SomeUser", "AppData", "dataDir", "exePath", "nexus-desktop.exe", "secret-macro-id", "Macro Name", "playingMacros", "\"macros\""]) {
     assert.equal(text.includes(forbidden), false, `must not contain ${forbidden}`);
   }
+});
+
+test("account names in Windows paths are removed wherever they appear", () => {
+  assert.equal(scrubUserPaths(String.raw`C:\Users\Jane Doe\AppData\Local\Temp\x.exe`), String.raw`C:\Users\<user>\AppData\Local\Temp\x.exe`);
+  assert.equal(scrubUserPaths(String.raw`failed: "c:\\users\\jdoe\\Documents\\NEXUS"`), String.raw`failed: "c:\\users\\<user>\\Documents\\NEXUS"`);
+  assert.equal(scrubUserPaths("C:/Users/jdoe/file"), "C:/Users/<user>/file");
+  assert.equal(scrubUserPaths(String.raw`\\?\hid#vid_054c&pid_0ce6`), String.raw`\\?\hid#vid_054c&pid_0ce6`, "device paths untouched");
+});
+
+test("version 3 adds virtual-controller status, slow driver calls and Windows settings, and scrubs paths", () => {
+  const d = device(256);
+  (d as unknown as { output: object }).output = { requested: "xbox360", active: null, playerIndex: null, retrying: true, lastError: String.raw`ViGEmBus error at C:\Users\Jane\AppData` };
+  (d as unknown as { stageLatency: object }).stageLatency = { slowOutput: { over4ms: 2, over50ms: 1, longestNs: 61_000_000, calls: 900 } };
+  const log = [{ timestampMs: 1, level: "warn", category: "update", message: String.raw`Could not write C:\Users\Jane\Downloads\x` }] as never;
+  const windows = {
+    behaviour: { closeToTray: true, minimizeToTray: false, startHidden: true },
+    startWithWindows: { supported: true, enabled: true, disabledInWindows: false, error: null },
+  };
+  const text = diagnosticsReport(appInfo, status([d]), [], [], log, "UA", new Date(1_060_000), windows);
+  assert.ok(!text.includes("Jane"), "no account name anywhere");
+  const r = JSON.parse(text);
+  assert.equal(r.version, 3);
+  assert.deepEqual(r.connectedDevices[0].virtualController, {
+    requested: "xbox360", active: null, playerIndex: null, retrying: true, lastError: String.raw`ViGEmBus error at C:\Users\<user>\AppData`,
+  });
+  assert.equal(r.connectedDevices[0].slowDriverCalls.over50ms, 1);
+  assert.equal(r.windows.startWithWindows.enabled, true);
+  assert.deepEqual(r.engine.drivers, { vigembus: "installed", hidhide: "unknown" });
+  assert.equal(JSON.parse(build([device(256)])).windows, null, "Windows settings optional");
 });

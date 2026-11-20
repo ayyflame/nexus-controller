@@ -24,6 +24,7 @@ export function Onboarding({ forceOpen, onClose, onNavigate }: {
     { title: "Connect your controller", body: <>
       Plug your DualSense into the PC with a USB-C data cable. NEXUS finds it automatically.
       <div className={`onb-status tone-${phase.tone}`}><span className="dot" /> {phase.label}: {phase.detail}</div></> },
+    { title: "Let games see it", body: <>Games see NEXUS as an Xbox 360 controller through <b>ViGEmBus</b>, a free driver you install yourself (NEXUS never installs drivers). The <b>Dashboard</b> shows a <b>Get ready to play</b> checklist with each step and what to do if something isn't working.</> },
     { title: "Make it yours", body: <>Open <b>Controller</b> to tune sticks, triggers, gyro and the touchpad, or start from a template in <b>Profiles</b>. Changes save automatically.</> },
     { title: "Find anything fast", body: <>Press <kbd>Ctrl</kbd> + <kbd>K</kbd> anywhere to search every setting. Hover any control for an explanation.</> },
   ];

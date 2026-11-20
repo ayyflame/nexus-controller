@@ -50,14 +50,18 @@ Built with Tauri 2, React and TypeScript for the UI, and Rust for the engine, wi
 ### Profiles
 - Each profile keeps its own sticks, triggers, mapping, layers, gyro, touchpad, lighting and output settings.
 - Templates (Standard, Shooter, Racing, Relaxed), rename, duplicate, delete, and a **default profile** NEXUS starts with.
-- **Automatic switching** when a linked game (`.exe`) starts.
+- **Automatic switching** when a linked game (`.exe`) is in the foreground. Pick the game from the programs you used recently, or type its file name.
 - Macros are shared by all profiles. Import/export and backups.
+- **Restore points:** a backup every day (last 14 kept), before every restore and before every update, all restorable from *Profiles*. Restoring saves a safety copy first.
+
+### Getting ready to play
+- The Dashboard's **Get ready to play** checklist shows each step: DualSense on USB, ViGEmBus installed, virtual controller on, games seeing it as player 1. When a step fails, it says what to do (another USB port, close other controller tools, restart Windows, unplug another Xbox controller, …).
 
 ### Live Viewer and diagnostics
 - **Live Viewer** (sidebar): every control and analog value, motion (gyro, accelerometer, tilt), connection health, a guided 10-step controller test, a drift test and the calibration wizard. Read-only apart from calibration.
 - **Output Check** (*Live Viewer*): reads the virtual Xbox controller back through XInput (as games do) and compares every button and axis with what NEXUS sent.
 - **Performance:** report rate, timing, late and dropped reports, NEXUS processing time split by stage (mapping, macros, virtual controller driver call), slow driver calls since the controller connected, and stale reports skipped. Measurements: [`docs/performance.md`](docs/performance.md); what a slow driver call does: [`docs/driver-performance.md`](docs/driver-performance.md).
-- **Diagnostics** (*Settings › HID Devices*): raw reports, the engine log, a Report Inspector and a shareable diagnostics report (serial numbers and paths masked).
+- **Diagnostics** (*Settings › HID Devices*): raw reports, the engine log, a Report Inspector and a shareable diagnostics report. The report includes the virtual controller's status and errors; serial numbers, MAC addresses, your Windows account name, folder paths, and profile and macro contents are left out.
 
 ### Virtual Xbox 360 output
 - Games see a standard *Controller (XBOX 360 For Windows)* after all processing, remapping and macros.
@@ -92,7 +96,7 @@ NEXUS **never installs, bundles or silently configures drivers** and needs no ad
 ## Installation
 
 1. **Install NEXUS.** Use the **Download NEXUS** button above and run `NEXUS-latest-x64-setup.exe`.
-   - Windows SmartScreen may say *"Windows protected your PC"* because the installer isn't code-signed yet: click **More info › Run anyway**.
+   - Windows SmartScreen may say *"Windows protected your PC"* because the installer isn't code-signed yet: click **More info › Run anyway**. Why, and what signing would take: [`docs/code-signing.md`](docs/code-signing.md).
    - It installs for your account only; no administrator password needed. Installing over an older version keeps your profiles, macros and settings.
 2. **Install ViGEmBus.** Download `ViGEmBus_1.22.0_x64_x86_arm64.exe` from the [official page](https://github.com/nefarius/ViGEmBus/releases) and run it (the administrator prompt is from ViGEmBus). In NEXUS, **Controller › Virtual Output › Check again** should show **Installed and ready**.
 3. **Connect and turn on output.** Plug in the DualSense; the Dashboard shows **DualSense · USB**. In **Controller › Virtual Output**, turn on **Use the experimental virtual controller** and choose **Xbox 360**. It should show **Xbox 360 connected · Games see it as player 1**.
@@ -147,7 +151,7 @@ Your data lives in `%APPDATA%\com.nexus.controllerengine` (profiles, macros, set
 
 - **Using NEXUS:** [Installing](docs/install-windows.md) · [Game output](docs/game-output.md) · [Macro Studio](docs/macro-studio.md) · [3D controller view](docs/3d-controller.md) · [Live Viewer](docs/live-viewer.md) · [Performance](docs/performance.md) · [Driver call stalls](docs/driver-performance.md) · [Calibration](docs/calibration.md) · [Controller photo mode](docs/controller-photo.md) · [HidHide setup](docs/hidhide-setup.md)
 - **Testing:** [Hardware test plan](tests/m4.5-test-plan.md) · [Hardware verification checklist](tests/hardware-verification.md) · [Update verification](docs/update-verification.md)
-- **Updates and releases:** [Updater setup](docs/updater-setup.md) · [Releasing](docs/releasing.md)
+- **Updates and releases:** [Updater setup](docs/updater-setup.md) · [Releasing](docs/releasing.md) · [Code signing](docs/code-signing.md)
 - **Internals:** [Architecture](docs/architecture.md) · [DualSense report format](docs/dualsense-protocol.md) · [Virtual output and drivers](docs/virtual-output.md) · [Virtual driver evaluation](docs/virtual-driver-evaluation.md) · [Latency audit](docs/latency-audit.md)
 
 <details>

@@ -29,7 +29,7 @@ download → plugin verifies signature → "Restart and install"
 - Only the **NSIS** installer (`-setup.exe`) is used for updates. The manifest publishes only the `windows-x86_64-nsis` key, so a copy installed from the `.msi` is told to download the new setup `.exe` and is never cross-upgraded into a second installation.
 - HTTPS is required for the manifest and the download. The app refuses `http://`.
 
-**Tauri updater signatures are not Windows code signing.** They prove an update came from you. They do **not** remove the Windows SmartScreen warning on first install. That needs an Authenticode code-signing certificate, which is a separate, still-open item.
+**Tauri updater signatures are not Windows code signing.** They prove an update came from you. They do **not** remove the Windows SmartScreen warning on first install. That needs an Authenticode code-signing certificate, which is a separate, still-open item: see [code-signing.md](code-signing.md).
 
 ## 1. Create the update signing key (on your PC)
 

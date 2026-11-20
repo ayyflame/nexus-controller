@@ -377,3 +377,8 @@ export interface StartupStatus {
   error: string | null;
 }
 export interface WindowsIntegration { behaviour: WindowBehaviour; startWithWindows: StartupStatus }
+
+// ---- Restore points ---------------------------------------------------------
+
+export type RestoreKind = "manual" | "daily" | "beforeRestore" | "beforeUpdate";
+export interface RestorePoint { id: string; name: string; kind: RestoreKind; modifiedMs: number; bytes: number }

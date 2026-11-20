@@ -18,6 +18,7 @@ import {
   EMPTY_HISTORY, recordEdit, redoRemap, setRemapAlso, setRemapTarget, undoRemap, type RemapHistory,
 } from "../lib/mappingView";
 import { MappingView } from "../components/controller/MappingView";
+import { CopyText } from "../components/CopyText";
 import { CombosPanel } from "../components/controller/CombosPanel";
 import { StickButtonsPanel, StickRoutingPanel } from "../components/controller/StickMapping";
 import {
@@ -575,18 +576,6 @@ function OutputTab() {
         <DoubleInputPanel outputActive={!!active} controllerConnected={!!device} />
       </div>
     </div>
-  );
-}
-
-function CopyText({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <span className="copy-text">
-      <code className="mono break">{text}</code>
-      <button className="btn-ghost small" onClick={async () => {
-        try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch { setCopied(false); }
-      }}>{copied ? "Copied" : "Copy"}</button>
-    </span>
   );
 }
 

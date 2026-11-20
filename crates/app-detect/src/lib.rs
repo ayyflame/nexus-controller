@@ -171,6 +171,99 @@ impl AutoSwitcher {
     }
 }
 
+/// Windows' own shell programs: never offered as games.
+const SHELL_PROGRAMS: [&str; 9] = [
+    "explorer.exe",
+    "searchhost.exe",
+    "searchapp.exe",
+    "shellexperiencehost.exe",
+    "startmenuexperiencehost.exe",
+    "applicationframehost.exe",
+    "lockapp.exe",
+    "textinputhost.exe",
+    "taskmgr.exe",
+];
+
+/// Programs that were recently in the foreground, newest first, so a game
+/// can be linked to a profile by picking it instead of typing its file name.
+/// Kept in memory only (never saved or sent anywhere).
+#[derive(Debug)]
+pub struct RecentPrograms {
+    items: Vec<String>,
+    ignore: Vec<String>,
+    capacity: usize,
+}
+
+impl RecentPrograms {
+    pub fn new(capacity: usize, ignore: &[&str]) -> Self {
+        Self {
+            items: Vec::with_capacity(capacity),
+            ignore: ignore.iter().map(|s| s.to_lowercase()).collect(),
+            capacity,
+        }
+    }
+
+    pub fn record(&mut self, foreground: &Foreground) {
+        let Foreground::Executable(exe) = foreground else {
+            return;
+        };
+        if exe.is_empty()
+            || self.ignore.contains(exe)
+            || SHELL_PROGRAMS.contains(&exe.as_str())
+            || self.items.first() == Some(exe)
+        {
+            return;
+        }
+        self.items.retain(|e| e != exe);
+        self.items.insert(0, exe.clone());
+        self.items.truncate(self.capacity);
+    }
+
+    pub fn list(&self) -> Vec<String> {
+        self.items.clone()
+    }
+}
+
+#[cfg(test)]
+mod recent_tests {
+    use super::*;
+
+    fn exe(s: &str) -> Foreground {
+        Foreground::Executable(s.into())
+    }
+
+    #[test]
+    fn newest_first_without_duplicates_and_bounded() {
+        let mut r = RecentPrograms::new(3, &["nexus-desktop.exe"]);
+        for e in [
+            "cod.exe",
+            "discord.exe",
+            "cod.exe",
+            "chrome.exe",
+            "steam.exe",
+        ] {
+            r.record(&exe(e));
+        }
+        assert_eq!(r.list(), ["steam.exe", "chrome.exe", "cod.exe"]);
+    }
+
+    #[test]
+    fn nexus_the_windows_shell_and_unknown_programs_are_never_listed() {
+        let mut r = RecentPrograms::new(5, &["nexus-desktop.exe"]);
+        for f in [
+            exe("nexus-desktop.exe"),
+            exe("explorer.exe"),
+            exe("taskmgr.exe"),
+            Foreground::Unknown,
+            Foreground::Nothing,
+            exe(""),
+        ] {
+            r.record(&f);
+        }
+        assert!(r.list().is_empty());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

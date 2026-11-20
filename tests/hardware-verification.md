@@ -258,6 +258,16 @@ The rules are unit-tested and the installer check runs in CI on a GitHub Windows
 | SM8 | Switch to a profile without stick mapping while a stick-button is held | The button releases at once; nothing stuck |
 | DS1 | **Performance** during 30+ minutes of play | *Stale reports skipped after slow calls* stays at 0 (any skips mean NEXUS fell 8 ms or more behind, almost always because of slow driver calls: note when) |
 
+## Release preparation (November 2026): needs Windows, a DualSense for RP1–RP3
+
+| # | Check | Expected |
+|---|---|---|
+| RP1 | Fresh install, first start, follow the welcome guide and the Dashboard's **Get ready to play** checklist from nothing | Each step turns green in order; every failing step's advice is accurate (no ViGEmBus, output off, controller unplugged, a second Xbox controller holding player 1) |
+| RP2 | Start Warzone (or any game) once, then *Profiles* › a profile › **Pick a recently used program** | The game's program is listed; picking it links it; switching happens when the game is in front |
+| RP3 | *Profiles* › **Restore points**: restore yesterday's daily backup, then the *Saved before a restore* point | Profiles and macros go back each time; nothing is lost |
+| RP4 | Install an update with the updater (once it is switched on), then *Restore points* › *Saved before updating* | The pre-update data restores |
+| RP5 | *Settings* › **Copy diagnostics report**, paste into a text editor | No Windows account name, serial number, MAC address or profile/macro names appear |
+
 ## Release gate
 
 No release (versioned or announced) until all of these are done on a real Windows 11 PC with a USB DualSense, and the results are recorded here with the date and NEXUS commit:
