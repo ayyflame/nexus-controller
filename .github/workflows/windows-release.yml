@@ -363,7 +363,8 @@ jobs:
             $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
             "$hash  $($_.Name)" | Add-Content (Join-Path $out "SHA256SUMS.txt")
           }
-          $tauri = (Get-Content apps/desktop/package-lock.json -Raw | ConvertFrom-Json).packages.'node_modules/@tauri-apps/cli'.version
+          # -AsHashtable: package-lock.json has a "" key (the root package).
+          $tauri = (Get-Content apps/desktop/package-lock.json -Raw | ConvertFrom-Json -AsHashtable).packages['node_modules/@tauri-apps/cli'].version
           @(
             "commit: $($env:GITHUB_SHA)",
             "workflow run: $($env:GITHUB_SERVER_URL)/$($env:GITHUB_REPOSITORY)/actions/runs/$($env:GITHUB_RUN_ID)",
