@@ -65,7 +65,7 @@ export function Profiles() {
 
       <div className="card panel">
         <div className="card-title-row"><h2>Games</h2><AutoSwitchToggle /></div>
-        <p className="muted small">Add a game's program name (for example eldenring.exe) to a profile below. When that game is in front, NEXUS switches to the profile, and switches back when you leave the game. NEXUS only looks at which program is in front; it never reads or changes game memory.</p>
+        <p className="muted small">Link a game to a profile below: start the game once, then pick it from the recently used programs, or type its program name (for example eldenring.exe). When that game is in front, NEXUS switches to the profile, and switches back when you leave the game. NEXUS only looks at which program is in front; it never reads or changes game memory.</p>
       </div>
 
       <section className="card panel">
