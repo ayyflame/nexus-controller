@@ -832,6 +832,12 @@ impl Engine {
         let _ = self.control.send(Control::Rescan);
     }
 
+    /// Adds an entry to the engine log (shown in Settings and the
+    /// diagnostics report), e.g. how long the app window took to open.
+    pub fn log(&self, level: LogLevel, category: &str, message: impl Into<String>) {
+        self.shared.log(level, category, message);
+    }
+
     pub fn recent_log(&self, limit: usize) -> Vec<LogEntry> {
         self.shared.telemetry.recent_log(limit)
     }

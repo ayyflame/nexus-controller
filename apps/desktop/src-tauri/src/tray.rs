@@ -80,28 +80,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
-/// Brings the main window back (from the tray, minimised or behind others).
-pub fn show_main(app: &AppHandle) {
-    if let Some(w) = app.get_webview_window("main") {
-        let _ = w.unminimize();
-        let _ = w.show();
-        let _ = w.set_focus();
-    }
-    if let Some(state) = app.try_state::<AppState>() {
-        state.bridge.set_visible(true);
-    }
-}
-
-/// Hides the main window to the tray. NEXUS keeps running; the UI status
-/// stream pauses until the window is shown again.
-pub fn hide_main(app: &AppHandle) {
-    if let Some(w) = app.get_webview_window("main") {
-        let _ = w.hide();
-    }
-    if let Some(state) = app.try_state::<AppState>() {
-        state.bridge.set_visible(false);
-    }
-}
+pub use crate::window::{hide_main, show_main};
 
 #[cfg(test)]
 mod tests {

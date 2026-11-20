@@ -10,6 +10,7 @@ mod restore;
 mod startup;
 mod tray;
 mod updates;
+mod window;
 
 use background::{WindowBehaviour, WindowChange, WindowResponse};
 use nexus_engine::{Engine, EngineConfig};
@@ -40,6 +41,8 @@ pub struct AppState {
     pub inspector: Mutex<nexus_engine::inspector::InspectorSession>,
     /// Close/minimise to tray, start hidden (read on every window event).
     pub behaviour: Mutex<WindowBehaviour>,
+    /// The main window is created after everything else (see `window`).
+    pub main_window: Mutex<window::MainWindow>,
 }
 
 /// Points an existing "Start with Windows" entry at this copy of NEXUS if it
@@ -168,6 +171,7 @@ pub fn run() {
                 game_watch: std::sync::OnceLock::new(),
                 inspector: Mutex::new(Default::default()),
                 behaviour: Mutex::new(behaviour),
+                main_window: Mutex::new(Default::default()),
             });
             repair_startup_entry();
             // Without a tray icon a hidden window could never be reopened:
@@ -185,10 +189,18 @@ pub fn run() {
                     b
                 }
             };
-            if background::show_at_launch(behaviour, started_at_sign_in) {
-                tray::show_main(app.handle());
-            } else {
-                app.state::<AppState>().bridge.set_visible(false);
+            // Last: the window. Everything above (profiles, controller
+            // engine, virtual controller, tray) already runs without it.
+            let show = background::show_at_launch(behaviour, started_at_sign_in);
+            app.state::<AppState>().bridge.set_visible(false);
+            let begin = app
+                .state::<AppState>()
+                .main_window
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .begin(show);
+            if begin {
+                window::spawn_create(app.handle().clone());
             }
             if nexus_app_detect::supported() {
                 let watch = game_watch::GameWatch::spawn(app.handle().clone());

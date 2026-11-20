@@ -1,7 +1,8 @@
 # Installs, updates and uninstalls the freshly built NEXUS installers on a
 # throwaway GitHub Windows runner and checks that:
 #   - the NSIS installer installs silently, per user, without admin rights;
-#   - NEXUS starts, and a second start does not leave a second copy running;
+#   - NEXUS creates its profile database and keeps running even when WebView2
+#     (the window) can't start, and a second start leaves one copy running;
 #   - an update (installing over it with /UPDATE, as the updater does) keeps
 #     the "Start with Windows" entry and the user's data;
 #   - uninstalling, even while NEXUS is running, removes the program, its
@@ -69,12 +70,30 @@ $exe = Join-Path $dir 'nexus-desktop.exe'
 Check "program installed per user under LOCALAPPDATA ($exe)" ((Test-Path $exe) -and $exe.StartsWith($env:LOCALAPPDATA))
 Check "no startup entry after a plain install" (-not (Value $RunKey))
 
-Write-Host "Start NEXUS, then start it again"
+Write-Host "Start NEXUS with WebView2 broken on purpose (the window can't open)"
+# The controller engine and profiles must not depend on the window: NEXUS
+# starts them first and keeps running in the tray if WebView2 fails.
+$env:WEBVIEW2_BROWSER_EXECUTABLE_FOLDER = Join-Path $env:RUNNER_TEMP 'no-webview2-here'
+$t0 = Get-Date
+Start-Process $exe | Out-Null
+Remove-Item Env:WEBVIEW2_BROWSER_EXECUTABLE_FOLDER
+$dbCreated = [bool](Until 'nexus.db' { Test-Path (Join-Path $DataDir 'nexus.db') } 20)
+$dbSeconds = [math]::Round(((Get-Date) - $t0).TotalSeconds, 1)
+Check "profile database created without a working WebView2 (after $dbSeconds s)" $dbCreated
+if (-not $dbCreated) { ExplainMissingData }
+Start-Sleep -Seconds 5
+Check "NEXUS keeps running without its window (running: $(Copies))" ((Copies) -eq 1)
+Get-Process nexus-desktop -ErrorAction SilentlyContinue | Stop-Process -Force
+[void](Until 'NEXUS to exit' { (Copies) -eq 0 } 15)
+
+Write-Host "Start NEXUS normally, then start it again"
+$t0 = Get-Date
 Start-Process $exe | Out-Null
 Check "NEXUS is running" ([bool](Until 'NEXUS to start' { (Copies) -ge 1 } 60))
-$dbCreated = [bool](Until 'nexus.db' { Test-Path (Join-Path $DataDir 'nexus.db') } 60)
-Check "profile database created" $dbCreated
-if (-not $dbCreated) { ExplainMissingData }
+$windowOpen = [bool](Until 'the window' { @(Get-Process nexus-desktop -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle }).Count -ge 1 } 120)
+Write-Host "  (window open after $([math]::Round(((Get-Date) - $t0).TotalSeconds, 1)) s)"
+Check "the window opens" $windowOpen
+if (-not $windowOpen) { ExplainMissingData }
 Start-Sleep -Seconds 3
 Start-Process $exe | Out-Null
 Start-Sleep -Seconds 8
