@@ -27,6 +27,11 @@ fn create(
     published: Option<&Path>,
 ) -> std::process::Output {
     std::fs::write(dir.join("notes.md"), "Bug fixes and improvements.\n").unwrap();
+    // The URL must name the signed file, so the fixture is copied under the
+    // installer's real name.
+    let named = dir.join(format!("NEXUS_{version}_x64-setup.exe"));
+    std::fs::copy(installer, &named).unwrap();
+    let installer = named.as_path();
     let mut cmd = Command::new(BIN);
     cmd.env("TAURI_UPDATER_PUBKEY", pubkey())
         .arg("create")
@@ -148,4 +153,32 @@ fn refuses_to_run_without_the_public_key() {
         .unwrap();
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("TAURI_UPDATER_PUBKEY is not set"));
+}
+
+#[test]
+fn refuses_a_url_that_names_a_different_installer() {
+    let dir = tmp("name");
+    let other = dir.join("NEXUS_0.0.9_x64-setup.exe");
+    std::fs::copy(fixtures().join("payload.bin"), &other).unwrap();
+    std::fs::write(dir.join("notes.md"), "Notes.\n").unwrap();
+    let out = Command::new(BIN)
+        .env("TAURI_UPDATER_PUBKEY", pubkey())
+        .arg("create")
+        .args(["--version", "0.1.1", "--notes-file"])
+        .arg(dir.join("notes.md"))
+        .args([
+            "--url",
+            "https://updates.example.com/stable/0.1.1/NEXUS_0.1.1_x64-setup.exe",
+            "--installer",
+        ])
+        .arg(&other)
+        .args(["--signature-file"])
+        .arg(fixtures().join("payload.bin.sig"))
+        .args(["--out"])
+        .arg(dir.join("latest.json"))
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("doesn't name the signed installer"));
+    assert!(!dir.join("latest.json").exists(), "nothing is written");
 }

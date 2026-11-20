@@ -79,7 +79,7 @@ Built with Tauri 2, React and TypeScript for the UI, and Rust for the engine, wi
 
 ### Updates
 - **Built:** a check shortly after start-up and every 6 hours, a notice with the release notes (**Update now** / **Remind me later**), background download, signature check, and install with your data kept (backed up first).
-- **Not switched on yet:** the signing key and update host still need setting up ([`docs/updater-setup.md`](docs/updater-setup.md)). It was verified end to end on Windows in CI ([`docs/update-verification.md`](docs/update-verification.md)). Until then, install new builds by hand.
+- **Not switched on yet:** the first signed, auto-updating release (0.2.0) needs the owner's accounts set up first ([`docs/release-setup-checklist.md`](docs/release-setup-checklist.md)). Updates were verified end to end on Windows in CI ([`docs/update-verification.md`](docs/update-verification.md)). Until then, install new builds by hand.
 
 ## Requirements
 
@@ -96,7 +96,7 @@ NEXUS **never installs, bundles or silently configures drivers** and needs no ad
 ## Installation
 
 1. **Install NEXUS.** Use the **Download NEXUS** button above and run `NEXUS-latest-x64-setup.exe`.
-   - Windows SmartScreen may say *"Windows protected your PC"* because the installer isn't code-signed yet: click **More info › Run anyway**. Why, and what signing would take: [`docs/code-signing.md`](docs/code-signing.md).
+   - Windows SmartScreen may say *"Windows protected your PC"* because development builds aren't code-signed: click **More info › Run anyway**. Releases from 0.2.0 on are signed (see the [code signing policy](CODE_SIGNING_POLICY.md)); each download can also be checked with `gh attestation verify <file> --repo ayyflame/nexus-controller`. Why, and what signing would take: [`docs/code-signing.md`](docs/code-signing.md).
    - It installs for your account only; no administrator password needed. Installing over an older version keeps your profiles, macros and settings.
 2. **Install ViGEmBus.** Download `ViGEmBus_1.22.0_x64_x86_arm64.exe` from the [official page](https://github.com/nefarius/ViGEmBus/releases) and run it (the administrator prompt is from ViGEmBus). In NEXUS, **Controller › Virtual Output › Check again** should show **Installed and ready**.
 3. **Connect and turn on output.** Plug in the DualSense; the Dashboard shows **DualSense · USB**. In **Controller › Virtual Output**, turn on **Use the experimental virtual controller** and choose **Xbox 360**. It should show **Xbox 360 connected · Games see it as player 1**.
@@ -173,7 +173,7 @@ Your data lives in `%APPDATA%\com.nexus.controllerengine` (profiles, macros, set
 
 - **Using NEXUS:** [Installing](docs/install-windows.md) · [Game output](docs/game-output.md) · [Macro Studio](docs/macro-studio.md) · [3D controller view](docs/3d-controller.md) · [Live Viewer](docs/live-viewer.md) · [Performance](docs/performance.md) · [Driver call stalls](docs/driver-performance.md) · [Calibration](docs/calibration.md) · [Controller photo mode](docs/controller-photo.md) · [HidHide setup](docs/hidhide-setup.md)
 - **Testing:** [Hardware test plan](tests/m4.5-test-plan.md) · [Hardware verification checklist](tests/hardware-verification.md) · [Update verification](docs/update-verification.md)
-- **Updates and releases:** [Updater setup](docs/updater-setup.md) · [Releasing](docs/releasing.md) · [Code signing](docs/code-signing.md)
+- **Updates and releases:** [Release setup checklist](docs/release-setup-checklist.md) · [Updater setup](docs/updater-setup.md) · [Releasing](docs/releasing.md) · [Code signing](docs/code-signing.md) · [Code signing policy](CODE_SIGNING_POLICY.md) · [SignPath application](docs/signpath-application.md)
 - **Internals:** [Architecture](docs/architecture.md) · [DualSense report format](docs/dualsense-protocol.md) · [Virtual output and drivers](docs/virtual-output.md) · [Virtual driver evaluation](docs/virtual-driver-evaluation.md) · [Latency audit](docs/latency-audit.md)
 
 <details>

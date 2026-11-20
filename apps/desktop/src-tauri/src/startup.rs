@@ -115,6 +115,63 @@ pub fn repair(store: &mut impl StartupStore, exe: &Path) -> Result<bool, String>
     }
 }
 
+/// Key in the profile database's `app_settings` table: the user's choice,
+/// `"true"` or `"false"`. It lives with the profiles, so it survives an
+/// uninstall that keeps the data (the registry entry does not).
+pub const PREFERENCE_KEY: &str = "start_with_windows";
+
+/// What [`reconcile`] did.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Reconciled {
+    /// The choice to save, if it should change (first run of this version
+    /// adopts what the registry says).
+    pub save: Option<bool>,
+    /// The entry was missing and was put back.
+    pub restored: bool,
+    /// The entry pointed at another copy of NEXUS and was updated.
+    pub repaired: bool,
+}
+
+/// At start-up (installed builds): make the registry match the user's choice.
+///
+/// Upgrading by hand with the installer's default *Uninstall before
+/// installing* runs the old uninstaller, which removes the `Run` entry. The
+/// choice is kept in NEXUS's own settings, so the entry comes back on the
+/// next start. A choice made before this existed is adopted from the
+/// registry. Entries that aren't NEXUS's are never touched, and NEXUS never
+/// adds an entry the user didn't ask for.
+pub fn reconcile(
+    store: &mut impl StartupStore,
+    exe: &Path,
+    wanted: Option<bool>,
+) -> Result<Reconciled, String> {
+    let current = store.run_value()?;
+    let mut out = Reconciled {
+        save: None,
+        restored: false,
+        repaired: false,
+    };
+    match wanted {
+        None => out.save = Some(current.as_deref().is_some_and(is_ours)),
+        Some(true) if current.is_none() => {
+            store.set_run_value(&command_for(exe))?;
+            out.restored = true;
+        }
+        _ => {}
+    }
+    out.repaired = repair(store, exe)?;
+    Ok(out)
+}
+
+/// Parses the saved choice.
+pub fn preference(saved: Option<&str>) -> Option<bool> {
+    match saved {
+        Some("true") => Some(true),
+        Some("false") => Some(false),
+        _ => None,
+    }
+}
+
 // ---- The registry ----------------------------------------------------------
 
 #[cfg(windows)]
@@ -400,6 +457,59 @@ mod tests {
         let mut none = Memory::default();
         assert!(!repair(&mut none, &exe()).unwrap(), "off stays off");
         assert_eq!(none.run, None);
+    }
+
+    #[test]
+    fn an_upgrade_that_uninstalled_first_gets_start_with_windows_back() {
+        // The user turned it on (saved), then upgraded with "Uninstall before
+        // installing", which removed the entry.
+        let mut m = Memory::default();
+        let r = reconcile(&mut m, &exe(), Some(true)).unwrap();
+        assert!(r.restored);
+        assert_eq!(m.run.as_deref(), Some(command_for(&exe()).as_str()));
+        assert_eq!(r.save, None, "the choice is unchanged");
+        // Next start: nothing to do.
+        let r = reconcile(&mut m, &exe(), Some(true)).unwrap();
+        assert!(!r.restored && !r.repaired);
+    }
+
+    #[test]
+    fn a_choice_made_before_it_was_saved_is_adopted_from_the_registry() {
+        let mut on = Memory {
+            run: Some(command_for(&exe())),
+            ..Default::default()
+        };
+        assert_eq!(reconcile(&mut on, &exe(), None).unwrap().save, Some(true));
+        let mut off = Memory::default();
+        let r = reconcile(&mut off, &exe(), None).unwrap();
+        assert_eq!(r.save, Some(false));
+        assert_eq!(off.run, None, "never added without being asked");
+        let mut foreign = Memory {
+            run: Some(r#""C:\Other\nexus.exe""#.into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            reconcile(&mut foreign, &exe(), None).unwrap().save,
+            Some(false),
+            "someone else's entry isn't NEXUS's choice"
+        );
+    }
+
+    #[test]
+    fn turned_off_stays_off_and_moved_installs_are_repaired() {
+        let mut m = Memory::default();
+        assert!(!reconcile(&mut m, &exe(), Some(false)).unwrap().restored);
+        assert_eq!(m.run, None);
+        let mut moved = Memory {
+            run: Some(r#""D:\Old\nexus-desktop.exe" --background"#.into()),
+            ..Default::default()
+        };
+        assert!(reconcile(&mut moved, &exe(), Some(true)).unwrap().repaired);
+        assert_eq!(moved.run.as_deref(), Some(command_for(&exe()).as_str()));
+        assert_eq!(preference(Some("true")), Some(true));
+        assert_eq!(preference(Some("false")), Some(false));
+        assert_eq!(preference(None), None);
+        assert_eq!(preference(Some("junk")), None);
     }
 
     #[test]

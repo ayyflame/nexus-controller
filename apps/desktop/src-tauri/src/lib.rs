@@ -45,15 +45,38 @@ pub struct AppState {
     pub main_window: Mutex<window::MainWindow>,
 }
 
-/// Points an existing "Start with Windows" entry at this copy of NEXUS if it
-/// was reinstalled elsewhere. Installed builds only: a development build must
-/// never take over the installed copy's entry.
-fn repair_startup_entry() {
+/// Makes the "Start with Windows" entry match the user's saved choice: puts
+/// it back after an upgrade that uninstalled first, adopts a choice made by
+/// an older version, and points it at this copy if NEXUS was reinstalled
+/// elsewhere. Installed builds only: a development build must never take
+/// over the installed copy's entry.
+fn reconcile_startup_entry(store: &mut ProfileStore) -> Option<String> {
     #[cfg(all(windows, not(debug_assertions)))]
-    if let Ok(exe) = std::env::current_exe() {
-        if let Err(e) = startup::repair(&mut startup::Registry::nexus(), &exe) {
-            eprintln!("NEXUS: could not update the startup entry: {e}");
+    {
+        let exe = std::env::current_exe().ok()?;
+        let wanted = startup::preference(
+            store
+                .get_setting(startup::PREFERENCE_KEY)
+                .ok()
+                .flatten()
+                .as_deref(),
+        );
+        match startup::reconcile(&mut startup::Registry::nexus(), &exe, wanted) {
+            Ok(r) => {
+                if let Some(on) = r.save {
+                    let _ = store
+                        .set_setting(startup::PREFERENCE_KEY, if on { "true" } else { "false" });
+                }
+                r.restored
+                    .then(|| "Start with Windows was put back after reinstalling NEXUS".to_owned())
+            }
+            Err(e) => Some(format!("Could not check the Start with Windows entry: {e}")),
         }
+    }
+    #[cfg(not(all(windows, not(debug_assertions))))]
+    {
+        let _ = store;
+        None
     }
 }
 
@@ -136,6 +159,7 @@ pub fn run() {
             // Start with the default profile, if one is chosen.
             let profile = store.activate_default_profile()?;
 
+            let startup_note = reconcile_startup_entry(&mut store);
             // One automatic backup per day (kept 14 days), restorable from
             // Profiles › Restore points.
             if let Some(dir) = data_dir.as_ref() {
@@ -173,7 +197,11 @@ pub fn run() {
                 behaviour: Mutex::new(behaviour),
                 main_window: Mutex::new(Default::default()),
             });
-            repair_startup_entry();
+            if let Some(note) = startup_note {
+                app.state::<AppState>()
+                    .engine
+                    .log(nexus_telemetry::LogLevel::Info, "app", note);
+            }
             // Without a tray icon a hidden window could never be reopened:
             // closing must quit, minimising must stay on the taskbar, and the
             // window must open even when Windows started NEXUS at sign-in.

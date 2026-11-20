@@ -265,6 +265,15 @@ pub fn set_start_with_windows(
         let exe = std::env::current_exe()
             .map_err(|e| format!("Could not find the NEXUS program file: {e}"))?;
         crate::startup::set_enabled(&mut crate::startup::Registry::nexus(), &exe, enabled)?;
+        // Kept with the profiles, so a reinstall that removed the entry puts it back.
+        let mut store = state.store.lock().map_err(|_| "profile store poisoned")?;
+        store
+            .set_setting(
+                crate::startup::PREFERENCE_KEY,
+                if enabled { "true" } else { "false" },
+            )
+            .map_err(profile_error)?;
+        drop(store);
         Ok(integration(&state))
     }
     #[cfg(not(windows))]

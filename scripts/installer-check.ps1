@@ -98,6 +98,7 @@ Start-Sleep -Seconds 3
 Start-Process $exe | Out-Null
 Start-Sleep -Seconds 8
 Check "a second start leaves one copy running (running: $(Copies))" ((Copies) -eq 1)
+Check "a daily automatic backup was saved (restore point)" ([bool](Until 'daily backup' { @(Get-ChildItem (Join-Path $DataDir 'backups') -Filter 'auto *.nexus.json' -ErrorAction SilentlyContinue).Count -ge 1 } 30))
 
 SimulateStartWithWindows $exe
 Write-Host "NSIS: update (install over it with /UPDATE, as the updater does) while NEXUS runs"
@@ -106,6 +107,31 @@ Check "update exit code 0 (was $($p.ExitCode))" ($p.ExitCode -eq 0)
 Check "program still installed after the update" (Test-Path $exe)
 Check "update keeps Start with Windows" ((Value $RunKey) -eq "`"$exe`" --background")
 Check "update keeps the profile database" (Test-Path (Join-Path $DataDir 'nexus.db'))
+
+Write-Host "NSIS: install over it again, as a user upgrading by hand (no /UPDATE)"
+$p = Start-Process $setup.FullName -ArgumentList '/S' -Wait -PassThru
+Check "manual reinstall exit code 0 (was $($p.ExitCode))" ($p.ExitCode -eq 0)
+Check "manual reinstall keeps the program" (Test-Path $exe)
+Check "manual reinstall keeps Start with Windows" ((Value $RunKey) -eq "`"$exe`" --background")
+Check "manual reinstall keeps the profile database and backups" ((Test-Path (Join-Path $DataDir 'nexus.db')) -and @(Get-ChildItem (Join-Path $DataDir 'backups') -Filter '*.nexus.json' -ErrorAction SilentlyContinue).Count -ge 1)
+Check "still exactly one installation" (@(UninstallEntry).Count -eq 1)
+
+Write-Host "NSIS: upgrade the way the installer suggests by default (uninstall the old version first)"
+Get-Process nexus-desktop -ErrorAction SilentlyContinue | Stop-Process -Force
+[void](Until 'NEXUS to exit' { (Copies) -eq 0 } 15)
+# One start records the existing Start with Windows choice in NEXUS's settings.
+Start-Process $exe | Out-Null
+Start-Sleep -Seconds 8
+Get-Process nexus-desktop -ErrorAction SilentlyContinue | Stop-Process -Force
+[void](Until 'NEXUS to exit' { (Copies) -eq 0 } 15)
+$p = Start-Process (Join-Path $dir 'uninstall.exe') -ArgumentList '/S', "_?=$dir" -Wait -PassThru
+Check "old version uninstalled first (exit $($p.ExitCode)); this removes the startup entry" (-not (Value $RunKey))
+$p = Start-Process $setup.FullName -ArgumentList '/S' -Wait -PassThru
+Check "new version installed (exit $($p.ExitCode))" ($p.ExitCode -eq 0 -and (Test-Path $exe))
+Start-Process $exe | Out-Null
+Check "NEXUS puts Start with Windows back on its next start" ([bool](Until 'startup entry' { (Value $RunKey) -eq "`"$exe`" --background" } 30))
+Check "profiles kept through uninstall + install" (Test-Path (Join-Path $DataDir 'nexus.db'))
+Start-Sleep -Seconds 3
 
 Write-Host "NSIS: uninstall while NEXUS runs"
 Start-Process $exe | Out-Null
@@ -120,6 +146,7 @@ Check "uninstall entry removed" (-not (UninstallEntry))
 Check "Start with Windows entry removed" (-not (Value $RunKey))
 Check "Task Manager startup flag removed" (-not (Value $ApprovedKey))
 Check "profiles and settings kept (nexus.db)" (Test-Path (Join-Path $DataDir 'nexus.db'))
+Check "restore points kept" (@(Get-ChildItem (Join-Path $DataDir 'backups') -Filter '*.nexus.json' -ErrorAction SilentlyContinue).Count -ge 1)
 
 if ($msi) {
   Write-Host "MSI: install $($msi.Name)"

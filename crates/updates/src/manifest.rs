@@ -192,6 +192,14 @@ fn validate_url(url: &str, version: &str) -> Result<(), ManifestError> {
     Ok(())
 }
 
+/// The download URL must name exactly the installer file that was signed
+/// (case-insensitive), so a manifest can't point users at a different file
+/// than the one its signature was made for.
+pub fn url_names_installer(url: &str, installer_file_name: &str) -> bool {
+    let file = url.rsplit('/').next().unwrap_or("");
+    !file.is_empty() && file.eq_ignore_ascii_case(installer_file_name)
+}
+
 /// Accepts `YYYY-MM-DDTHH:MM:SS[.fff]Z` (what the pipeline writes).
 pub fn is_rfc3339_utc(s: &str) -> bool {
     let b = s.as_bytes();
@@ -246,4 +254,21 @@ pub fn format_rfc3339_utc(unix_secs: u64) -> String {
         (rem % 3600) / 60,
         rem % 60
     )
+}
+
+#[cfg(test)]
+mod url_name_tests {
+    use super::url_names_installer;
+
+    #[test]
+    fn the_url_must_name_the_signed_installer() {
+        let url = "https://updates.example.com/stable/0.2.0/NEXUS_0.2.0_x64-setup.exe";
+        assert!(url_names_installer(url, "NEXUS_0.2.0_x64-setup.exe"));
+        assert!(url_names_installer(url, "nexus_0.2.0_x64-setup.exe"));
+        assert!(!url_names_installer(url, "NEXUS_0.1.0_x64-setup.exe"));
+        assert!(!url_names_installer(
+            "https://updates.example.com/stable/0.2.0/",
+            "NEXUS_0.2.0_x64-setup.exe"
+        ));
+    }
 }

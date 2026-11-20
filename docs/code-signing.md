@@ -1,6 +1,6 @@
 # Windows code signing (Authenticode)
 
-**Status: not signed.** NEXUS has no code-signing certificate, and no build is Authenticode-signed. Every Windows build reports this in *Report Authenticode signature status* (`NotSigned` for the app, the setup `.exe` and the `.msi`). The CI plumbing to sign is ready and self-tested (below); it needs a real certificate from one of the options here.
+**Status: not signed.** NEXUS has no code-signing certificate, and no build is Authenticode-signed. Development builds report `NotSigned` in *Report Authenticode signature status*. **A release can't be built without signing:** the configuration check refuses it, and the workflow refuses unsigned files. The signing steps for SignPath, Trusted Signing and PFX are in the workflow and their checks are self-tested; they need a real certificate or a SignPath project.
 
 ## What unsigned means for users
 
@@ -58,18 +58,18 @@ Likely yes, subject to their review:
    - **Secrets:** `NEXUS_TS_AZURE_TENANT_ID`, `NEXUS_TS_AZURE_CLIENT_ID`, `NEXUS_TS_AZURE_CLIENT_SECRET`.
 4. Publish a release. The release build installs Microsoft's signing client, Tauri signs each file through `scripts/sign-windows.ps1`, and *Report Authenticode signature status* **fails the release** if any file isn't `Valid`.
 
-### SignPath Foundation (needs their project details first)
+### SignPath Foundation (supported by the workflow; needs their project)
 
-1. Apply at signpath.org with the repository URL; complete their onboarding (MFA, policy page, roles).
-2. They provide an organisation ID, a project slug, a signing-policy slug and an API token. Store the token as secret `SIGNPATH_API_TOKEN`; the IDs as variables.
-3. SignPath signs **artifacts uploaded by GitHub Actions** (their `signpath/github-action-submit-signing-request` action), not files on the runner. So the release job changes shape:
-   1. build the app without bundling;
-   2. upload `nexus-desktop.exe` → sign → download;
-   3. bundle the installers around the signed exe;
-   4. upload the installers → sign → download;
-   5. create the updater signature.
+Application answers: [signpath-application.md](signpath-application.md). Policy: [`CODE_SIGNING_POLICY.md`](../CODE_SIGNING_POLICY.md). Setup order: [release-setup-checklist.md](release-setup-checklist.md).
 
-   This is **not implemented yet**, because it can only be tested with a real SignPath project. The signing hook and the *must be Valid* check above apply unchanged.
+SignPath signs **artifacts uploaded by the workflow** (origin verification), so for SignPath the release job does:
+1. Build the installers. Tauri can't call SignPath during its own build.
+2. Upload `unsigned-installers` (the setup `.exe` and the `.msi`).
+3. `signpath/github-action-submit-signing-request` (pinned by commit) signs them per `.signpath/artifact-configuration.xml`, and waits for your approval in SignPath.
+4. Swap in the signed files, and **stop unless every file is `Valid`**.
+5. Create the updater signature over the signed setup, then checksums, provenance, publishing.
+
+One limitation: Tauri patches `nexus-desktop.exe` separately for each installer type, and SignPath can't open NSIS archives. So with SignPath the app **inside the NSIS setup** stays unsigned, while the setup itself, the MSI and the app inside the MSI are signed. SmartScreen checks the downloaded setup, which is signed. Trusted Signing (below) signs everything, because Tauri calls it during the build.
 
 ### PFX (legacy or test certificates only)
 

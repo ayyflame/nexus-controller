@@ -1,5 +1,7 @@
 # Automatic updates: one-time setup
 
+> **The complete, ordered setup (updates and signing) is in [release-setup-checklist.md](release-setup-checklist.md).** A release now also requires Authenticode signing; the configuration check refuses one without it.
+
 > **Status:** the updater is implemented, and a real installed-to-installed update passed on Windows in CI ([`update-verification.md`](update-verification.md)). It is **not live** yet, because no signing key, update host or GitHub secrets have been configured. Until the steps below are done, every build reports *"Automatic updates aren't set up in this build"* and never contacts anything. Publishing a release fails on purpose, with a message naming what is missing.
 
 ## What's missing, exactly (checklist)
@@ -16,9 +18,10 @@ Nothing below can be created from the code; each needs the owner's accounts. Unt
 | 6 | `UPDATE_S3_ACCESS_KEY_ID`, `UPDATE_S3_SECRET_ACCESS_KEY` | GitHub secrets | An API token limited to that bucket, read and write |
 | 7 | `UPDATE_S3_ENDPOINT`, `UPDATE_S3_BUCKET` | GitHub variables | e.g. `https://<account>.r2.cloudflarestorage.com`, `nexus-updates` |
 | 8 | `UPDATE_PUBLIC_BASE_URL` | GitHub variable | The public HTTPS address, ideally a domain you own (it can't change later without a manual reinstall) |
-| 9 | A first updater-enabled release, installed by hand once | GitHub Release `v<version>` | Step 4 |
+| 9 | A first updater-enabled release, installed by hand once | GitHub Release `v0.2.0` (newer than every 0.1.0 build) | Step 4 |
+| 10 | Authenticode signing (SignPath, Trusted Signing or a certificate) | [code-signing.md](code-signing.md) | Required for any release |
 
-Optional but recommended: Authenticode signing (`docs/code-signing.md`), so the installer the updater runs is also trusted by Windows.
+The updater signature is created **after** Authenticode signing, over the exact file users download (`tauri signer sign` in the workflow). `make-manifest` refuses a `latest.json` whose URL doesn't name that file, whose signature doesn't verify, or whose version isn't newer than the published one. Every development build runs this whole path with throwaway keys (*Release pipeline dry run*).
 
 ## When an update fails
 
