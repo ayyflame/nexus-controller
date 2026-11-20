@@ -149,13 +149,15 @@ fn disconnect_and_reconnect_are_published_as_events() {
     backend.plug(usb_info());
     wait_status(&e, "reconnect", |s| s.devices.len() == 1);
 
-    let device_events: Vec<DeviceEvent> = events
-        .try_iter()
-        .filter_map(|ev| match ev {
-            EngineEvent::Device(d) => Some(d),
-            _ => None,
-        })
-        .collect();
+    // The snapshot can show the device a moment before its event is
+    // broadcast, so wait for the events themselves.
+    let mut device_events: Vec<DeviceEvent> = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while device_events.len() < 3 && Instant::now() < deadline {
+        if let Ok(EngineEvent::Device(d)) = events.recv_timeout(Duration::from_millis(50)) {
+            device_events.push(d);
+        }
+    }
     let kinds: Vec<&str> = device_events
         .iter()
         .map(|d| match d {
