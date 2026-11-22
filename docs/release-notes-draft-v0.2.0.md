@@ -6,6 +6,7 @@ First public release of NEXUS: a USB DualSense to virtual Xbox 360 controller fo
 - Runs in the tray, starts with Windows if you want, and only one copy runs at a time.
 - Stick swap, stick-to-buttons with thresholds and a release margin, button combinations, hold-to-activate macros.
 - Daily automatic backups and restore points in Profiles.
+- Lighter while you play: when a game is in front, the NEXUS window updates about 4 times a second, the 3D controller stops redrawing until you click back into NEXUS, and device scans no longer open your other USB devices.
 
 Upgrading from a 0.1.0 build: your profiles, macros and settings are kept. If you choose "Uninstall before installing", turn Settings › Windows › Start with Windows on again once.
 

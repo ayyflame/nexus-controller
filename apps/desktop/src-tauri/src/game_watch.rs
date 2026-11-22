@@ -1,9 +1,10 @@
-//! Automatic per-game profile switching. Polls the foreground program twice
-//! a second (a cheap query) and applies a profile when a configured game is
-//! focused, restoring the previous profile afterwards.
+//! Automatic per-game profile switching. Polls the foreground window twice
+//! a second (a cheap query that opens nothing; the program behind it is
+//! looked up only when the window changes) and applies a profile when a
+//! configured game is focused, restoring the previous profile afterwards.
 
 use crate::AppState;
-use nexus_app_detect::{foreground, AutoSwitcher, RecentPrograms};
+use nexus_app_detect::{AutoSwitcher, ForegroundWatcher, RecentPrograms};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -35,12 +36,13 @@ impl GameWatch {
             .name("nexus-game-watch".into())
             .spawn(move || {
                 let mut switcher = AutoSwitcher::new(SETTLE, &[own_exe.as_str()]);
+                let mut watcher = ForegroundWatcher::default();
                 while !flag.load(Ordering::Acquire) {
                     std::thread::sleep(POLL);
                     let Some(state) = app.try_state::<AppState>() else {
                         continue;
                     };
-                    let fg = foreground();
+                    let fg = watcher.current();
                     seen.lock().unwrap_or_else(|e| e.into_inner()).record(&fg);
                     if !state.auto_switch.load(Ordering::Acquire) {
                         switcher.reset();

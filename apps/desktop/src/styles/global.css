@@ -263,6 +263,9 @@ p { margin: 0; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+/* Another program (a game) is in front: looping animations pause, so the
+   window stops repainting for decoration (lib/windowActivity.ts). */
+.app-inactive *, .app-inactive *::before, .app-inactive *::after { animation-play-state: paused !important; }
 
 .hid-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; user-select: text; }
 .hid-item { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; }

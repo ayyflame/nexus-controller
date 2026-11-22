@@ -126,6 +126,11 @@ pub fn run() {
             let Some(state) = window.try_state::<AppState>() else {
                 return;
             };
+            if let WindowEvent::Focused(focused) = event {
+                // Behind a game: the status stream slows to a few updates a second.
+                state.bridge.set_focused(*focused);
+                return;
+            }
             let behaviour = *state.behaviour.lock().unwrap_or_else(|e| e.into_inner());
             let change = match event {
                 WindowEvent::CloseRequested { .. } => WindowChange::CloseRequested,

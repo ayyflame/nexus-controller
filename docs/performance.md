@@ -1,6 +1,6 @@
 # Input performance
 
-How long NEXUS takes from a DualSense report to the virtual Xbox 360 controller, how it's measured, and what was found.
+How long NEXUS takes from a DualSense report to the virtual Xbox 360 controller, how it's measured, and what was found. For NEXUS's effect on the game's own frame rate (the window's rendering, device scans), see [performance-investigation.md](performance-investigation.md).
 
 ## What NEXUS measures (Performance page)
 

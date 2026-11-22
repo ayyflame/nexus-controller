@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useLoader, useThree, type ThreeEvent } from "@react-three/fiber";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
@@ -14,6 +14,7 @@ import type { ButtonMark } from "../../lib/buttonMapping";
 import type { ControllerState, MacroButton } from "../../types/engine";
 import { applyFinish, applyVisual, buildModel, type BuiltModel, type Finish } from "./modelParts";
 import { useFinish } from "../../lib/controllerViewMode";
+import { useWindowActive } from "../../hooks/useWindowActive";
 
 /** Screen position of each control inside the canvas (CSS px), for leader lines. */
 export type Anchors = Partial<Record<MacroButton, { x: number; y: number; visible: boolean }>>;
@@ -178,20 +179,21 @@ function DualSense({ vis, visKey, selected, hovered, marks, pick, onAnchors, fin
   const model = useMemo(() => buildModel(gltf), [gltf]);
   useEffect(() => () => model.dispose(), [model]);
   const invalidate = useThree((s) => s.invalidate);
+  // While a game is in front, the scene is not redrawn for input changes:
+  // each redraw (shadow pass, anti-aliasing) is GPU work competing with the
+  // game. The latest state is drawn as soon as NEXUS is focused again.
+  const active = useWindowActive();
   useLayoutEffect(() => {
+    if (!active) return;
     applyFinish(model, finish);
     applyVisual(model, vis, selected, hovered);
     invalidate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [model, visKey, selected, hovered, finish, invalidate]);
+  }, [model, visKey, selected, hovered, finish, invalidate, active]);
 
-  const buttonOf = (e: ThreeEvent<PointerEvent | MouseEvent>): MacroButton | null => {
-    for (let o: THREE.Object3D | null = e.object; o; o = o.parent) {
-      if (o.userData.button) return o.userData.button as MacroButton;
-    }
-    return null;
-  };
-  const handlers = pick ? {
+  // Stable across renders: new handler props would make the 3D library
+  // schedule a redraw on every status update.
+  const handlers = useMemo(() => pick ? {
     onPointerMove: (e: ThreeEvent<PointerEvent>) => {
       const b = buttonOf(e);
       if (b) { e.stopPropagation(); pick.over(b); }
@@ -202,7 +204,7 @@ function DualSense({ vis, visKey, selected, hovered, marks, pick, onAnchors, fin
       // A drag that rotated the view is not a click.
       if (b && e.delta <= 4) { e.stopPropagation(); pick.click(b); }
     },
-  } : {};
+  } : {}, [pick]);
 
   return (
     <>
@@ -213,8 +215,16 @@ function DualSense({ vis, visKey, selected, hovered, marks, pick, onAnchors, fin
   );
 }
 
-/** Mapping marks: small dots beside a control (remapped, macro, disabled, layer/gyro). */
-function Marks({ model, marks }: { model: BuiltModel; marks: Partial<Record<MacroButton, ButtonMark>> }) {
+function buttonOf(e: ThreeEvent<PointerEvent | MouseEvent>): MacroButton | null {
+  for (let o: THREE.Object3D | null = e.object; o; o = o.parent) {
+    if (o.userData.button) return o.userData.button as MacroButton;
+  }
+  return null;
+}
+
+/** Mapping marks: small dots beside a control (remapped, macro, disabled, layer/gyro).
+ *  Memoised: re-rendering them would redraw the scene on every status update. */
+const Marks = memo(function Marks({ model, marks }: { model: BuiltModel; marks: Partial<Record<MacroButton, ButtonMark>> }) {
   return (
     <>
       {(Object.keys(marks) as MacroButton[]).map((b) => {
@@ -229,7 +239,7 @@ function Marks({ model, marks }: { model: BuiltModel; marks: Partial<Record<Macr
       })}
     </>
   );
-}
+});
 
 /** Orbit controls (drag to rotate, wheel to zoom) and smooth moves to the preset views. */
 function CameraRig({ request, onUserMove }: { request: Request; onUserMove: () => void }) {

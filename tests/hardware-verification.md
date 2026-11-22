@@ -279,6 +279,16 @@ The rules are unit-tested and the installer check runs in CI on a GitHub Windows
 | EU5 | Edit a setting, and within half a second alt-tab into a game linked to another profile | The edit is saved to the profile you were editing; the game's profile is unchanged |
 | EU6 | Sidebar footer with ViGEmBus off, output off, another Xbox controller as player 1, and everything working | *Xbox output* reads no driver / off / player 2 / on; hovering explains the fix |
 
+## Game performance (November 2026): needs Windows, the DualSense and Warzone
+
+Procedure, tools and what to record: `docs/performance-investigation.md` §5.
+
+| # | Check | Expected |
+|---|---|---|
+| WZ1 | Scenarios A–F, old build and new build, NEXUS placed where it is during play | With the new build, C–F are within run-to-run variation of A (average FPS and 1% lows); WebView2 near 0% GPU while the game has focus |
+| WZ2 | D-min and D-3D (new build) | D-3D ≈ D-min: the 3D view doesn't redraw while the game is focused, and the status lines update about 4 times a second |
+| WZ3 | Click NEXUS while D-3D runs, then back into the game | NEXUS shows the current state at once and updates smoothly while focused; back in the game, it slows down again |
+
 ## Release gate
 
 No release (versioned or announced) until all of these are done on a real Windows 11 PC with a USB DualSense, and the results are recorded here with the date and NEXUS commit:
@@ -287,6 +297,7 @@ No release (versioned or announced) until all of these are done on a real Window
 2. **DS1**: no stale skips and no slow driver calls over 50 ms during that play session. Any call over 50 ms means the output-thread design in `docs/driver-performance.md` is needed before a release.
 3. **WI1, WI2, WI5, WI8, WI10** (close to tray during a game, Quit releases everything, start with Windows, single copy, uninstall cleanup).
 4. **SM1, SM4, SM5** (stick swap, stick as d-pad, no flicker near the threshold), if those features are to be used.
-5. A Warzone session with the profile you'll actually play: inputs respond normally, nothing stays pressed after alt-tab, after closing NEXUS to the tray, or after quitting it. NEXUS does not try to avoid anti-cheat; if Warzone rejects virtual controllers or macros, stop using NEXUS there.
+5. **WZ1–WZ3** (Warzone frame rate with NEXUS running).
+6. A Warzone session with the profile you'll actually play: inputs respond normally, nothing stays pressed after alt-tab, after closing NEXUS to the tray, or after quitting it. NEXUS does not try to avoid anti-cheat; if Warzone rejects virtual controllers or macros, stop using NEXUS there.
 
 Automated results (unit, simulated-engine and installer tests on GitHub's Windows machines) do not count towards this gate.
