@@ -56,7 +56,8 @@ export const engineApi = {
   duplicateProfile: (id: number) => invoke<Profile>("duplicate_profile", { id }),
   /** Returns the active profile afterwards. */
   deleteProfile: (id: number) => invoke<Profile>("delete_profile", { id }),
-  setProcessing: (config: ProcessingConfig) => invoke<Profile>("set_processing", { config }),
+  /** Saves to `profileId` (the profile the edit was made in), or the active profile. */
+  setProcessing: (config: ProcessingConfig, profileId?: number) => invoke<Profile>("set_processing", { config, profileId: profileId ?? null }),
   stopAllMacros: () => invoke<void>("stop_all_macros"),
   refreshDrivers: () => invoke<DriverStatus>("refresh_drivers"),
   getOutputConsent: () => invoke<{ enabled: boolean }>("get_output_consent"),

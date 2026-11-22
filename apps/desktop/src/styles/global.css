@@ -976,3 +976,8 @@ td.perf-stage { padding-left: 22px; color: var(--text-dim); }
 .restore-head { margin: 18px 0 4px; font-size: 14px; }
 .restore-list { list-style: none; padding: 0; margin: 6px 0 0; display: grid; gap: 6px; }
 .restore-item { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+
+/* Sidebar › active profile */
+.profile-switcher { display: flex; flex-direction: column; gap: 4px; margin: 0 12px 12px; }
+.profile-switcher-label { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-faint); }
+.profile-switcher .select { width: 100%; }

@@ -23,7 +23,7 @@ pub use processor::{
     trigger_output, ConfiguredProcessor, DIR_DOWN, DIR_LEFT, DIR_RIGHT, DIR_UP, GYRO_LSB_PER_DPS,
 };
 
-use nexus_controller_core::ControllerState;
+use nexus_controller_core::{Button, ControllerState};
 
 /// One processing stage. Stages run on the controller's reader thread, so
 /// they must be fast, non-blocking and allocation-free in steady state.
@@ -34,6 +34,26 @@ pub trait InputProcessor: Send {
     fn active_layer(&self) -> Option<usize> {
         None
     }
+    /// What this stage remembers between reports (held buttons, toggles,
+    /// hidden combination buttons), so a rebuilt stage can continue from it.
+    fn runtime_state(&self) -> Option<RuntimeState> {
+        None
+    }
+    /// Continues from a previous stage's state. `keep_toggles`: toggled
+    /// layers and gyro stay on (a settings edit), or start off (a profile switch).
+    fn restore_runtime_state(&mut self, _state: &RuntimeState, _keep_toggles: bool) {}
+}
+
+/// State a [`ConfiguredProcessor`] carries from one report to the next.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct RuntimeState {
+    pub prev_physical: u32,
+    pub combo_latched: u32,
+    pub stick_dirs: [u8; 2],
+    pub gyro_button_was_down: bool,
+    pub gyro_toggled: Option<Button>,
+    /// Toggle layers that are on, by activator.
+    pub layers_on: Vec<Button>,
 }
 
 /// Ordered chain of stages. An empty pipeline is a pass-through.
@@ -57,6 +77,27 @@ impl ProcessingPipeline {
         self.stages.iter().find_map(|s| s.active_layer())
     }
 
+    /// Continues each stage from the matching stage of `old` (after new
+    /// settings were applied). Without this, a rebuilt stage would forget
+    /// held buttons (a held toggle button would toggle again), hidden
+    /// combination buttons (they would leak to the game while still held)
+    /// and, with `keep_toggles`, toggled layers and gyro.
+    pub fn carry_state_from(&mut self, old: &ProcessingPipeline, keep_toggles: bool) {
+        for (new, old) in self.stages.iter_mut().zip(&old.stages) {
+            if let Some(s) = old.runtime_state() {
+                new.restore_runtime_state(&s, keep_toggles);
+            }
+        }
+    }
+
+    /// The first stage's runtime state (tests and diagnostics).
+    pub fn stages_state(&self) -> RuntimeState {
+        self.stages
+            .iter()
+            .find_map(|s| s.runtime_state())
+            .unwrap_or_default()
+    }
+
     pub fn stage_names(&self) -> Vec<&'static str> {
         self.stages.iter().map(|s| s.name()).collect()
     }
@@ -78,6 +119,9 @@ mod advanced_tests;
 
 #[cfg(test)]
 mod stick_mapping_tests;
+
+#[cfg(test)]
+mod state_carry_tests;
 
 #[cfg(test)]
 mod tests {

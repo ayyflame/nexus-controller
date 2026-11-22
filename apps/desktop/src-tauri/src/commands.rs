@@ -181,7 +181,8 @@ pub(crate) fn apply_profile(
     state
         .engine
         .set_output_mode(effective_output(store, profile.virtual_output));
-    state.engine.set_processing(profile.processing.clone());
+    // A different profile: its toggles start off (held buttons carry over).
+    state.engine.switch_processing(profile.processing.clone());
     let macros = store.list_macros_for(profile.id).map_err(profile_error)?;
     state.engine.set_macros(macros);
     Ok(())
@@ -312,13 +313,23 @@ pub fn delete_profile(state: State<'_, AppState>, id: i64) -> CmdResult<Profile>
 
 /// Saves stick/trigger/remap settings to the active profile and applies them.
 #[tauri::command]
-pub fn set_processing(state: State<'_, AppState>, config: ProcessingConfig) -> CmdResult<Profile> {
+pub fn set_processing(
+    state: State<'_, AppState>,
+    config: ProcessingConfig,
+    profile_id: Option<i64>,
+) -> CmdResult<Profile> {
     let mut store = state.store.lock().map_err(|_| "profile store poisoned")?;
     let active = store.active_profile().map_err(profile_error)?;
+    // Saved to the profile the edit was made in. If the active profile changed
+    // meanwhile (a game was focused, or the user switched), the edit must not
+    // overwrite the new profile's settings, and the engine keeps the new ones.
+    let target = profile_id.unwrap_or(active.id);
     let profile = store
-        .set_processing(active.id, &config)
+        .set_processing(target, &config)
         .map_err(profile_error)?;
-    state.engine.set_processing(profile.processing.clone());
+    if target == active.id {
+        state.engine.set_processing(profile.processing.clone());
+    }
     Ok(profile)
 }
 

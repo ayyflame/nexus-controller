@@ -405,6 +405,58 @@ impl InputProcessor for ConfiguredProcessor {
     fn active_layer(&self) -> Option<usize> {
         ConfiguredProcessor::active_layer(self)
     }
+
+    fn runtime_state(&self) -> Option<crate::RuntimeState> {
+        let g = &self.config.gyro;
+        Some(crate::RuntimeState {
+            prev_physical: self.prev_physical,
+            combo_latched: self.combo_latched,
+            stick_dirs: self.stick_dirs,
+            gyro_button_was_down: self.gyro.button_was_down,
+            gyro_toggled: g.button.filter(|_| {
+                g.enabled && g.activation == GyroActivation::Toggle && self.gyro.toggled
+            }),
+            layers_on: self
+                .layers
+                .iter()
+                .enumerate()
+                .filter(|(i, l)| l.mode == LayerMode::Toggle && self.layer_toggled[*i])
+                .map(|(_, l)| l.activator)
+                .collect(),
+        })
+    }
+
+    fn restore_runtime_state(&mut self, s: &crate::RuntimeState, keep_toggles: bool) {
+        // Always: buttons already held are not new presses, hidden
+        // combination buttons stay hidden until released, and stick
+        // directions keep their release margin.
+        self.prev_physical = s.prev_physical;
+        self.combo_latched = s.combo_latched;
+        self.gyro.button_was_down = s.gyro_button_was_down;
+        for i in 0..2 {
+            let enabled = [&self.config.left_stick, &self.config.right_stick][i]
+                .buttons
+                .enabled;
+            self.stick_dirs[i] = if enabled { s.stick_dirs[i] } else { 0 };
+        }
+        if !keep_toggles {
+            return;
+        }
+        // A toggle stays on if the same button still toggles the same thing.
+        for (i, l) in self.layers.iter().enumerate() {
+            if l.mode == LayerMode::Toggle && s.layers_on.contains(&l.activator) {
+                self.layer_toggled[i] = true;
+            }
+        }
+        let g = &self.config.gyro;
+        if g.enabled
+            && g.activation == GyroActivation::Toggle
+            && g.button.is_some()
+            && s.gyro_toggled == g.button
+        {
+            self.gyro.toggled = true;
+        }
+    }
 }
 
 // ---- Curves -----------------------------------------------------------------

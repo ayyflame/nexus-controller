@@ -63,20 +63,29 @@ function useProcessingDraft() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profileId]);
 
+  // The profile the draft belongs to (current at every render).
+  const draftProfile = useRef(profileId);
+  draftProfile.current = profileId;
+
   useEffect(() => {
     if (connection.kind !== "ready" || JSON.stringify(draft) === lastSaved.current) return;
     setSave("saving");
+    const owner = profileId;
     const t = setTimeout(async () => {
       try {
-        const saved = await engineApi.setProcessing(draft);
+        // Saved to the profile it was edited in, even if a game switched the
+        // active profile meanwhile.
+        const saved = await engineApi.setProcessing(draft, owner);
+        if (draftProfile.current !== owner) return; // switched away: nothing to show
         lastSaved.current = JSON.stringify(draft);
         setProfile(saved);
         setSave("saved");
       } catch (e) {
-        setSave({ error: errorMessage(e) });
+        if (draftProfile.current === owner) setSave({ error: errorMessage(e) });
       }
     }, 300);
     return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft, connection.kind, setProfile]);
 
   return { draft, setDraft, save };

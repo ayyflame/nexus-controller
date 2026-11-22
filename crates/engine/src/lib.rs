@@ -323,6 +323,9 @@ struct Shared {
     recording: Mutex<Option<RecordingState>>,
     processing: Mutex<Arc<ProcessingConfig>>,
     processing_generation: AtomicU64,
+    /// Whether the latest settings change keeps toggles (an edit) or not (a
+    /// profile switch).
+    processing_keep_toggles: std::sync::atomic::AtomicBool,
     rumble_request: Mutex<(u64, f32, u32)>,
     /// Generation of `rumble_request`, read lock-free on every report.
     rumble_generation: AtomicU64,
@@ -410,6 +413,7 @@ impl Engine {
             recording: Mutex::new(None),
             processing: Mutex::new(Arc::new(config.processing.sanitized())),
             processing_generation: AtomicU64::new(0),
+            processing_keep_toggles: std::sync::atomic::AtomicBool::new(true),
             rumble_request: Mutex::new((0, 0.0, 0)),
             rumble_generation: AtomicU64::new(0),
             stats: Mutex::new(EngineStats::default()),
@@ -577,8 +581,24 @@ impl Engine {
 
     /// Applies new stick/trigger/remap settings to every controller on its
     /// next report.
+    /// New settings for the active profile (an edit). Toggled layers and
+    /// toggled gyro stay on; held buttons stay held, not new presses.
     pub fn set_processing(&self, config: ProcessingConfig) {
+        self.replace_processing(config, true);
+    }
+
+    /// Settings of another profile (a profile switch). Toggles start off;
+    /// held buttons and hidden combination buttons are still carried over,
+    /// so nothing toggles or leaks just because the profile changed.
+    pub fn switch_processing(&self, config: ProcessingConfig) {
+        self.replace_processing(config, false);
+    }
+
+    fn replace_processing(&self, config: ProcessingConfig, keep_toggles: bool) {
         *lock(&self.shared.processing) = Arc::new(config.sanitized());
+        self.shared
+            .processing_keep_toggles
+            .store(keep_toggles, Ordering::Release);
         self.shared
             .processing_generation
             .fetch_add(1, Ordering::AcqRel);
@@ -1269,7 +1289,10 @@ impl EngineSessionHandler {
         if generation != self.processing_generation {
             self.processing_generation = generation;
             let config = lock(&self.shared.processing).clone();
-            self.pipeline = build_pipeline(&config);
+            let keep_toggles = self.shared.processing_keep_toggles.load(Ordering::Acquire);
+            let mut pipeline = build_pipeline(&config);
+            pipeline.carry_state_from(&self.pipeline, keep_toggles);
+            self.pipeline = pipeline;
             self.feedback.config = config.feedback.clone();
         }
     }

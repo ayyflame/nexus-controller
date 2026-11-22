@@ -3495,3 +3495,71 @@ fn many_slightly_slow_driver_calls_never_build_up_a_backlog_of_old_input() {
     });
     assert!(s.devices[0].stale_reports_skipped > 0);
 }
+
+#[test]
+fn editing_settings_keeps_a_toggled_layer_and_switching_profile_resets_it() {
+    use nexus_controller_core::Button;
+    use nexus_input_processing::{LayerMode, MappingLayer, RemapRule};
+    let (backend, e, log) = passthrough_xbox();
+    let mut c = ProcessingConfig::passthrough();
+    c.layers = vec![MappingLayer {
+        name: "Shift".into(),
+        activator: Button::Touchpad,
+        mode: LayerMode::Toggle,
+        remap: vec![RemapRule::new(Button::South, Some(Button::East))],
+    }];
+    e.set_processing(c.clone());
+    pump(&backend, PATH, 2);
+    // Toggle the layer on with a touchpad click (bit 0x02 of byte 2), release it.
+    backend.push_report(PATH, report(&[(2, 0x02)]));
+    expect_pad(
+        &backend,
+        &log,
+        &Payload::neutral(),
+        pad(0),
+        "toggle released",
+    );
+    expect_pad(
+        &backend,
+        &log,
+        &held(0, 0x20),
+        pad(xusb::B),
+        "layer on: Cross → B",
+    );
+
+    // A settings edit (e.g. a deadzone slider) keeps it on.
+    let mut edited = c.clone();
+    edited.left_stick.deadzone = 0.2;
+    e.set_processing(edited);
+    expect_pad(
+        &backend,
+        &log,
+        &Payload::neutral(),
+        pad(0),
+        "after the edit",
+    );
+    expect_pad(
+        &backend,
+        &log,
+        &held(0, 0x20),
+        pad(xusb::B),
+        "still on after an edit",
+    );
+
+    // Switching to a profile (same settings here) starts with toggles off.
+    e.switch_processing(c);
+    expect_pad(
+        &backend,
+        &log,
+        &Payload::neutral(),
+        pad(0),
+        "after the switch",
+    );
+    expect_pad(
+        &backend,
+        &log,
+        &held(0, 0x20),
+        pad(xusb::A),
+        "off after a profile switch",
+    );
+}

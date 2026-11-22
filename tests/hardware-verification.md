@@ -268,6 +268,17 @@ The rules are unit-tested and the installer check runs in CI on a GitHub Windows
 | RP4 | Install an update with the updater (once it is switched on), then *Restore points* › *Saved before updating* | The pre-update data restores |
 | RP5 | *Settings* › **Copy diagnostics report**, paste into a text editor | No Windows account name, serial number, MAC address or profile/macro names appear |
 
+## Everyday use (November 2026): needs Windows and the DualSense
+
+| # | Check | Expected |
+|---|---|---|
+| EU1 | Toggle a shift layer on (or toggle gyro on), then change a slider in *Controller › Sticks* | The layer (or gyro) stays on |
+| EU2 | Hold a toggle-layer button while a game gains focus and switches the profile | The layer doesn't toggle by itself |
+| EU3 | Use a combination with *hide*, release one button, change a setting while still holding the other | No stray LB/RB reaches the game |
+| EU4 | Sidebar › *Active profile*: switch profiles from any page | Mappings change at once; the sidebar, Dashboard and Profiles agree on the active profile |
+| EU5 | Edit a setting, and within half a second alt-tab into a game linked to another profile | The edit is saved to the profile you were editing; the game's profile is unchanged |
+| EU6 | Sidebar footer with ViGEmBus off, output off, another Xbox controller as player 1, and everything working | *Xbox output* reads no driver / off / player 2 / on; hovering explains the fix |
+
 ## Release gate
 
 No release (versioned or announced) until all of these are done on a real Windows 11 PC with a USB DualSense, and the results are recorded here with the date and NEXUS commit:
