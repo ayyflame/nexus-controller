@@ -289,6 +289,17 @@ Procedure, tools and what to record: `docs/performance-investigation.md` §5.
 | WZ2 | D-min and D-3D (new build) | D-3D ≈ D-min: the 3D view doesn't redraw while the game is focused, and the status lines update about 4 times a second |
 | WZ3 | Click NEXUS while D-3D runs, then back into the game | NEXUS shows the current state at once and updates smoothly while focused; back in the game, it slows down again |
 
+## Input feel through NEXUS (November 2026): needs Windows, the controller and Warzone
+
+Procedure and how to read the numbers: `docs/input-timing.md` §5.
+
+| # | Check | Expected |
+|---|---|---|
+| IT1 | `joy.cpl` while playing | Only *Controller (XBOX 360 For Windows)* is listed (no double input from the PlayStation controller) |
+| IT2 | Performance page after a minute of play, scenarios B–D | Time between reports and between frames sent: median ≈ 4 ms, 99th < 5 ms; reports already waiting 0; stale reports skipped 0; processing 99th < 1 ms |
+| IT3 | Compare A (controller used directly) with B, then C and D | Note which feels different and the Performance numbers for it |
+| IT4 | NEXUS stick deadzone at 0 vs the default 5 %, same Warzone settings | Note whether small aim movements feel closer to A |
+
 ## DualShock 4 (November 2026): needs Windows and a DualShock 4 on USB
 
 Report format and how it was checked: `docs/dualshock4-protocol.md`. Note the revision (*Settings › Device scan*: CUH-ZCT1 or CUH-ZCT2) with each result.

@@ -51,20 +51,46 @@ Both run in the *XInput loopback check* workflow.
 
 Each ran idle, and with every CPU core busy as a stand-in for a game.
 
-### Before any change (the code as it is; nothing was changed afterwards)
+### Measured (the code as it is; the input path was not changed)
 
-Representative clean run (run 45112008412). All values in µs except the last column; 1,500 reports per row.
+Two runs on the same kind of machine, 1,500 reports per row, values in µs. **A shared virtual machine adds its own pauses**, so the spread between runs is the VM, not NEXUS: compare the rows within a run.
 
-| Scenario | Report → XInput, mean / p50 / p95 / p99 / max | XInput update spacing, p50 / p99 / max | Never visible |
+**Run 45112008412** (all scenarios clean):
+
+| Scenario | Report → XInput, mean / p50 / p95 / p99 / max | XInput update spacing, p50 / p95 / p99 / max | Never visible |
 |---|---|---|---|
-| ViGEmBus alone, idle | 47 / 28 / 81 / 130 / 10,984 | 3,999 / 11,587 / 76,850 | 11 (0.7 %) |
-| ViGEmBus alone, all cores busy | 48 / 47 / 66 / 80 / 154 | 4,000 / 4,042 / 4,304 | 0 |
-| B, idle | 41 / 40 / 56 / 68 / 445 | 3,999 / 4,030 / 4,640 | 1 (0.1 %) |
-| C, idle | 45 / 43 / 69 / 90 / 250 | 3,999 / 4,035 / 4,176 | 0 |
-| D, idle | in this run 50–60 µs p50 | 4,000 / ~4,100 | 0 |
-| B, all cores busy | 72 / 71 / 102 / 142 / 478 (run 45112880794) | 4,000 / 4,030 | 0 |
-| C, all cores busy | 81 / 78 / 111 / 161 / 514 (run 45112880794) | 4,000 / 4,040 | 0 |
-| D, all cores busy | 71 / 71 / 92 / 105 / 138 (run 45112880794) | 4,000 / 4,040 | 0 |
+| ViGEmBus alone, idle | 32 / 30 / 51 / 91 / 717 | 4,000 / 4,021 / 4,062 / 5,093 | 0 |
+| ViGEmBus alone, all cores busy | 49 / 47 / 70 / 98 / 226 | 4,000 / 4,022 / 4,046 / 13,968 | 0 |
+| B default, idle | 53 / 52 / 67 / 87 / 296 | 4,000 / 4,016 / 4,030 / 4,450 | 0 |
+| C mappings, idle | 51 / 51 / 63 / 70 / 102 | 4,000 / 4,015 / 4,025 / 4,043 | 0 |
+| D macro playing, idle | 146 / 55 / 1,124 / 1,414 / 2,166 | 4,000 / 5,069 / 5,361 / 6,119 | 0 |
+| B default, all cores busy | 122 / 55 / 926 / 1,273 / 2,090 | 3,999 / 4,877 / 5,222 / 6,034 | 0 |
+| C mappings, all cores busy | 82 / 59 / 124 / 1,032 / 2,114 | 3,997 / 4,068 / 4,967 / 6,049 | 0 |
+| D macro playing, all cores busy | 118 / 60 / 879 / 1,287 / 1,552 | 3,999 / 4,827 / 5,229 / 5,490 | 0 |
+
+**Run 45112880794** (with every core busy): B 74 / 72 / 102 / 142 / 478; C 81 / 78 / 111 / 161 / 514; D 71 / 71 / 92 / 105 / 138. Spacing p99 about 4.04 ms, 0 missing.
+
+**Where the time goes**, per report (run 45113820263, C mappings, idle; the cleanest pass of that run):
+
+| Stage | mean / p50 / p95 / p99 / max |
+|---|---|
+| Report pushed → NEXUS's read returns (thread wake-up) | 17 / 16 / 24 / 34 / 95 |
+| Read returned → ViGEmBus call returned (all of NEXUS, then the driver call) | 72 / 72 / 103 / 163 / 401 |
+| Call returned → XInput shows it | 0 / 0 / 0 / 0 / 147 |
+| **Total, report → XInput** | **42 / 41 / 62 / 85 / 237** |
+
+XInput already has the new state when the driver call returns: the output stage has no timer or queue. With every core busy, the reader thread still wakes in 8–9 µs at the median (one step above normal priority, ahead of the busy normal-priority threads).
+
+Inside that, NEXUS's own work (engine statistics, p50 / p99):
+
+| Stage | p50 / p99 |
+|---|---|
+| Parsing and hand-over | 0.3–0.6 µs / 0.7–1.0 µs |
+| Mapping | 1.2–2.9 µs / 2.7–12.6 µs |
+| Macros | 0.4–0.9 µs / 0.8–1.6 µs |
+| ViGEmBus call | 38–106 µs / 110–440 µs |
+
+The 1–2 ms outliers in some rows (p95 / p99) come from the machine: they appear in the thread wake-up and in the driver call, and in "ViGEmBus alone" too. They also appear with every core busy, with or without macros.
 
 NEXUS's own processing, measured by the engine (p50 / p99):
 
@@ -85,13 +111,16 @@ The report-to-XInput time is about the driver call itself plus a few microsecond
 - **Mappings and macros:** they add no measurable delay, a few microseconds at most.
 - **Load:** with every core busy, the median rises by about 30 µs and spacing stays at 4 ms.
 
-### An anomaly specific to the CI machine (not reproduced consistently)
+### An anomaly of the CI machine, reproduced without NEXUS
 
-In 3 of 5 runs, partway into scenario D, XInput switched to an all-zero state and stopped changing for every later scenario. It even stayed that way in a new process with a new virtual controller.
+In several runs, about 2 s after A started being pressed every 60 ms, XInput switched to an all-zero state. It stopped changing, also in later steps and in a new process with a new virtual controller. Throughout:
+- NEXUS's frames were correct (checked against what it sent);
+- ViGEmBus accepted every update without error;
+- the controller stayed in its XInput slot.
 
-Throughout, NEXUS's frames were correct (checked against what it sent), ViGEmBus accepted every update without error, and the controller stayed in its XInput slot. The same scenarios ran clean in the other runs. The A-press pattern sent without NEXUS also ran clean (2,500 updates, 1 not visible).
+**It also happened with ViGEmBus alone, without NEXUS's engine** (run 45113483612). After 508 updates of the same A-press pattern, XInput stopped following: 79.6 % of updates never visible, and 100 % in the next phase with no buttons pressed.
 
-Because the state survives the process, the cause is in Windows on that machine (Microsoft Edge was in the foreground; it reads controllers itself). It doesn't match the reported symptom (input dead, not choppy) and was not seen in any engine-level measurement.
+The foreground window was a Windows UI that accepts controller input: Windows Search (`SearchHost.exe`), or in another run Microsoft Edge. So it's how Windows on that machine treats repeated A presses while one of its own controller-aware apps is in front, not NEXUS. It doesn't match the reported symptom (input dead, not choppy).
 
 ## 3. What was checked, and found fine
 
@@ -150,7 +179,7 @@ Use the same match type or the firing range, and the same movements, for each sc
 - **Everything healthy but the feel differs from A:** look at section 4 (double input, stacked deadzones).
 - **B fine but C or D not:** that mapping or macro. Compare the processing time rows.
 
-Record the results in `tests/hardware-verification.md` (*IT1–IT3*).
+Record the results in `tests/hardware-verification.md` (*IT1–IT4*).
 
 ## 6. New diagnostics (Performance page)
 
