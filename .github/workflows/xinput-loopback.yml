@@ -63,10 +63,10 @@ jobs:
       # driver, measured through XInput: ViGEmBus alone, then the whole NEXUS
       # engine (synthetic DualSense reports, no USB hardware). Release builds,
       # as the app. Simulated input; not a physical controller or a game.
-      - name: Timing - ViGEmBus alone (stream at 250 Hz through XInput)
-        if: success() || failure()
-        run: cargo test --release -p nexus-virtual-controller --locked --test xinput_streaming -- --ignored --nocapture --test-threads=1
-
       - name: Timing - NEXUS engine end to end (synthetic reports -> ViGEmBus -> XInput)
         if: success() || failure()
         run: cargo test --release -p nexus-engine --locked --test pipeline_timing -- --ignored --nocapture --test-threads=1
+
+      - name: Timing - ViGEmBus alone (stream at 250 Hz through XInput)
+        if: success() || failure()
+        run: cargo test --release -p nexus-virtual-controller --locked --test xinput_streaming -- --ignored --nocapture --test-threads=1
