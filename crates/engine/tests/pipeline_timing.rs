@@ -208,12 +208,29 @@ fn run(e: &Engine, q: &Queue, first: u32, n: u32, hold_r3: bool, label: &str) {
             let mut prev_poll = Instant::now();
             let mut worst_poll_gap = Duration::ZERO;
             let mut polls = 0u64;
+            let mut slot = slot;
+            let mut missing_reads = 0u64;
+            let mut moves: Vec<String> = Vec::new();
+            let started = Instant::now();
             while !stop.load(Ordering::Relaxed) {
                 let now = Instant::now();
                 worst_poll_gap = worst_poll_gap.max(now - prev_poll);
                 prev_poll = now;
                 polls += 1;
-                if let Some(s) = read(slot) {
+                let state = read(slot).or_else(|| {
+                    // Not in its slot: has Windows re-created it elsewhere?
+                    missing_reads += 1;
+                    let found = (0..4).find(|s| read(*s).is_some());
+                    if let Some(f) = found.filter(|f| *f != slot) {
+                        moves.push(format!(
+                            "slot {slot} -> {f} after {} ms",
+                            started.elapsed().as_millis()
+                        ));
+                        slot = f;
+                    }
+                    found.and_then(read)
+                });
+                if let Some(s) = state {
                     if s.packet != last {
                         last = s.packet;
                         local.push((Instant::now(), tag_of(&s.gamepad), s.gamepad));
@@ -222,7 +239,7 @@ fn run(e: &Engine, q: &Queue, first: u32, n: u32, hold_r3: bool, label: &str) {
                 std::thread::yield_now();
             }
             *seen.lock().unwrap() = local;
-            (polls, worst_poll_gap)
+            (polls, worst_poll_gap, missing_reads, moves)
         })
     };
     std::thread::sleep(Duration::from_millis(50));
@@ -252,7 +269,7 @@ fn run(e: &Engine, q: &Queue, first: u32, n: u32, hold_r3: bool, label: &str) {
     std::thread::sleep(Duration::from_millis(80));
     set_priority(0);
     stop.store(true, Ordering::Relaxed);
-    let (polls, worst_poll_gap) = reader.join().unwrap();
+    let (polls, worst_poll_gap, missing_reads, moves) = reader.join().unwrap();
     let seen = seen.lock().unwrap().clone();
     let mut first_seen = HashMap::new();
     for (t, tag, _) in &seen {
@@ -314,7 +331,7 @@ fn run(e: &Engine, q: &Queue, first: u32, n: u32, hold_r3: bool, label: &str) {
         (first + n - 1) % 256,
     );
     println!(
-        "PIPELINE {label}   virtual controller: active {:?}, slot read {slot} -> now {:?}, retrying {}, last error {:?}; XInput polls {polls}, longest gap between polls {} us",
+        "PIPELINE {label}   virtual controller: active {:?}, slot read {slot} -> now {:?}, retrying {}, last error {:?}; XInput polls {polls}, longest gap between polls {} us; reads with the controller absent from its slot {missing_reads}; slot moves {moves:?}",
         o.active, o.player_index, o.retrying, o.last_error, worst_poll_gap.as_micros()
     );
     let log = e.recent_log(500);
