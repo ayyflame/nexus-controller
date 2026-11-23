@@ -191,7 +191,10 @@ fn tag_of(g: &XInputGamepad) -> u32 {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn run(e: &Engine, q: &Queue, slot: u32, first: u32, n: u32, hold_r3: bool, label: &str) {
+fn run(e: &Engine, q: &Queue, first: u32, n: u32, hold_r3: bool, label: &str) {
+    // The slot the virtual controller is in now (it moves if it was re-created).
+    let slot = u32::from(e.status().devices[0].output.player_index.unwrap_or(0));
+    let log_before = e.recent_log(500).len();
     let stop = Arc::new(AtomicBool::new(false));
     let seen = Arc::new(Mutex::new(Vec::new()));
     let reader = {
@@ -200,7 +203,14 @@ fn run(e: &Engine, q: &Queue, slot: u32, first: u32, n: u32, hold_r3: bool, labe
             set_priority(15); // THREAD_PRIORITY_TIME_CRITICAL: the measuring reader only
             let mut last = u32::MAX;
             let mut local = Vec::with_capacity(8 * n as usize);
+            let mut prev_poll = Instant::now();
+            let mut worst_poll_gap = Duration::ZERO;
+            let mut polls = 0u64;
             while !stop.load(Ordering::Relaxed) {
+                let now = Instant::now();
+                worst_poll_gap = worst_poll_gap.max(now - prev_poll);
+                prev_poll = now;
+                polls += 1;
                 if let Some(s) = read(slot) {
                     if s.packet != last {
                         last = s.packet;
@@ -210,10 +220,13 @@ fn run(e: &Engine, q: &Queue, slot: u32, first: u32, n: u32, hold_r3: bool, labe
                 std::thread::yield_now();
             }
             *seen.lock().unwrap() = local;
+            (polls, worst_poll_gap)
         })
     };
     std::thread::sleep(Duration::from_millis(50));
     let before = e.status().devices[0].stale_reports_skipped;
+    // The stand-in controller is hardware: it must not be starved by the load.
+    set_priority(15);
     // The "controller": a report every 4 ms by deadline.
     let period = Duration::from_millis(4);
     let start = Instant::now() + Duration::from_millis(10);
@@ -234,8 +247,9 @@ fn run(e: &Engine, q: &Queue, slot: u32, first: u32, n: u32, hold_r3: bool, labe
         pushed.push(t);
     }
     std::thread::sleep(Duration::from_millis(80));
+    set_priority(0);
     stop.store(true, Ordering::Relaxed);
-    reader.join().unwrap();
+    let (polls, worst_poll_gap) = reader.join().unwrap();
     let seen = seen.lock().unwrap().clone();
     let mut first_seen = HashMap::new();
     for (t, tag) in &seen {
@@ -268,6 +282,17 @@ fn run(e: &Engine, q: &Queue, slot: u32, first: u32, n: u32, hold_r3: bool, labe
         100.0 * f64::from(missing) / f64::from(n),
         d.stale_reports_skipped - before
     );
+    let o = &d.output;
+    println!(
+        "PIPELINE {label}   virtual controller: active {:?}, slot read {slot} -> now {:?}, retrying {}, last error {:?}; XInput polls {polls}, longest gap between polls {} us",
+        o.active, o.player_index, o.retrying, o.last_error, worst_poll_gap.as_micros()
+    );
+    let log = e.recent_log(500);
+    for entry in log.iter().skip(log_before) {
+        if entry.category == "output" || entry.category == "device" {
+            println!("PIPELINE {label}   log: {:?} {} {}", entry.level, entry.category, entry.message);
+        }
+    }
     println!(
         "PIPELINE {label}   engine: processing p50 {} p99 {} max {} us; stages p50/p99 ns: handover {}/{}, mapping {}/{}, macros {}/{}, driver call {}/{}; report intervals mean {} max {} us",
         d.pipeline_latency.p50_us, d.pipeline_latency.p99_us, d.pipeline_latency.max_us,
@@ -358,14 +383,14 @@ fn controller_reports_reach_xinput_through_nexus_on_time() {
         std::thread::sleep(Duration::from_millis(200));
         e.set_processing(ProcessingConfig::default());
         e.set_macros(vec![]);
-        run(&e, &q, slot, k, n, false, &format!("B default{tail}"));
+        run(&e, &q, k, n, false, &format!("B default{tail}"));
         k += n + 100;
         e.set_processing(mapping.clone());
-        run(&e, &q, slot, k, n, false, &format!("C mappings{tail}"));
+        run(&e, &q, k, n, false, &format!("C mappings{tail}"));
         k += n + 100;
         e.set_processing(ProcessingConfig::default());
         e.set_macros(vec![rapid.clone()]);
-        run(&e, &q, slot, k, n, true, &format!("D macro playing{tail}"));
+        run(&e, &q, k, n, true, &format!("D macro playing{tail}"));
         k += n + 100;
         e.set_macros(vec![]);
     }
