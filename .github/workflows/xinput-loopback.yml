@@ -69,11 +69,4 @@ jobs:
 
       - name: Timing - NEXUS engine end to end (synthetic reports -> ViGEmBus -> XInput)
         if: success() || failure()
-        shell: pwsh
-        # Three passes: an intermittent event shows up more reliably.
-        run: |
-          foreach ($pass in 1..3) {
-            Write-Host "PIPELINE pass $pass"
-            cargo test --release -p nexus-engine --locked --test pipeline_timing -- --ignored --nocapture --test-threads=1
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          }
+        run: cargo test --release -p nexus-engine --locked --test pipeline_timing -- --ignored --nocapture --test-threads=1

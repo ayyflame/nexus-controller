@@ -59,6 +59,47 @@ extern "system" {
 extern "system" {
     fn GetCurrentThread() -> isize;
     fn SetThreadPriority(thread: isize, priority: i32) -> i32;
+    fn OpenProcess(access: u32, inherit: i32, pid: u32) -> isize;
+    fn QueryFullProcessImageNameW(
+        process: isize,
+        flags: u32,
+        name: *mut u16,
+        size: *mut u32,
+    ) -> i32;
+    fn CloseHandle(h: isize) -> i32;
+}
+#[link(name = "user32", kind = "raw-dylib")]
+extern "system" {
+    fn GetForegroundWindow() -> isize;
+    fn GetWindowTextW(hwnd: isize, text: *mut u16, max: i32) -> i32;
+    fn GetWindowThreadProcessId(hwnd: isize, pid: *mut u32) -> u32;
+}
+
+/// The window in front and its program, for the log.
+fn foreground() -> String {
+    // SAFETY: plain Win32 queries with valid buffers; the process handle is closed.
+    unsafe {
+        let hwnd = GetForegroundWindow();
+        let mut title = [0u16; 256];
+        let n = GetWindowTextW(hwnd, title.as_mut_ptr(), 256).max(0) as usize;
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(hwnd, &mut pid);
+        let p = OpenProcess(0x1000, 0, pid);
+        let mut name = [0u16; 512];
+        let mut len = 512u32;
+        let exe = if p != 0 && QueryFullProcessImageNameW(p, 0, name.as_mut_ptr(), &mut len) != 0 {
+            String::from_utf16_lossy(&name[..len as usize])
+        } else {
+            "?".into()
+        };
+        if p != 0 {
+            CloseHandle(p);
+        }
+        format!(
+            "\"{}\" ({exe}, pid {pid})",
+            String::from_utf16_lossy(&title[..n])
+        )
+    }
 }
 
 const THREAD_PRIORITY_ABOVE_NORMAL: i32 = 1;
@@ -135,7 +176,9 @@ fn tag_of(g: &XInputGamepad) -> u32 {
     u32::from(g.right_trigger) + 256 * u32::from(g.left_trigger)
 }
 
-fn stream(m: &mut VirtualOutputManager, slot: u32, n: u32, first: u32, label: &str) {
+/// `press_a`: also press A for 30 ms every 60 ms (the pattern of a rapid-fire macro).
+fn stream(m: &mut VirtualOutputManager, slot: u32, n: u32, first: u32, press_a: bool, label: &str) {
+    println!("STREAM {label}: in front before: {}", foreground());
     let stop = Arc::new(AtomicBool::new(false));
     let seen: Arc<Mutex<Vec<(Instant, u32, u32)>>> =
         Arc::new(Mutex::new(Vec::with_capacity(4 * n as usize)));
@@ -173,7 +216,10 @@ fn stream(m: &mut VirtualOutputManager, slot: u32, n: u32, first: u32, label: &s
             std::hint::spin_loop();
         }
         let t = Instant::now();
-        m.submit(&tagged(first + i));
+        let mut s = tagged(first + i);
+        // 4 ms per update: 30 ms ≈ 7.5 updates; on for 8, off for 7.
+        s.buttons.south = press_a && (i % 15) < 8;
+        m.submit(&s);
         call.push(t.elapsed().as_secs_f64() * 1e6);
         assert_eq!(m.take_event(), None, "update {i} failed");
         sent.push(t);
@@ -210,6 +256,18 @@ fn stream(m: &mut VirtualOutputManager, slot: u32, n: u32, first: u32, label: &s
         .map(|w| (w[1] - w[0]).as_secs_f64() * 1e6)
         .collect();
     let last_ok = read(slot).map(|s| tag_of(&s.gamepad)) == Some(first + n - 1);
+    // When did XInput stop following (if it did)? The last tag it showed.
+    if let Some((t, _, tag)) = visible.last() {
+        if *tag != first + n - 1 {
+            println!(
+                "STREAM {label}   XInput stopped following after update {} ({} ms into the stream); last XInput state {:?}",
+                tag - first,
+                t.saturating_duration_since(sent[0]).as_millis(),
+                read(slot).map(|s| s.gamepad)
+            );
+        }
+    }
+    println!("STREAM {label}   in front after: {}", foreground());
     println!("STREAM {label}: {n} updates every 4 ms");
     println!("STREAM {label}   submit spacing      {}", dist(send_gaps));
     println!("STREAM {label}   driver call         {}", dist(call));
@@ -244,11 +302,23 @@ fn a_stream_of_updates_reaches_xinput_on_time() {
         std::thread::sleep(Duration::from_millis(10));
     };
     std::thread::sleep(Duration::from_millis(300));
-    stream(&mut m, slot, 1500, 1, "idle");
+    stream(&mut m, slot, 1500, 1, false, "idle");
     {
         let _load = Load::start();
         std::thread::sleep(Duration::from_millis(200));
-        stream(&mut m, slot, 1500, 2000, "all cores busy");
+        stream(&mut m, slot, 1500, 2000, false, "all cores busy");
     }
+    // The pattern NEXUS sends while a rapid-fire macro plays, without NEXUS's
+    // engine: if XInput stops following here too, the cause is outside NEXUS.
+    stream(
+        &mut m,
+        slot,
+        2500,
+        4000,
+        true,
+        "A pressed every 60 ms (macro pattern)",
+    );
+    std::thread::sleep(Duration::from_millis(500));
+    stream(&mut m, slot, 500, 7000, false, "afterwards, no buttons");
     m.set_mode(VirtualOutputKind::Disabled).expect("remove");
 }
