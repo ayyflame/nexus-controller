@@ -13,6 +13,7 @@ workspace = true
 nexus-controller-core.workspace = true
 nexus-device-manager.workspace = true
 nexus-dualsense.workspace = true
+nexus-dualshock4.workspace = true
 nexus-input-processing.workspace = true
 nexus-virtual-controller.workspace = true
 nexus-telemetry.workspace = true
@@ -22,4 +23,5 @@ serde.workspace = true
 [dev-dependencies]
 nexus-device-manager = { workspace = true, features = ["test-support"] }
 nexus-dualsense = { workspace = true, features = ["test-support"] }
+nexus-dualshock4 = { workspace = true, features = ["test-support"] }
 nexus-test-alloc-counter = { path = "../test-alloc-counter" }

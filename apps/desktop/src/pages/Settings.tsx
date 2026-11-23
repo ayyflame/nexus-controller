@@ -3,7 +3,7 @@ import { Icon } from "../components/Icons";
 import { useEngine } from "../hooks/useEngine";
 import { buildDiagnosticsReport } from "../lib/diagnostics";
 import { engineApi, errorMessage } from "../lib/engine";
-import { hex, time } from "../lib/format";
+import { hex, modelWithRevision, time } from "../lib/format";
 import { describeUpdate, formatLastCheck, isBusy, releaseOf } from "../lib/updates";
 import { useUpdates } from "../hooks/useUpdates";
 import { pageHidden } from "../lib/visibility";
@@ -178,7 +178,7 @@ function HidDevicesSection() {
               </div>
               <div className="small">
                 {d.identifiedModel
-                  ? <>Identified as <b>{d.identifiedModel}</b> · connection <b>{d.connection}</b> · origin <b>{d.origin}</b></>
+                  ? <>Identified as <b>{modelWithRevision(d.identifiedModel, d.productId)}</b> · connection <b>{d.connection}</b> · origin <b>{d.origin}</b></>
                   : <span className="muted">Not identified as a supported controller</span>}
                 <span className="muted"> · report lengths in/out/feature {d.inputReportLen}/{d.outputReportLen}/{d.featureReportLen}</span>
               </div>

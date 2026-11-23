@@ -596,8 +596,8 @@ function DoubleInputPanel({ outputActive, controllerConnected }: { outputActive:
   return (
     <Panel title="Avoid double input (optional)">
       <p className="muted small">
-        Games and Steam can see <b>both</b> your physical DualSense and the virtual Xbox controller, so a press may count twice.
-        HidHide, a free optional driver by the same developer as ViGEmBus, can hide the DualSense from games while NEXUS keeps reading it.
+        Games and Steam can see <b>both</b> your physical DualSense or DualShock 4 and the virtual Xbox controller, so a press may count twice.
+        HidHide, a free optional driver by the same developer as ViGEmBus, can hide your controller from games while NEXUS keeps reading it.
         NEXUS never installs HidHide or changes its settings; you set it up once in HidHide's own app. It is not required.
       </p>
       <div className="kv-row"><span>HidHide</span>{presence(hidhide)}</div>
@@ -606,7 +606,7 @@ function DoubleInputPanel({ outputActive, controllerConnected }: { outputActive:
       )}
       {advice === "checkApplicationsList" && (
         <div className="notice warn small">
-          HidHide is installed and NEXUS sees no controller. If your DualSense is plugged in, HidHide may be hiding it from NEXUS too:
+          HidHide is installed and NEXUS sees no controller. If your controller is plugged in, HidHide may be hiding it from NEXUS too:
           add NEXUS to HidHide's <b>Applications</b> list (step 2 below), or untick <b>Enable device hiding</b>.
         </div>
       )}
@@ -620,22 +620,22 @@ function DoubleInputPanel({ outputActive, controllerConnected }: { outputActive:
           <li>Restart Windows if the installer asks, then click <b>Check again</b> in the Driver panel.</li>
         </ol>
       </Advanced>
-      <Advanced title="2. Keep NEXUS allowed, hide the DualSense from games">
+      <Advanced title="2. Keep NEXUS allowed, hide your controller from games">
         <ol className="small driver-steps">
           <li>Start <b>HidHide Configuration Client</b> from the Start menu.</li>
           <li><b>Applications</b> tab: click <b>+</b> and choose the NEXUS program (path above). Only NEXUS goes here: not Steam, not games.</li>
-          <li><b>Devices</b> tab: tick <b>DualSense Wireless Controller</b>. Do <b>not</b> tick the Xbox 360 controller; that one is NEXUS's output.</li>
+          <li><b>Devices</b> tab: tick <b>DualSense Wireless Controller</b> (a DualShock 4 is listed as <b>Wireless Controller</b>). Do <b>not</b> tick the Xbox 360 controller; that one is NEXUS's output.</li>
           <li>Tick <b>Enable device hiding</b>.</li>
-          <li>Check: in NEXUS the DualSense stays connected. In <code>joy.cpl</code> (Win + R) only “Controller (XBOX 360 For Windows)” is listed.</li>
+          <li>Check: in NEXUS the controller stays connected. In <code>joy.cpl</code> (Win + R) only “Controller (XBOX 360 For Windows)” is listed.</li>
         </ol>
         <p className="muted small">
           While hiding is on, games see <b>no</b> controller when NEXUS is closed. Untick <b>Enable device hiding</b> when you play without NEXUS.
-          Plugging into a different USB port may show the DualSense as a new device: tick it again in the Devices tab.
+          Plugging into a different USB port may show the controller as a new device: tick it again in the Devices tab.
         </p>
       </Advanced>
       <Advanced title="Undo or recover">
         <ul className="small driver-steps">
-          <li><b>Show the DualSense to games again:</b> HidHide Configuration Client → untick <b>Enable device hiding</b>.</li>
+          <li><b>Show the controller to games again:</b> HidHide Configuration Client → untick <b>Enable device hiding</b>.</li>
           <li><b>NEXUS lost the controller after setup:</b> NEXUS is missing from the Applications list (or its path changed): add it again, or untick Enable device hiding.</li>
           <li><b>Remove HidHide completely:</b> Windows Settings › Apps › Installed apps › <b>HidHide</b> › Uninstall, then restart if asked. Every device is visible again; NEXUS keeps working.</li>
         </ul>

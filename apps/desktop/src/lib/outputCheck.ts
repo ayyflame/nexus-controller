@@ -32,7 +32,7 @@ export type Tone = "ok" | "warn" | "bad" | "idle";
 export function describeCheck(c: OutputCheck): { tone: Tone; title: string; detail: string } {
   switch (c.state) {
     case "noController":
-      return { tone: "idle", title: "No controller", detail: "Connect the DualSense to check what reaches Windows." };
+      return { tone: "idle", title: "No controller", detail: "Connect your controller by USB to check what reaches Windows." };
     case "notXbox":
       return { tone: "idle", title: "Virtual Xbox 360 controller not active",
         detail: "Turn on the virtual controller (Xbox 360) under Controller › Virtual Output. Only the Xbox 360 controller can be read back through XInput." };

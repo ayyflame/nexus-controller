@@ -5,7 +5,7 @@
 // (controller-core: device_event_json_shape_matches_frontend_contract).
 
 export type ConnectionType = "usb" | "bluetooth" | "unknown";
-export type ControllerModel = "dualSense" | "dualSenseEdge";
+export type ControllerModel = "dualSense" | "dualSenseEdge" | "dualShock4";
 export type DeviceOrigin = "physical" | "virtual" | "unknown";
 export type VirtualOutputKind = "disabled" | "xbox360" | "dualShock4";
 
@@ -38,7 +38,7 @@ export interface TouchpadState { points: [TouchPoint, TouchPoint]; width: number
 export interface MotionState { gyroRaw: [number, number, number]; accelRaw: [number, number, number]; sensorTimestamp: number }
 export type BatteryStatus = "discharging" | "charging" | "full" | "error" | "unknown";
 export interface BatteryState { percent: number; status: BatteryStatus }
-export type ReportFormat = "unknown" | "dualSenseUsb" | "dualSenseBluetooth" | "dualSenseBluetoothBasic";
+export type ReportFormat = "unknown" | "dualSenseUsb" | "dualSenseBluetooth" | "dualSenseBluetoothBasic" | "dualShock4Usb";
 
 export interface ControllerState {
   leftStick: StickState;

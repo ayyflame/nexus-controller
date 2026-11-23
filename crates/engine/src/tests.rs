@@ -3563,3 +3563,8 @@ fn editing_settings_keeps_a_toggled_layer_and_switching_profile_resets_it() {
         "off after a profile switch",
     );
 }
+
+// ---- DualShock 4 (synthetic reports) --------------------------------------------
+
+#[path = "ds4_tests.rs"]
+mod ds4;

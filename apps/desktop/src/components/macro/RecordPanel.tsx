@@ -99,7 +99,7 @@ export function RecordPanel({ hasSteps, onRecorded }: {
             <p className="muted small">
               {controllerReady
                 ? "Press Start, perform your button presses on the controller, then press Stop. Timing is captured automatically."
-                : "Connect your DualSense with a USB cable to record."}
+                : "Connect your DualSense or DualShock 4 with a USB cable to record."}
             </p>
           </div>
           {note && <div className="notice dev">{note}</div>}

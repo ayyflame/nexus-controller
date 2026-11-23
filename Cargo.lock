@@ -2296,12 +2296,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexus-dualshock4"
+version = "0.1.0"
+dependencies = [
+ "nexus-controller-core",
+ "nexus-dualsense",
+]
+
+[[package]]
 name = "nexus-engine"
 version = "0.1.0"
 dependencies = [
  "nexus-controller-core",
  "nexus-device-manager",
  "nexus-dualsense",
+ "nexus-dualshock4",
  "nexus-input-processing",
  "nexus-macro-engine",
  "nexus-telemetry",

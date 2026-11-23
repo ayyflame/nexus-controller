@@ -8,7 +8,7 @@
 // - stick: all four edges and all eight directions reached, then back to the centre;
 // - touchpad: a touch seen, and the touchpad clicked.
 
-import type { ControllerState, MacroButton } from "../types/engine";
+import type { ControllerModel, ControllerState, MacroButton } from "../types/engine";
 import {
   addStickSample, addTriggerSample, CENTER_RADIUS, emptyStickRange, emptyTriggerRange,
   PRESSED_RAW, RELEASED_RAW, stickRangeResult, type StickRange, type TriggerRange,
@@ -60,6 +60,18 @@ export interface TestState {
   results: Record<string, StepResult>;
   progress: Record<string, Progress>;
   finished: boolean;
+  /** The steps for the controller the test started with. */
+  steps: StepDef[];
+}
+
+/** The steps for one controller model. A DualShock 4 has no mute button
+ *  (that step would never pass) and calls Create "Share". */
+export function stepsFor(model?: ControllerModel | null): StepDef[] {
+  if (model !== "dualShock4") return STEPS;
+  return STEPS.filter((s) => s.id !== "extra").map((s) => s.id !== "system" ? s : {
+    ...s, title: "Share, Options and PS", hint: "Press and release Share, Options and the PS button.",
+    checks: [btn("select", "Share"), btn("start", "Options"), btn("home", "PS")],
+  });
 }
 
 function freshProgress(c: CheckDef): Progress {
@@ -75,12 +87,14 @@ function stepProgress(s: StepDef): Record<string, Progress> {
   return Object.fromEntries(s.checks.map((c) => [c.id, freshProgress(c)]));
 }
 
-export function startTest(): TestState {
+export function startTest(model?: ControllerModel | null): TestState {
+  const steps = stepsFor(model);
   return {
     step: 0,
-    results: Object.fromEntries(STEPS.map((s) => [s.id, "untested" as StepResult])),
-    progress: stepProgress(STEPS[0]!),
+    results: Object.fromEntries(steps.map((s) => [s.id, "untested" as StepResult])),
+    progress: stepProgress(steps[0]!),
     finished: false,
+    steps,
   };
 }
 
@@ -132,7 +146,7 @@ function advance(c: CheckDef, p: Progress, s: ControllerState): Progress {
 /** Feeds one controller state to the current step. */
 export function feed(t: TestState, s: ControllerState | null): TestState {
   if (!s || t.finished) return t;
-  const step = STEPS[t.step]!;
+  const step = t.steps[t.step]!;
   if (t.results[step.id] !== "untested") return t;
   const progress = Object.fromEntries(step.checks.map((c) => [c.id, advance(c, t.progress[c.id]!, s)]));
   const allDone = step.checks.every((c) => progress[c.id]!.done);
@@ -143,21 +157,21 @@ export function checkDone(t: TestState, id: string): boolean { return !!t.progre
 export function checkProgress(t: TestState, id: string): Progress | undefined { return t.progress[id]; }
 
 export function markFailed(t: TestState): TestState {
-  const step = STEPS[t.step]!;
+  const step = t.steps[t.step]!;
   return t.results[step.id] === "pass" ? t : { ...t, results: { ...t.results, [step.id]: "fail" } };
 }
 
 /** Clears the current step's result and progress so it can be tried again. */
 export function retry(t: TestState): TestState {
-  const step = STEPS[t.step]!;
+  const step = t.steps[t.step]!;
   return { ...t, finished: false, results: { ...t.results, [step.id]: "untested" }, progress: stepProgress(step) };
 }
 
 /** Moves to another step (keeping results); past the last step, finishes. */
 export function goTo(t: TestState, index: number): TestState {
-  if (index >= STEPS.length) return { ...t, finished: true };
+  if (index >= t.steps.length) return { ...t, finished: true };
   const i = Math.max(0, index);
-  return { ...t, step: i, finished: false, progress: stepProgress(STEPS[i]!) };
+  return { ...t, step: i, finished: false, progress: stepProgress(t.steps[i]!) };
 }
 
 export function summary(t: TestState): { pass: number; fail: number; untested: number } {

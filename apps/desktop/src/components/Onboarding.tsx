@@ -20,9 +20,9 @@ export function Onboarding({ forceOpen, onClose, onNavigate }: {
   if (!open && !forceOpen) return null;
   const close = () => { markDone(); setOpen(false); onClose?.(); };
   const steps = [
-    { title: "Welcome to NEXUS", body: <>NEXUS reads your DualSense, lets you tune sticks and triggers, remap buttons, add gyro aiming and record macros, and saves everything in profiles.</> },
+    { title: "Welcome to NEXUS", body: <>NEXUS reads your DualSense or DualShock 4, lets you tune sticks and triggers, remap buttons, add gyro aiming and record macros, and saves everything in profiles.</> },
     { title: "Connect your controller", body: <>
-      Plug your DualSense into the PC with a USB-C data cable. NEXUS finds it automatically.
+      Plug your DualSense (USB-C) or DualShock 4 (Micro-USB) into the PC with a data cable. NEXUS finds it automatically and shows which one it is.
       <div className={`onb-status tone-${phase.tone}`}><span className="dot" /> {phase.label}: {phase.detail}</div></> },
     { title: "Let games see it", body: <>Games see NEXUS as an Xbox 360 controller through <b>ViGEmBus</b>, a free driver you install yourself (NEXUS never installs drivers). The <b>Dashboard</b> shows a <b>Get ready to play</b> checklist with each step and what to do if something isn't working.</> },
     { title: "Make it yours", body: <>Open <b>Controller</b> to tune sticks, triggers, gyro and the touchpad, or start from a template in <b>Profiles</b>. Changes save automatically.</> },

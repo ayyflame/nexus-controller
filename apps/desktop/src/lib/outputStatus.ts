@@ -37,7 +37,7 @@ export function outputSummary(o: {
   if (out?.retrying) {
     return { tone: "warn", text: "Reconnecting…", detail: "The virtual controller stopped working. NEXUS is creating it again by itself." };
   }
-  if (!out) return { tone: "neutral", text: "Waiting for your DualSense (USB)", detail: null };
+  if (!out) return { tone: "neutral", text: "Waiting for your controller (USB)", detail: null };
   if (!o.driverReady) return { tone: "neutral", text: "Waiting for ViGEmBus", detail: null };
   return { tone: "neutral", text: "Not connected", detail: null };
 }

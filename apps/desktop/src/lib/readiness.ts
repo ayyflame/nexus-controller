@@ -3,6 +3,7 @@
 // Pure, so every state and its advice is tested.
 
 import type { DeviceSnapshot, EngineStatus } from "../types/engine";
+import { modelLabel } from "./format.ts";
 
 export const VIGEMBUS_RELEASES = "https://github.com/nefarius/ViGEmBus/releases";
 
@@ -29,14 +30,14 @@ export interface ReadinessInput {
 const OUTPUT_TAB = { page: "controller", tab: "output" } as const;
 
 function controllerStep({ status, device, phase }: ReadinessInput): ReadyStep {
-  const title = "DualSense connected by USB";
+  const title = `${(device && modelLabel[device.device.model]) || "Controller"} connected by USB`;
   if (!status) return { id: "controller", title, state: "waiting", detail: "Starting the controller engine…" };
   if (!device) {
     return {
       id: "controller", title, state: "todo",
       detail: status.enumerationError
         ? `Windows reported: ${status.enumerationError}. Reconnect the controller, then Settings › Scan now.`
-        : "Plug the DualSense into a USB port on the PC with a USB-C data cable (charge-only cables don't work). "
+        : "Plug a DualSense (USB-C) or DualShock 4 (Micro-USB) into a USB port on the PC with a data cable (charge-only cables don't work). "
           + "If it doesn't appear, close Steam, DS4Windows or other controller tools and try another port.",
       action: { label: "Scan settings", page: "settings" },
     };

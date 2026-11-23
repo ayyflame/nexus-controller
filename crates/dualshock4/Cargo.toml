@@ -1,0 +1,20 @@
+[package]
+name = "nexus-dualshock4"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+nexus-controller-core.workspace = true
+# Shared Sony helpers: vendor ID, USB/Bluetooth and physical/virtual
+# classification, the field-kind vocabulary and the output-state description.
+nexus-dualsense.workspace = true
+
+[features]
+# Exposes synthetic report builders for tests in downstream crates.
+test-support = []

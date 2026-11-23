@@ -914,7 +914,7 @@ pub async fn inspector_export(app: tauri::AppHandle) -> CmdResult<ExportResult> 
         "version": 1,
         "appVersion": env!("CARGO_PKG_VERSION"),
         "createdAt": stamp(),
-        "note": "Raw DualSense USB input reports recorded by the NEXUS Report Inspector. Serial numbers are not included.",
+        "note": "Raw controller USB input reports (DualSense or DualShock 4) recorded by the NEXUS Report Inspector. Serial numbers are not included.",
         "device": device,
         "interfaces": interfaces.unwrap_or_default(),
         "data": session.export(),

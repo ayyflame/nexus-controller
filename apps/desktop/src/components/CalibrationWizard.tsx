@@ -86,7 +86,7 @@ export function CalibrationWizard() {
     }
   }, [now, until, stage]);
 
-  if (!device || !input) return <div className="card"><p className="muted">Connect your DualSense with a USB cable to calibrate.</p></div>;
+  if (!device || !input) return <div className="card"><p className="muted">Connect your DualSense or DualShock 4 with a USB cable to calibrate.</p></div>;
 
   const order = PARTS.map((p) => p.id).filter((p) => selected.includes(p));
   const firstStage = (p: Part): Stage => (isStick(p) ? { kind: "center", part: p, recording: false } : { kind: "released", part: p, recording: false });

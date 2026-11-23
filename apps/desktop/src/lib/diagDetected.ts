@@ -1,7 +1,7 @@
 // "Detected this session": every control NEXUS has seen used since the
 // Live Viewer opened, so it's obvious which inputs reach NEXUS at all.
 
-import type { ControllerState, MacroButton } from "../types/engine";
+import type { ControllerModel, ControllerState, MacroButton } from "../types/engine";
 import { isPressed } from "./diagTest.ts";
 
 export const CONTROLS: Array<{ id: MacroButton | "lstickMove" | "rstickMove" | "touchMove"; label: string }> = [
@@ -14,6 +14,12 @@ export const CONTROLS: Array<{ id: MacroButton | "lstickMove" | "rstickMove" | "
 ];
 
 export type ControlId = (typeof CONTROLS)[number]["id"];
+
+/** The controls one model has: a DualShock 4 has no mute button and calls Create "Share". */
+export function controlsFor(model?: ControllerModel | null): typeof CONTROLS {
+  if (model !== "dualShock4") return CONTROLS;
+  return CONTROLS.filter((c) => c.id !== "mute").map((c) => (c.id === "select" ? { ...c, label: "Share" } : c));
+}
 
 /** Controls active in this state (triggers count from 10 % travel, sticks from 20 % deflection). */
 export function activeControls(s: ControllerState | null): Set<ControlId> {

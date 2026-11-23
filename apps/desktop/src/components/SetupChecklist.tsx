@@ -44,7 +44,7 @@ export function SetupChecklist() {
           </button>
         )}
       </div>
-      {ready && !open && <p className="small muted">Your DualSense reaches games as an Xbox 360 controller.</p>}
+      {ready && !open && <p className="small muted">Your controller reaches games as an Xbox 360 controller.</p>}
       {open && (
         <ol className="setup-steps">
           {steps.map((s) => (

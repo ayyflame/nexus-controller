@@ -23,8 +23,47 @@
 //! means "the controller reports Cross", which is exactly what a paddle mapped
 //! to Cross looks like. It is never presented as an independent paddle.
 
-use nexus_dualsense::layout::{usb_byte, usb_decoded_bit, usb_undecoded_hint, FieldKind};
+use nexus_dualsense::layout::FieldKind;
 use serde::Serialize;
+
+/// Byte names and decoded bits of one controller's USB input report.
+#[derive(Clone, Copy)]
+pub struct ReportLayout {
+    /// Shown in notes, e.g. "DualSense".
+    pub name: &'static str,
+    pub byte: fn(usize) -> (&'static str, FieldKind),
+    pub decoded_bit: fn(usize, u8) -> Option<&'static str>,
+    pub undecoded_hint: fn(usize, u8) -> Option<&'static str>,
+    /// Sticks, triggers and touch positions.
+    pub analog: fn(usize) -> bool,
+}
+
+pub const DUALSENSE_LAYOUT: ReportLayout = ReportLayout {
+    name: "DualSense",
+    byte: nexus_dualsense::layout::usb_byte,
+    decoded_bit: nexus_dualsense::layout::usb_decoded_bit,
+    undecoded_hint: nexus_dualsense::layout::usb_undecoded_hint,
+    analog: |i| matches!(i, 1..=6 | 33..=40),
+};
+
+pub const DUALSHOCK4_LAYOUT: ReportLayout = ReportLayout {
+    name: "DualShock 4",
+    byte: nexus_dualshock4::layout::usb_byte,
+    decoded_bit: nexus_dualshock4::layout::usb_decoded_bit,
+    undecoded_hint: nexus_dualshock4::layout::usb_undecoded_hint,
+    analog: nexus_dualshock4::layout::usb_analog,
+};
+
+/// The layout for a captured controller's product ID (DualSense otherwise,
+/// which also covers the Edge and DualSense-compatible pads).
+pub fn layout_for(product_id: u16) -> ReportLayout {
+    match product_id {
+        nexus_dualshock4::PRODUCT_ID_DUALSHOCK4_V1 | nexus_dualshock4::PRODUCT_ID_DUALSHOCK4_V2 => {
+            DUALSHOCK4_LAYOUT
+        }
+        _ => DUALSENSE_LAYOUT,
+    }
+}
 
 /// Upper bound per capture (12 s at 250 Hz), to bound memory.
 pub const MAX_CAPTURE_REPORTS: usize = 3000;
@@ -103,10 +142,10 @@ fn kind_name(k: FieldKind) -> &'static str {
 }
 
 /// Bits of byte `index` that NEXUS decodes into buttons.
-fn decoded_mask(index: usize) -> u8 {
+fn decoded_mask(layout: &ReportLayout, index: usize) -> u8 {
     (0..8)
         .map(|b| 1u8 << b)
-        .filter(|&m| usb_decoded_bit(index, m).is_some())
+        .filter(|&m| (layout.decoded_bit)(index, m).is_some())
         .fold(0, |a, m| a | m)
 }
 
@@ -127,7 +166,12 @@ fn reference(reports: &[Vec<u8>], len: usize) -> Vec<u8> {
         .collect()
 }
 
+/// [`analyse_with`] for a DualSense.
 pub fn analyse(baseline: &[Vec<u8>], action: &[Vec<u8>]) -> Analysis {
+    analyse_with(&DUALSENSE_LAYOUT, baseline, action)
+}
+
+pub fn analyse_with(layout: &ReportLayout, baseline: &[Vec<u8>], action: &[Vec<u8>]) -> Analysis {
     let len = baseline
         .iter()
         .chain(action)
@@ -145,7 +189,8 @@ pub fn analyse(baseline: &[Vec<u8>], action: &[Vec<u8>]) -> Analysis {
     let unexpected = ids.iter().any(|&id| id != 0x01) || lens.iter().any(|&l| l != 64);
     if unexpected {
         notes.push(format!(
-            "Report IDs seen: {ids:02X?}; lengths seen: {lens:?}. A standard DualSense over USB sends only ID 01 with 64 bytes."
+            "Report IDs seen: {ids:02X?}; lengths seen: {lens:?}. A standard {} over USB sends only ID 01 with 64 bytes.",
+            layout.name
         ));
     }
     let base = reference(baseline, len);
@@ -179,8 +224,8 @@ pub fn analyse(baseline: &[Vec<u8>], action: &[Vec<u8>]) -> Analysis {
         if count == 0 {
             continue;
         }
-        let (field, kind) = usb_byte(i);
-        let analog = matches!(i, 1..=6 | 33..=40);
+        let (field, kind) = (layout.byte)(i);
+        let analog = (layout.analog)(i);
         if kind == FieldKind::Varying && !analog {
             ignored_bytes.push(i);
             continue;
@@ -189,7 +234,7 @@ pub fn analyse(baseline: &[Vec<u8>], action: &[Vec<u8>]) -> Analysis {
         let mut undecoded = if analog {
             0
         } else {
-            changed & !decoded_mask(i)
+            changed & !decoded_mask(layout, i)
         };
         if undecoded != 0 && (count as usize) * 5 < action.len() {
             flickers.push(format!(
@@ -205,11 +250,11 @@ pub fn analyse(baseline: &[Vec<u8>], action: &[Vec<u8>]) -> Analysis {
             if changed & m == 0 {
                 continue;
             }
-            if let Some(name) = usb_decoded_bit(i, m) {
+            if let Some(name) = (layout.decoded_bit)(i, m) {
                 if !analog && !decoded.contains(&name) {
                     decoded.push(name);
                 }
-            } else if let Some(h) = usb_undecoded_hint(i, m) {
+            } else if let Some(h) = (layout.undecoded_hint)(i, m) {
                 hints.push(h);
             }
         }
@@ -382,7 +427,11 @@ impl InspectorSession {
         } else {
             label
         };
-        let analysis = analyse(&base.reports, &capture.reports);
+        let analysis = analyse_with(
+            &layout_for(base.product_id),
+            &base.reports,
+            &capture.reports,
+        );
         self.captures.push(LabeledCapture {
             label: label.chars().take(60).collect(),
             capture,
@@ -402,7 +451,7 @@ impl InspectorSession {
             product_id: base.map(|b| b.product_id),
             baseline: base.map(|b| {
                 let len = b.reports.iter().map(Vec::len).max().unwrap_or(0);
-                let a = analyse(&b.reports, &[]);
+                let a = analyse_with(&layout_for(b.product_id), &b.reports, &[]);
                 BaselineView {
                     reports: b.reports.len(),
                     duration_ms: b.duration_ms,

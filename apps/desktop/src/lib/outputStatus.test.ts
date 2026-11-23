@@ -32,7 +32,7 @@ test("a failed controller that is being retried says so", () => {
 test("the reason for no virtual controller is named", () => {
   assert.equal(outputSummary({ ...base, consent: false, output: status({}) }).text, "Off");
   assert.equal(outputSummary({ ...base, requested: "disabled", output: status({ requested: "disabled" }) }).text, "Turned off");
-  assert.equal(outputSummary({ ...base, output: null }).text, "Waiting for your DualSense (USB)");
+  assert.equal(outputSummary({ ...base, output: null }).text, "Waiting for your controller (USB)");
   assert.equal(outputSummary({ ...base, driverReady: false, output: status({}) }).text, "Waiting for ViGEmBus");
   assert.equal(outputSummary({ ...base, output: status({}) }).text, "Not connected");
   // Off wins over a stale retry flag.

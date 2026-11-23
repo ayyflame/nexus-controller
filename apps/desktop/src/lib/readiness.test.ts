@@ -77,3 +77,14 @@ test("double input: HidHide installed reminds about the allow list, otherwise op
   assert.equal(step(all({ status: status({ drivers: { vigembus: "installed", hidhide: "installed" } }) }), "doubleInput").state, "done");
   assert.equal(step(all(), "doubleInput").state, "optional");
 });
+
+test("the controller step names the connected model", () => {
+  const ds4 = device({ device: { connection: "usb", model: "dualShock4" } });
+  assert.equal(step(all({ device: ds4 }), "controller").title, "DualShock 4 connected by USB");
+  assert.equal(step(all({ device: ds4 }), "controller").state, "done");
+  const ds = device({ device: { connection: "usb", model: "dualSense" } });
+  assert.equal(step(all({ device: ds }), "controller").title, "DualSense connected by USB");
+  const none = step(all({ device: null }), "controller");
+  assert.equal(none.title, "Controller connected by USB");
+  assert.match(none.detail ?? "", /DualShock 4/);
+});

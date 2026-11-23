@@ -3,6 +3,7 @@ import { useControllerPhase } from "./StatusPill";
 import { ProfileSwitcher } from "./ProfileSwitcher";
 import { useEngine, usePrimaryDevice } from "../hooks/useEngine";
 import { outputLine } from "../lib/sidebarStatus";
+import { modelLabel } from "../lib/format";
 
 export type PageId =
   | "dashboard" | "controller" | "live-viewer" | "macro-studio" | "profiles" | "performance" | "settings";
@@ -34,7 +35,8 @@ function NexusMark() {
 export function Sidebar({ page, onNavigate }: { page: PageId; onNavigate: (p: PageId) => void }) {
   const phase = useControllerPhase();
   const { status } = useEngine();
-  const output = outputLine(status, usePrimaryDevice());
+  const device = usePrimaryDevice();
+  const output = outputLine(status, device);
   return (
     <aside className="sidebar">
       <div className="brand">
@@ -69,7 +71,7 @@ export function Sidebar({ page, onNavigate }: { page: PageId; onNavigate: (p: Pa
       <div className="sidebar-footer">
         <div className={`mini-status tone-${phase.tone}`} title={phase.detail}>
           <span className="dot" />
-          <span>DualSense: {phase.label}</span>
+          <span>{device ? modelLabel[device.device.model] : "Controller"}: {phase.label}</span>
         </div>
         <div className={`mini-status tone-${output.tone}`} title={output.tip}>
           <span className="dot" />

@@ -9,8 +9,8 @@
  Physical input           Normalized state         Input processing          Virtual output
 ┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐      ┌──────────────────────┐
 │ HidConnection    │raw  │ ReportParser     │State│ ProcessingPipeline│State │ VirtualOutputManager │
-│ (device-manager) ├────►│ (dualsense)      ├────►│ InputProcessor[] ├─────►│  └ VirtualController │
-│                  │bytes│ → ControllerState│     │ (input-processing)│      │    Backend (replace- │
+│ (device-manager) ├────►│ (dualsense,      ├────►│ InputProcessor[] ├─────►│  └ VirtualController │
+│                  │bytes│  dualshock4)     │     │ (input-processing)│      │    Backend (replace- │
 └──────────────────┘     └──────────────────┘     └──────────────────┘      │    able)             │
         ▲                        ▲                                           └──────────────────────┘
         │ ControllerDriver (identify / initialize / create_parser) — controller-core
@@ -26,6 +26,7 @@ nexus-controller/
 ├── crates/
 │   ├── controller-core/          Hardware-neutral types and traits (no I/O, no unsafe)
 │   ├── dualsense/                DualSense identification, USB/BT report parsing, CRC-32
+│   ├── dualshock4/               DualShock 4 (PS4) identification and USB report parsing
 │   ├── device-manager/           HID backend trait, Windows HID backend, connection tracker,
 │   │                             per-controller reader threads, mock backend (tests only)
 │   ├── input-processing/         InputProcessor trait + ordered pipeline (pass-through in M1)

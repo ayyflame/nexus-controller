@@ -13,7 +13,7 @@ export function outputLine(status: EngineStatus | null, device: DeviceSnapshot |
     return { label: "Xbox output: no driver", tone: "error", tip: "ViGEmBus isn't available. See the Dashboard checklist." };
   }
   const out = device?.output;
-  if (!device) return { label: "Xbox output: waiting", tone: "idle", tip: "Connect the DualSense by USB." };
+  if (!device) return { label: "Xbox output: waiting", tone: "idle", tip: "Connect a DualSense or DualShock 4 by USB." };
   if (out?.active) {
     const p = out.playerIndex;
     if (p != null && p > 0) return { label: `Xbox output: player ${p + 1}`, tone: "warn", tip: "Another controller holds player 1; many games only listen to player 1." };

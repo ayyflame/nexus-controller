@@ -21,6 +21,7 @@ use nexus_device_manager::{
     platform_backend, DeviceManager, DeviceManagerConfig, HidBackend, ScannedDevice, SessionHandler,
 };
 use nexus_dualsense::DualSenseDriver;
+use nexus_dualshock4::DualShock4Driver;
 use nexus_input_processing::{ConfiguredProcessor, ProcessingConfig, ProcessingPipeline};
 use nexus_macro_engine::{
     Macro, MacroButton, MacroLibrary, MacroRecorder, MacroRunner, RecordingResult,
@@ -377,13 +378,19 @@ pub struct Engine {
     stopped: Mutex<Option<Receiver<()>>>,
 }
 
+/// Every physical controller family NEXUS reads. Each driver claims only its
+/// own product IDs, so a device is never identified by two drivers.
+pub fn supported_drivers() -> Vec<Arc<dyn ControllerDriver>> {
+    vec![Arc::new(DualSenseDriver), Arc::new(DualShock4Driver)]
+}
+
 impl Engine {
-    /// Starts the engine with the platform HID backend, the DualSense driver
-    /// and no virtual output driver.
+    /// Starts the engine with the platform HID backend, the DualSense and
+    /// DualShock 4 drivers and the platform's virtual output driver.
     pub fn start_default(config: EngineConfig) -> Self {
         Self::start(
             platform_backend(),
-            vec![Arc::new(DualSenseDriver)],
+            supported_drivers(),
             Arc::new(nexus_virtual_controller::platform_backend),
             config,
         )
@@ -616,7 +623,7 @@ impl Engine {
         self.shared.bump();
     }
 
-    /// Vibrates every connected DualSense at `strength` (0–1, scaled by the
+    /// Vibrates every connected controller (DualSense or DualShock 4) at `strength` (0–1, scaled by the
     /// profile's vibration intensity) for `duration_ms`, then stops.
     pub fn test_vibration(&self, strength: f32, duration_ms: u32) -> Result<(), String> {
         if lock(&self.shared.devices).is_empty() {
@@ -1078,10 +1085,12 @@ struct EngineSessionHandler {
     skip_credit: u64,
 }
 
-/// Physical DualSense feedback for one session: sends a report only when
-/// the wanted lightbar/LED state changes or a vibration starts or ends.
+/// Physical controller feedback for one session: sends a report only when
+/// the wanted lightbar/LED state changes or a vibration starts or ends. The
+/// report format follows the model (DualSense or DualShock 4).
 struct Feedback {
     usb: bool,
+    dualshock4: bool,
     output_len: usize,
     config: nexus_input_processing::FeedbackConfig,
     sent_lighting: (Option<[u8; 3]>, Option<u8>, u8),
@@ -1104,6 +1113,7 @@ impl Feedback {
         };
         Self {
             usb,
+            dualshock4: device.model == ControllerModel::DualShock4,
             output_len: device.output_report_len as usize,
             config: Default::default(),
             sent_lighting: (None, None, 0),
@@ -1152,6 +1162,17 @@ impl Feedback {
 
     fn take(&mut self) -> Option<Vec<u8>> {
         let state = self.pending.take()?;
+        if self.dualshock4 {
+            // USB only; no player LEDs, so a change to those alone sends nothing.
+            if state.rumble.is_none() && state.lightbar.is_none() {
+                return None;
+            }
+            self.sent += 1;
+            return Some(nexus_dualshock4::output::usb_output_report(
+                &state,
+                self.output_len,
+            ));
+        }
         self.sent += 1;
         Some(if self.usb {
             nexus_dualsense::output::usb_output_report(&state, self.output_len)

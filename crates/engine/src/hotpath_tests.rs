@@ -168,8 +168,21 @@ fn hotpath_benchmark() {
             h.on_report(&raw, parser.parse(&raw));
         }
     });
+    // The DualShock 4 parser on a comparable report (touch data present).
+    let mut ds4 = nexus_dualshock4::DualShock4Parser::new();
+    let mut ds4_report = nexus_dualshock4::synthetic::Report::neutral();
+    ds4_report.touch_count = 1;
+    let ds4_raw = ds4_report.usb_report();
+    let mut ds4_parse = Vec::with_capacity(n);
+    for _ in 0..n {
+        let p0 = epoch().elapsed().as_nanos() as u64;
+        let parsed = ds4.parse(&ds4_raw);
+        ds4_parse.push(epoch().elapsed().as_nanos() as u64 - p0);
+        std::hint::black_box(parsed.ok());
+    }
     for (name, v) in [
         ("HID report parse", parse),
+        ("HID report parse (DualShock 4)", ds4_parse),
         ("report entry -> virtual submit", to_submit),
         ("whole handler", total),
     ] {
@@ -218,6 +231,52 @@ fn steady_state_reports_make_no_heap_allocations() {
     assert_eq!(
         allocs, 0,
         "per-report path must not allocate (was 6 per report)"
+    );
+}
+
+#[test]
+fn dualshock4_steady_state_reports_make_no_heap_allocations() {
+    use nexus_dualshock4::synthetic::{button, Report};
+    let (e, _, stamp) = handler();
+    let ds4 = ConnectedDevice {
+        model: ControllerModel::DualShock4,
+        product_id: nexus_dualshock4::PRODUCT_ID_DUALSHOCK4_V2,
+        output_report_len: 32,
+        ..device()
+    };
+    let factory: OutputBackendFactory = {
+        let s = stamp.clone();
+        Arc::new(move || {
+            Box::new(TimestampPad {
+                last_submit_ns: s.clone(),
+            })
+        })
+    };
+    let mut h = new_session_handler(&e.shared, &factory, &ds4);
+    let mut parser = nexus_dualshock4::DualShock4Parser::new();
+    let idle = Report::neutral().usb_report();
+    let mut held = Report::neutral().press(button::R3); // the macro trigger
+    held.touch_count = 1;
+    held.lx = 10;
+    let raw = held.usb_report();
+    h.on_report(&idle, parser.parse(&idle));
+    for _ in 0..300 {
+        h.on_report(&raw, parser.parse(&raw));
+    }
+    let before = stamp.load(Ordering::Acquire);
+    let ((), allocs) = count_allocs(|| {
+        for _ in 0..1000 {
+            let parsed = parser.parse(&raw);
+            h.on_report(&raw, parsed);
+        }
+    });
+    assert!(
+        stamp.load(Ordering::Acquire) > before,
+        "reports reached the virtual pad"
+    );
+    assert_eq!(
+        allocs, 0,
+        "the DualShock 4 path must not allocate per report"
     );
 }
 

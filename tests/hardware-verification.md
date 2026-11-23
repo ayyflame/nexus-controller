@@ -289,6 +289,21 @@ Procedure, tools and what to record: `docs/performance-investigation.md` §5.
 | WZ2 | D-min and D-3D (new build) | D-3D ≈ D-min: the 3D view doesn't redraw while the game is focused, and the status lines update about 4 times a second |
 | WZ3 | Click NEXUS while D-3D runs, then back into the game | NEXUS shows the current state at once and updates smoothly while focused; back in the game, it slows down again |
 
+## DualShock 4 (November 2026): needs Windows and a DualShock 4 on USB
+
+Report format and how it was checked: `docs/dualshock4-protocol.md`. Note the revision (*Settings › Device scan*: CUH-ZCT1 or CUH-ZCT2) with each result.
+
+| # | Check | Expected |
+|---|---|---|
+| D41 | Plug in the DualShock 4 with a Micro-USB data cable | Within about a second the Dashboard and sidebar say **DualShock 4**; *Live Viewer › Health* shows *DualShock 4 USB report 0x01* and about 250 reports/s |
+| D42 | *Live Viewer › Test* | Every step passes (there's no Mute step); Share, Options and PS register; both triggers reach 0 and 100 %; both sticks reach every edge and return to centre |
+| D43 | *Live Viewer › Live* with nothing touched; then each stick to each edge; then a finger on the touchpad's corners | Sticks rest at (or within a few steps of) 0; up is positive; touch reaches about 1919 × 941 |
+| D44 | `joy.cpl` with Xbox output on: every button, d-pad diagonals, sticks, triggers | Each lights the matching Xbox control; nothing stays pressed after release |
+| D45 | Remap Cross → B, a hold-to-activate macro, a combination, switch profiles from the sidebar | Same behaviour as with a DualSense |
+| D46 | Unplug while holding a button and while a macro plays; plug back in | The Xbox controller goes neutral and is removed; after replugging it starts neutral and nothing is held |
+| D47 | DualSense and DualShock 4 plugged in together | Both are listed with their own model; each one's input shows only on its own entry |
+| D48 | *Lighting & Haptics*: light bar on with a colour, *Test vibration* | The light bar changes colour; both motors run and stop |
+
 ## Release gate
 
 No release (versioned or announced) until all of these are done on a real Windows 11 PC with a USB DualSense, and the results are recorded here with the date and NEXUS commit:
@@ -298,6 +313,7 @@ No release (versioned or announced) until all of these are done on a real Window
 3. **WI1, WI2, WI5, WI8, WI10** (close to tray during a game, Quit releases everything, start with Windows, single copy, uninstall cleanup).
 4. **SM1, SM4, SM5** (stick swap, stick as d-pad, no flicker near the threshold), if those features are to be used.
 5. **WZ1–WZ3** (Warzone frame rate with NEXUS running).
-6. A Warzone session with the profile you'll actually play: inputs respond normally, nothing stays pressed after alt-tab, after closing NEXUS to the tray, or after quitting it. NEXUS does not try to avoid anti-cheat; if Warzone rejects virtual controllers or macros, stop using NEXUS there.
+6. **D41–D48** if NEXUS is to be used with a DualShock 4.
+7. A Warzone session with the profile you'll actually play: inputs respond normally, nothing stays pressed after alt-tab, after closing NEXUS to the tray, or after quitting it. NEXUS does not try to avoid anti-cheat; if Warzone rejects virtual controllers or macros, stop using NEXUS there.
 
 Automated results (unit, simulated-engine and installer tests on GitHub's Windows machines) do not count towards this gate.

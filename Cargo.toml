@@ -19,6 +19,7 @@ windows-sys = "0.61"
 nexus-controller-core = { path = "crates/controller-core" }
 nexus-device-manager = { path = "crates/device-manager" }
 nexus-dualsense = { path = "crates/dualsense" }
+nexus-dualshock4 = { path = "crates/dualshock4" }
 nexus-input-processing = { path = "crates/input-processing" }
 nexus-virtual-controller = { path = "crates/virtual-controller" }
 nexus-button-mapping = { path = "crates/button-mapping" }

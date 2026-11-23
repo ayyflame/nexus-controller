@@ -10,18 +10,18 @@ import {
   addStickSample, addTriggerSample, emptyStickRange, emptyTriggerRange, pct, signed, stickRangeResult, triggerRangeResult,
   type StickRange, type TriggerRange,
 } from "../lib/diagAnalog";
-import { CONTROLS, activeControls, mergeSeen, type ControlId } from "../lib/diagDetected";
+import { activeControls, controlsFor, mergeSeen, type ControlId } from "../lib/diagDetected";
 import { analyzeDrift, compareToReference, invalidReason, type DriftSample } from "../lib/diagDrift";
 import { freshness, freshnessText, healthItems, reportAge, type Source } from "../lib/diagHealth";
 import { accelG, gyroDps, motionAvailability, tiltFrom, type Vec3 } from "../lib/diagMotion";
 import {
-  STEPS, checkProgress, feed, goTo, markFailed, retry, startTest, summary, type TestState,
+  checkProgress, feed, goTo, markFailed, retry, startTest, stepsFor, summary, type TestState,
 } from "../lib/diagTest";
 import { engineApi } from "../lib/engine";
-import { connectionLabel, describeDeviceEvent, formatLabel, modelLabel } from "../lib/format";
+import { connectionLabel, describeDeviceEvent, formatLabel, modelLabel, modelWithRevision } from "../lib/format";
 import { BUTTONS } from "../lib/macros";
 import { withDefaults } from "../lib/processing";
-import type { ControllerState, DeviceSnapshot, Macro, MacroButton, ProcessingConfig } from "../types/engine";
+import type { ControllerModel, ControllerState, DeviceSnapshot, Macro, MacroButton, ProcessingConfig } from "../types/engine";
 
 type Tab = "live" | "analog" | "motion" | "health" | "test" | "output" | "drift" | "calibration";
 const TABS: Array<{ id: Tab; label: string }> = [
@@ -61,7 +61,7 @@ export function LiveViewer({ initialTab }: { initialTab?: string }) {
         ))}
       </nav>
       {!device ? (
-        <div className="card"><p className="muted">Connect your DualSense with a USB cable. Nothing is shown until NEXUS receives real input.</p></div>
+        <div className="card"><p className="muted">Connect your DualSense or DualShock 4 with a USB cable. Nothing is shown until NEXUS receives real input.</p></div>
       ) : (
         <div className="tab-body" key={tab}>
           <StaleNotice device={device} />
@@ -69,7 +69,7 @@ export function LiveViewer({ initialTab }: { initialTab?: string }) {
           {tab === "analog" && <AnalogTab device={device} config={config} />}
           {tab === "motion" && <MotionTab input={device.input} />}
           {tab === "health" && <HealthTab device={device} />}
-          {tab === "test" && <TestTab input={device.input} />}
+          {tab === "test" && <TestTab input={device.input} model={device.device.model} />}
           {tab === "output" && <OutputCheck />}
           {tab === "drift" && <DriftTab input={device.input} config={config} />}
           {tab === "calibration" && <CalibrationWizard />}
@@ -137,13 +137,13 @@ function LiveTab({ device, config, onCalibrate }: { device: DeviceSnapshot; conf
       <Panel title="Detected this session" aside={<button className="btn-ghost small" onClick={() => setSeen(new Set())}>Reset</button>}>
         <p className="muted small">Each control lights while it's in use and gets a tick once NEXUS has seen it. Anything that never ticks isn't reaching NEXUS.</p>
         <div className="lv-detected">
-          {CONTROLS.map((c) => (
+          {controlsFor(device.device.model).map((c) => (
             <span key={c.id} className={`lv-chip${active.has(c.id) ? " on" : ""}${seen.has(c.id) ? " seen" : ""}`}>
               {seen.has(c.id) ? "✓ " : ""}{c.label}
             </span>
           ))}
         </div>
-        <p className="muted small">{seen.size} of {CONTROLS.length} controls detected.</p>
+        <p className="muted small">{seen.size} of {controlsFor(device.device.model).length} controls detected.</p>
       </Panel>
     </div>
   );
@@ -345,7 +345,7 @@ function HealthTab({ device }: { device: DeviceSnapshot }) {
     <div className="lv-grid">
       <Panel title="Controller">
         <Stat k="Name" v={d.productName ?? modelLabel[d.model]} />
-        <Stat k="Model" v={modelLabel[d.model]} />
+        <Stat k="Model" v={modelWithRevision(d.model, d.productId)} />
         <Stat k="Connection" v={connectionLabel[d.connection]} />
         <Stat k="Vendor : product ID" v={`${hex(d.vendorId)} : ${hex(d.productId)}`} />
         <Stat k="Report format" v={device.input ? formatLabel[device.input.format] : "—"} />
@@ -380,16 +380,16 @@ function HealthTab({ device }: { device: DeviceSnapshot }) {
 
 // ---- Controller test --------------------------------------------------------------------
 
-function TestTab({ input }: { input: ControllerState | null }) {
+function TestTab({ input, model }: { input: ControllerState | null; model: ControllerModel }) {
   const [t, setT] = useState<TestState | null>(null);
   useEffect(() => { setT((cur) => (cur ? feed(cur, input) : cur)); }, [input]);
   if (!t) {
     return (
       <div className="card">
         <h2>Controller Test</h2>
-        <p>Walks through every control in {STEPS.length} steps and checks that each one works fully: buttons press and release, triggers reach both ends, sticks reach every direction.</p>
+        <p>Walks through every control in {stepsFor(model).length} steps and checks that each one works fully: buttons press and release, triggers reach both ends, sticks reach every direction.</p>
         <p className="muted small">The test only reads input. It doesn't change mappings, calibration, profiles or macros. Your presses still reach NEXUS as usual, so macros can play and the virtual controller receives them; you may want to stay out of games meanwhile.</p>
-        <button className="btn-primary" onClick={() => setT(startTest())}>Start the test</button>
+        <button className="btn-primary" onClick={() => setT(startTest(model))}>Start the test</button>
       </div>
     );
   }
@@ -400,21 +400,21 @@ function TestTab({ input }: { input: ControllerState | null }) {
         <h2>Test summary</h2>
         <p>{s.pass} passed · {s.fail} failed · {s.untested} not tested</p>
         <table className="table lv-table"><tbody>
-          {STEPS.map((st, i) => (
+          {t.steps.map((st, i) => (
             <tr key={st.id}><td>{st.title}</td><td className={t.results[st.id] === "pass" ? "ok-text" : t.results[st.id] === "fail" ? "err-text" : "muted"}>{resultText(t.results[st.id]!)}</td>
               <td><button className="btn-ghost small" onClick={() => setT(retry(goTo(t, i)))}>Test again</button></td></tr>
           ))}
         </tbody></table>
-        <button className="btn-secondary" onClick={() => setT(startTest())}>Start over</button>
+        <button className="btn-secondary" onClick={() => setT(startTest(model))}>Start over</button>
       </div>
     );
   }
-  const step = STEPS[t.step]!;
+  const step = t.steps[t.step]!;
   const result = t.results[step.id]!;
   return (
     <div className="card lv-test">
       <div className="row gap wrap">
-        {STEPS.map((st, i) => (
+        {t.steps.map((st, i) => (
           <button key={st.id} className={`lv-step${i === t.step ? " current" : ""} r-${t.results[st.id]}`} onClick={() => setT(goTo(t, i))}>{i + 1}</button>
         ))}
       </div>
@@ -431,7 +431,7 @@ function TestTab({ input }: { input: ControllerState | null }) {
         <button className="btn-ghost" disabled={t.step === 0} onClick={() => setT(goTo(t, t.step - 1))}>Back</button>
         {result === "untested" && <button className="btn-ghost danger" onClick={() => setT(markFailed(t))}>Mark as failed</button>}
         <button className="btn-ghost" onClick={() => setT(retry(t))}>Retry</button>
-        <button className="btn-primary" onClick={() => setT(goTo(t, t.step + 1))}>{t.step === STEPS.length - 1 ? "Finish" : result === "untested" ? "Skip" : "Next"}</button>
+        <button className="btn-primary" onClick={() => setT(goTo(t, t.step + 1))}>{t.step === t.steps.length - 1 ? "Finish" : result === "untested" ? "Skip" : "Next"}</button>
       </div>
       <p className="muted small">{s.pass} passed · {s.fail} failed · {s.untested} not tested. Presses shorter than about 20 ms may not register here (the view updates about 60 times a second).</p>
     </div>
