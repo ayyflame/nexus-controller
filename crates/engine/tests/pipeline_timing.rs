@@ -24,12 +24,17 @@
 #![cfg(windows)]
 #![allow(clippy::field_reassign_with_default)]
 
-use nexus_controller_core::{Button, HidConnection, HidDeviceInfo, HidError, VirtualOutputKind};
+use nexus_controller_core::{
+    Button, ControllerState, HidConnection, HidDeviceInfo, HidError, VirtualOutputKind,
+};
 use nexus_device_manager::{DeviceManagerConfig, HidBackend, STALE_INPUT_AFTER};
 use nexus_dualsense::synthetic::Payload;
 use nexus_engine::{supported_drivers, Engine, EngineConfig};
 use nexus_input_processing::{LayerMode, MappingLayer, ProcessingConfig, RemapRule, ResponseCurve};
 use nexus_macro_engine::{Macro, MacroButton, MacroStep, PlaybackMode};
+use nexus_virtual_controller::{
+    BackendStatus, OutputError, VirtualControllerBackend, VirtualDeviceHandle,
+};
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
@@ -74,10 +79,55 @@ fn read(slot: u32) -> Option<XInputState> {
 // ---- A HID device whose read blocks until a report arrives ----------------
 
 type Queue = Arc<(Mutex<VecDeque<Vec<u8>>>, Condvar)>;
+/// Per-report timestamps by tag: when NEXUS's read returned it, and when the
+/// ViGEmBus call for its frame returned.
+#[derive(Default)]
+struct Stamps {
+    read: HashMap<u32, Instant>,
+    sent: HashMap<u32, Instant>,
+}
+type SharedStamps = Arc<Mutex<Stamps>>;
+
+/// Wraps the real ViGEmBus backend and records when each frame's call returned.
+struct Timed(Box<dyn VirtualControllerBackend>, SharedStamps);
+impl VirtualControllerBackend for Timed {
+    fn name(&self) -> &'static str {
+        self.0.name()
+    }
+    fn status(&self) -> BackendStatus {
+        self.0.status()
+    }
+    fn supports(&self, k: VirtualOutputKind) -> bool {
+        self.0.supports(k)
+    }
+    fn connect(&mut self, k: VirtualOutputKind) -> Result<VirtualDeviceHandle, OutputError> {
+        self.0.connect(k)
+    }
+    fn update(&mut self, h: VirtualDeviceHandle, s: &ControllerState) -> Result<(), OutputError> {
+        let r = self.0.update(h, s);
+        let tag = u32::from(s.right_trigger.raw) + 256 * u32::from(s.left_trigger.raw);
+        self.1
+            .lock()
+            .unwrap()
+            .sent
+            .entry(tag)
+            .or_insert_with(Instant::now);
+        r
+    }
+    fn disconnect(&mut self, h: VirtualDeviceHandle) -> Result<(), OutputError> {
+        self.0.disconnect(h)
+    }
+    fn player_index(&mut self, h: VirtualDeviceHandle) -> Option<u8> {
+        self.0.player_index(h)
+    }
+    fn keep_alive(&mut self, h: VirtualDeviceHandle) -> Result<(), OutputError> {
+        self.0.keep_alive(h)
+    }
+}
 const PATH: &str = r"\\?\hid#vid_054c&pid_0ce6&mi_03#timing#{4d1e55b2-f16f-11cf-88cb-001111000030}";
 
-struct Backend(Queue);
-struct Connection(Queue);
+struct Backend(Queue, SharedStamps);
+struct Connection(Queue, SharedStamps);
 
 impl HidBackend for Backend {
     fn name(&self) -> &'static str {
@@ -107,7 +157,7 @@ impl HidBackend for Backend {
         })
     }
     fn open(&self, _: &HidDeviceInfo) -> Result<Box<dyn HidConnection>, HidError> {
-        Ok(Box::new(Connection(self.0.clone())))
+        Ok(Box::new(Connection(self.0.clone(), self.1.clone())))
     }
 }
 
@@ -120,6 +170,14 @@ impl HidConnection for Connection {
             .unwrap();
         Ok(guard.pop_front().map_or(0, |r| {
             buf[..r.len()].copy_from_slice(&r);
+            // USB report: L2 at byte 5, R2 at byte 6 (the tag).
+            let tag = u32::from(r[6]) + 256 * u32::from(r[5]);
+            self.1
+                .lock()
+                .unwrap()
+                .read
+                .entry(tag)
+                .or_insert_with(Instant::now);
             r.len()
         }))
     }
@@ -193,7 +251,15 @@ fn tag_of(g: &XInputGamepad) -> u32 {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn run(e: &Engine, q: &Queue, first: u32, n: u32, hold_r3: bool, label: &str) {
+fn run(
+    e: &Engine,
+    q: &Queue,
+    stamps: &SharedStamps,
+    first: u32,
+    n: u32,
+    hold_r3: bool,
+    label: &str,
+) {
     // The slot the virtual controller is in now (it moves if it was re-created).
     let slot = u32::from(e.status().devices[0].output.player_index.unwrap_or(0));
     let log_before = e.recent_log(500).len();
@@ -283,6 +349,25 @@ fn run(e: &Engine, q: &Queue, first: u32, n: u32, hold_r3: bool, label: &str) {
             None => missing += 1,
         }
     }
+    // Where the time goes, per report: wake-up (push -> read returned), NEXUS
+    // plus the driver call (read -> call returned), delivery (call -> XInput).
+    let (mut wake, mut nexus, mut deliver) = (Vec::new(), Vec::new(), Vec::new());
+    {
+        let st = stamps.lock().unwrap();
+        let us = |a: Instant, b: Instant| b.saturating_duration_since(a).as_secs_f64() * 1e6;
+        for (i, t) in pushed.iter().enumerate() {
+            let tag = first + i as u32;
+            if let Some(r) = st.read.get(&tag) {
+                wake.push(us(*t, *r));
+                if let Some(c) = st.sent.get(&tag) {
+                    nexus.push(us(*r, *c));
+                    if let Some(x) = first_seen.get(&tag) {
+                        deliver.push(us(*c, *x));
+                    }
+                }
+            }
+        }
+    }
     let ours: Vec<Instant> = seen
         .iter()
         .filter(|(_, tag, _)| *tag >= first && *tag < first + n)
@@ -309,6 +394,18 @@ fn run(e: &Engine, q: &Queue, first: u32, n: u32, hold_r3: bool, label: &str) {
         dist(delivery)
     );
     println!("PIPELINE {label}   XInput change gaps      {}", dist(gaps));
+    println!(
+        "PIPELINE {label}   split: report -> NEXUS read returned  {}",
+        dist(wake)
+    );
+    println!(
+        "PIPELINE {label}   split: read -> driver call returned  {}",
+        dist(nexus)
+    );
+    println!(
+        "PIPELINE {label}   split: call returned -> XInput shows {}",
+        dist(deliver)
+    );
     println!(
         "PIPELINE {label}   never visible: {missing} of {n} ({:.1} %); stale reports skipped by NEXUS: {}; final state shown: {final_ok}",
         100.0 * f64::from(missing) / f64::from(n),
@@ -358,11 +455,18 @@ fn run(e: &Engine, q: &Queue, first: u32, n: u32, hold_r3: bool, label: &str) {
 #[ignore = "needs Windows with ViGEmBus; run by the XInput loopback workflow"]
 fn controller_reports_reach_xinput_through_nexus_on_time() {
     let q: Queue = Arc::new((Mutex::new(VecDeque::new()), Condvar::new()));
+    let stamps: SharedStamps = Arc::default();
+    let factory_stamps = stamps.clone();
     let before: Vec<u32> = (0..4).filter(|s| read(*s).is_some()).collect();
     let e = Engine::start(
-        Arc::new(Backend(q.clone())),
+        Arc::new(Backend(q.clone(), stamps.clone())),
         supported_drivers(),
-        Arc::new(nexus_virtual_controller::platform_backend),
+        Arc::new(move || {
+            Box::new(Timed(
+                nexus_virtual_controller::platform_backend(),
+                factory_stamps.clone(),
+            )) as Box<dyn VirtualControllerBackend>
+        }),
         EngineConfig {
             devices: DeviceManagerConfig {
                 scan_interval: Duration::from_millis(20),
@@ -446,14 +550,22 @@ fn controller_reports_reach_xinput_through_nexus_on_time() {
         std::thread::sleep(Duration::from_millis(200));
         e.set_processing(ProcessingConfig::default());
         e.set_macros(vec![]);
-        run(&e, &q, k, n, false, &format!("B default{tail}"));
+        run(&e, &q, &stamps, k, n, false, &format!("B default{tail}"));
         k += n + 100;
         e.set_processing(mapping.clone());
-        run(&e, &q, k, n, false, &format!("C mappings{tail}"));
+        run(&e, &q, &stamps, k, n, false, &format!("C mappings{tail}"));
         k += n + 100;
         e.set_processing(ProcessingConfig::default());
         e.set_macros(vec![rapid.clone()]);
-        run(&e, &q, k, n, true, &format!("D macro playing{tail}"));
+        run(
+            &e,
+            &q,
+            &stamps,
+            k,
+            n,
+            true,
+            &format!("D macro playing{tail}"),
+        );
         k += n + 100;
         e.set_macros(vec![]);
     }

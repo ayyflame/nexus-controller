@@ -54,3 +54,12 @@ test("slow driver calls are summarised and rated", () => {
   assert.equal(warn.tone, "warn");
   assert.equal(slowCallsText({ over4ms: 3, over50ms: 1, longestNs: 160_000_000, calls: 10 }).tone, "bad");
 });
+
+test("timing distributions show average / median / 95th / 99th / max when available", async () => {
+  const { gapsText } = await import("./outputCheck.ts");
+  assert.equal(stageText({ p50Ns: 60, p99Ns: 78, maxNs: 80, samples: 256, meanNs: 62, p95Ns: 70 }), "62 ns / 60 ns / 70 ns / 78 ns / 80 ns");
+  assert.equal(gapsText({ p50Us: 4000, p99Us: 4100, maxUs: 9000, samples: 256, meanUs: 4010, p95Us: 4050 }), "4.01 / 4.00 / 4.05 / 4.10 / 9.00 ms");
+  assert.equal(gapsText({ p50Us: 4000, p99Us: 4100, maxUs: 9000, samples: 256 }), "4.00 / 4.10 / 9.00 ms", "older status: three values");
+  assert.equal(gapsText(undefined), "—");
+  assert.equal(gapsText({ p50Us: 0, p99Us: 0, maxUs: 0, samples: 0 }), "—");
+});
