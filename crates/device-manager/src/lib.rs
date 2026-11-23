@@ -24,5 +24,5 @@ pub mod mock;
 pub use backend::{composite_parent, platform_backend, HidBackend, UnsupportedBackend};
 pub use hotplug::{watch_hid_devices, HotplugCallback, HotplugGuard};
 pub use manager::{DeviceManager, DeviceManagerConfig, ScannedDevice};
-pub use session::{SessionHandler, SessionHandlerFactory, STALE_INPUT_AFTER};
+pub use session::{SessionHandler, SessionHandlerFactory, CAUGHT_UP_WAIT, STALE_INPUT_AFTER};
 pub use tracker::{Candidate, ConnectionTracker, TrackerAction};

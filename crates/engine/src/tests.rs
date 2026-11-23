@@ -3568,3 +3568,42 @@ fn editing_settings_keeps_a_toggled_layer_and_switching_profile_resets_it() {
 
 #[path = "ds4_tests.rs"]
 mod ds4;
+
+// ---- Input flow diagnostics (simulated) -------------------------------------
+
+#[test]
+fn flow_diagnostics_count_backlog_repeated_frames_and_spacing() {
+    let (backend, e) = connected_engine();
+    // 70 identical reports a few ms apart: each is waited for, and every
+    // frame after the first is a repeat for the game.
+    for _ in 0..70 {
+        backend.push_report(PATH, report(&[]));
+        std::thread::sleep(Duration::from_millis(3));
+    }
+    let s = wait_status(&e, "flow published", |s| s.devices[0].flow.outputs >= 64);
+    let f = s.devices[0].flow;
+    assert!(
+        f.unchanged_outputs + 2 >= f.outputs,
+        "identical frames are counted as repeats: {f:?}"
+    );
+    assert!(f.report_gaps.samples > 0 && f.output_gaps.samples > 0);
+    assert!(f.report_gaps.p50_us >= 1_000, "spaced reports: {f:?}");
+    let queued_before = f.queued_reports;
+    // A burst of 200 reports at once: NEXUS is behind for most of them.
+    // (The figures are published every 64 reports.)
+    for i in 0..200u8 {
+        backend.push_report(PATH, report(&[(0, if i % 2 == 0 { 0x20 } else { 0 })]));
+    }
+    let s = wait_status(&e, "burst counted", |s| {
+        s.devices[0].flow.queued_reports >= queued_before + 100
+    });
+    let f = s.devices[0].flow;
+    assert!(
+        f.longest_backlog >= 50,
+        "a long run of queued reports: {f:?}"
+    );
+    assert!(
+        f.unchanged_outputs < f.outputs,
+        "alternating frames are not repeats"
+    );
+}

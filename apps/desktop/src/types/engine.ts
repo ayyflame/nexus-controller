@@ -85,6 +85,8 @@ export interface DeviceSnapshot {
   pipelineLatency: LatencySummary;
   /** The same time split by stage, in nanoseconds. */
   stageLatency: StageLatency;
+  /** Spacing of reports and virtual frames, backlog; absent from older builds. */
+  flow?: FlowSummary;
   /** Reports missing per the controller's sequence counter (estimate). */
   sequenceGaps: number;
   /** Queued reports skipped as stale after a slow driver call (only the newest was processed). */
@@ -119,8 +121,22 @@ export interface EngineStatus {
 export interface EngineStats { connects: number; disconnects: number; connectionErrors: number }
 export interface GyroCalibration { bias: [number, number, number]; samples: number; steady: boolean }
 
-export interface LatencySummary { p50Us: number; p99Us: number; maxUs: number; samples: number }
-export interface StageSummary { p50Ns: number; p99Ns: number; maxNs: number; samples: number }
+export interface LatencySummary { p50Us: number; p99Us: number; maxUs: number; samples: number; meanUs?: number; p95Us?: number }
+export interface StageSummary { p50Ns: number; p99Ns: number; maxNs: number; samples: number; meanNs?: number; p95Ns?: number }
+/** How reports and virtual-controller frames flow (see crates/telemetry FlowSummary). */
+export interface FlowSummary {
+  /** Time between input reports (recent 256). */
+  reportGaps: LatencySummary;
+  /** Time between frames sent to the virtual controller (recent 256). */
+  outputGaps: LatencySummary;
+  /** Reports already waiting when NEXUS read them: NEXUS was behind (since connect). */
+  queuedReports: number;
+  /** Most queued reports in a row. */
+  longestBacklog: number;
+  /** Frames identical to the previous one (still sent). */
+  unchangedOutputs: number;
+  outputs: number;
+}
 /** Driver calls slower than a report interval (4 ms) or a noticeable stall (50 ms), since the controller connected. */
 export interface SlowCalls { over4ms: number; over50ms: number; longestNs: number; calls: number }
 export interface StageLatency { input: StageSummary; mapping: StageSummary; macros: StageSummary; output: StageSummary; slowOutput?: SlowCalls }

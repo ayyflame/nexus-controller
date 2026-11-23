@@ -24,9 +24,7 @@
 #![cfg(windows)]
 #![allow(clippy::field_reassign_with_default)]
 
-use nexus_controller_core::{
-    Button, HidConnection, HidDeviceInfo, HidError, VirtualOutputKind,
-};
+use nexus_controller_core::{Button, HidConnection, HidDeviceInfo, HidError, VirtualOutputKind};
 use nexus_device_manager::{DeviceManagerConfig, HidBackend, STALE_INPUT_AFTER};
 use nexus_dualsense::synthetic::Payload;
 use nexus_engine::{supported_drivers, Engine, EngineConfig};
@@ -102,7 +100,11 @@ impl HidBackend for Backend {
             ],
             ..Default::default()
         };
-        Ok(if vendor_ids.contains(&info.vendor_id) { vec![info] } else { vec![] })
+        Ok(if vendor_ids.contains(&info.vendor_id) {
+            vec![info]
+        } else {
+            vec![]
+        })
     }
     fn open(&self, _: &HidDeviceInfo) -> Result<Box<dyn HidConnection>, HidError> {
         Ok(Box::new(Connection(self.0.clone())))
@@ -214,7 +216,7 @@ fn run(e: &Engine, q: &Queue, first: u32, n: u32, hold_r3: bool, label: &str) {
                 if let Some(s) = read(slot) {
                     if s.packet != last {
                         last = s.packet;
-                        local.push((Instant::now(), tag_of(&s.gamepad)));
+                        local.push((Instant::now(), tag_of(&s.gamepad), s.gamepad));
                     }
                 }
                 std::thread::yield_now();
@@ -225,6 +227,7 @@ fn run(e: &Engine, q: &Queue, first: u32, n: u32, hold_r3: bool, label: &str) {
     };
     std::thread::sleep(Duration::from_millis(50));
     let before = e.status().devices[0].stale_reports_skipped;
+    let flow_before = e.status().devices[0].flow;
     // The stand-in controller is hardware: it must not be starved by the load.
     set_priority(15);
     // The "controller": a report every 4 ms by deadline.
@@ -252,7 +255,7 @@ fn run(e: &Engine, q: &Queue, first: u32, n: u32, hold_r3: bool, label: &str) {
     let (polls, worst_poll_gap) = reader.join().unwrap();
     let seen = seen.lock().unwrap().clone();
     let mut first_seen = HashMap::new();
-    for (t, tag) in &seen {
+    for (t, tag, _) in &seen {
         first_seen.entry(*tag).or_insert(*t);
     }
     let mut delivery = Vec::new();
@@ -265,17 +268,29 @@ fn run(e: &Engine, q: &Queue, first: u32, n: u32, hold_r3: bool, label: &str) {
     }
     let ours: Vec<Instant> = seen
         .iter()
-        .filter(|(_, tag)| *tag >= first && *tag < first + n)
-        .map(|(t, _)| *t)
+        .filter(|(_, tag, _)| *tag >= first && *tag < first + n)
+        .map(|(t, _, _)| *t)
         .collect();
-    let gaps: Vec<f64> = ours.windows(2).map(|w| (w[1] - w[0]).as_secs_f64() * 1e6).collect();
-    let push_gaps: Vec<f64> = pushed.windows(2).map(|w| (w[1] - w[0]).as_secs_f64() * 1e6).collect();
+    let gaps: Vec<f64> = ours
+        .windows(2)
+        .map(|w| (w[1] - w[0]).as_secs_f64() * 1e6)
+        .collect();
+    let push_gaps: Vec<f64> = pushed
+        .windows(2)
+        .map(|w| (w[1] - w[0]).as_secs_f64() * 1e6)
+        .collect();
     let s = e.status();
     let d = &s.devices[0];
     let final_ok = read(slot).map(|s| tag_of(&s.gamepad)) == Some(first + n - 1);
     println!("PIPELINE {label}: {n} reports every 4 ms");
-    println!("PIPELINE {label}   report spacing (sent)   {}", dist(push_gaps));
-    println!("PIPELINE {label}   report -> XInput        {}", dist(delivery));
+    println!(
+        "PIPELINE {label}   report spacing (sent)   {}",
+        dist(push_gaps)
+    );
+    println!(
+        "PIPELINE {label}   report -> XInput        {}",
+        dist(delivery)
+    );
     println!("PIPELINE {label}   XInput change gaps      {}", dist(gaps));
     println!(
         "PIPELINE {label}   never visible: {missing} of {n} ({:.1} %); stale reports skipped by NEXUS: {}; final state shown: {final_ok}",
@@ -283,6 +298,21 @@ fn run(e: &Engine, q: &Queue, first: u32, n: u32, hold_r3: bool, label: &str) {
         d.stale_reports_skipped - before
     );
     let o = &d.output;
+    let last_seen = seen.last().map(|(_, _, g)| *g);
+    let p = d.processed.as_ref();
+    println!(
+        "PIPELINE {label}   XInput changes seen {} (any value); last XInput state {:?}; NEXUS's last frame: L2 {:?} R2 {:?} buttons south {:?}; frames sent {} (repeats {}) since start of run; expected last tag {} = L2 {} R2 {}",
+        seen.len(),
+        last_seen,
+        p.map(|p| p.left_trigger.raw),
+        p.map(|p| p.right_trigger.raw),
+        p.map(|p| p.buttons.south),
+        d.flow.outputs - flow_before.outputs,
+        d.flow.unchanged_outputs - flow_before.unchanged_outputs,
+        first + n - 1,
+        (first + n - 1) / 256,
+        (first + n - 1) % 256,
+    );
     println!(
         "PIPELINE {label}   virtual controller: active {:?}, slot read {slot} -> now {:?}, retrying {}, last error {:?}; XInput polls {polls}, longest gap between polls {} us",
         o.active, o.player_index, o.retrying, o.last_error, worst_poll_gap.as_micros()
@@ -290,7 +320,10 @@ fn run(e: &Engine, q: &Queue, first: u32, n: u32, hold_r3: bool, label: &str) {
     let log = e.recent_log(500);
     for entry in log.iter().skip(log_before) {
         if entry.category == "output" || entry.category == "device" {
-            println!("PIPELINE {label}   log: {:?} {} {}", entry.level, entry.category, entry.message);
+            println!(
+                "PIPELINE {label}   log: {:?} {} {}",
+                entry.level, entry.category, entry.message
+            );
         }
     }
     println!(
@@ -329,7 +362,11 @@ fn controller_reports_reach_xinput_through_nexus_on_time() {
         if let Some(s) = (0..4).find(|s| !before.contains(s) && read(*s).is_some()) {
             break s;
         }
-        assert!(Instant::now() < deadline, "the virtual controller never appeared in XInput: {:?}", e.status().devices.first().map(|d| &d.output));
+        assert!(
+            Instant::now() < deadline,
+            "the virtual controller never appeared in XInput: {:?}",
+            e.status().devices.first().map(|d| &d.output)
+        );
         std::thread::sleep(Duration::from_millis(10));
     };
     // The tag must pass through default processing exactly.
@@ -339,7 +376,11 @@ fn controller_reports_reach_xinput_through_nexus_on_time() {
         ready.notify_one();
         let t = Instant::now();
         while read(slot).map(|s| tag_of(&s.gamepad)) != Some(300) {
-            assert!(t.elapsed() < Duration::from_secs(2), "tag not passed through exactly: {:?}", read(slot));
+            assert!(
+                t.elapsed() < Duration::from_secs(2),
+                "tag not passed through exactly: {:?}",
+                read(slot)
+            );
             std::thread::sleep(Duration::from_millis(1));
         }
     }
@@ -367,7 +408,12 @@ fn controller_reports_reach_xinput_through_nexus_on_time() {
         name: "Rapid A".into(),
         description: String::new(),
         enabled: true,
-        steps: vec![MacroStep { id: "s".into(), buttons: vec![MacroButton::South], hold_ms: 30, delay_after_ms: 30 }],
+        steps: vec![MacroStep {
+            id: "s".into(),
+            buttons: vec![MacroButton::South],
+            hold_ms: 30,
+            delay_after_ms: 30,
+        }],
         trigger: Some(MacroButton::RightStick),
         mode: PlaybackMode::RepeatWhileHeld,
         repeat_delay_ms: 0,

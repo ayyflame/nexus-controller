@@ -4,7 +4,7 @@ import { useEngine } from "../hooks/useEngine";
 import { buildDiagnosticsReport } from "../lib/diagnostics";
 import { errorMessage } from "../lib/engine";
 import { connectionLabel, modelLabel, outputLabel } from "../lib/format";
-import { slowCallsText, stageText } from "../lib/outputCheck";
+import { gapsText, slowCallsText, stageText } from "../lib/outputCheck";
 import type { SlowCalls } from "../types/engine";
 
 function Kind({ estimate }: { estimate?: boolean }) {
@@ -57,9 +57,11 @@ export function Performance() {
           <table className="table">
             <tbody>
               <tr><td>Input report rate <Kind /></td><td className="right mono">{d.reportRateHz.toFixed(1)} Hz</td></tr>
-              <tr><td>NEXUS processing time, median / 99th percentile / max <Kind /></td>
-                <td className="right mono">{d.pipelineLatency.samples ? `${d.pipelineLatency.p50Us} / ${d.pipelineLatency.p99Us} / ${d.pipelineLatency.maxUs} µs` : "—"}</td></tr>
-              <tr><td colSpan={2} className="perf-stages-head">Where that time goes, median / 99th percentile / max</td></tr>
+              <tr><td>NEXUS processing time, average / median / 95th / 99th percentile / max <Kind /></td>
+                <td className="right mono">{d.pipelineLatency.samples
+                  ? `${[d.pipelineLatency.meanUs, d.pipelineLatency.p50Us, d.pipelineLatency.p95Us, d.pipelineLatency.p99Us, d.pipelineLatency.maxUs].filter((v) => v !== undefined).join(" / ")} µs`
+                  : "—"}</td></tr>
+              <tr><td colSpan={2} className="perf-stages-head">Where that time goes, average / median / 95th / 99th percentile / max</td></tr>
               <tr><td className="perf-stage">Report hand-over (read → processing starts) <Kind /></td><td className="right mono">{stageText(d.stageLatency?.input)}</td></tr>
               <tr><td className="perf-stage">Mapping: sticks, triggers, remap, layers, gyro, touchpad <Kind /></td><td className="right mono">{stageText(d.stageLatency?.mapping)}</td></tr>
               <tr><td className="perf-stage">Macros <Kind /></td><td className="right mono">{stageText(d.stageLatency?.macros)}</td></tr>
@@ -70,6 +72,17 @@ export function Performance() {
                 </td>
                 <SlowCallsCell calls={d.stageLatency?.slowOutput} />
               </tr>
+              <tr><td colSpan={2} className="perf-stages-head">Input flow (recent ~1 s), average / median / 95th / 99th percentile / max</td></tr>
+              <tr><td className="perf-stage" data-tip="A USB controller sends a report about every 4 ms. Uneven spacing here comes from the controller, USB or Windows, before NEXUS.">
+                Time between reports <Kind /></td><td className="right mono">{gapsText(d.flow?.reportGaps)}</td></tr>
+              <tr><td className="perf-stage" data-tip="NEXUS sends one frame per report, right after processing it. This should match the line above; if it is more uneven, the delay is inside NEXUS.">
+                Time between frames sent to the virtual controller <Kind /></td><td className="right mono">{gapsText(d.flow?.outputGaps)}</td></tr>
+              <tr><td className="perf-stage" data-tip="Reports that were already waiting when NEXUS asked for the next one, so NEXUS was behind the controller; and the most in a row. Normally both stay at or near 0.">
+                Reports already waiting (NEXUS behind), most in a row <Kind /></td>
+                <td className="right mono">{d.flow ? `${d.flow.queuedReports.toLocaleString()} · ${d.flow.longestBacklog}` : "—"}</td></tr>
+              <tr><td className="perf-stage" data-tip="Frames identical, for the game, to the one before. NEXUS still sends them: the driver ignores a repeat, and a repeat delivers a frame the driver missed.">
+                Repeated frames (sent anyway) <Kind /></td>
+                <td className="right mono">{d.flow ? `${d.flow.unchangedOutputs.toLocaleString()} of ${d.flow.outputs.toLocaleString()}` : "—"}</td></tr>
               <tr><td>Reports received <Kind /></td><td className="right mono">{d.totalReports.toLocaleString()}</td></tr>
               <tr><td>Input errors (unreadable reports) <Kind /></td><td className="right mono">{d.parseErrors.toLocaleString()}</td></tr>
               <tr><td>Dropped reports (from the controller's sequence counter) <Kind estimate /></td><td className="right mono">{d.sequenceGaps.toLocaleString()}</td></tr>

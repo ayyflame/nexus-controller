@@ -27,8 +27,9 @@ use nexus_macro_engine::{
     Macro, MacroButton, MacroLibrary, MacroRecorder, MacroRunner, RecordingResult,
 };
 use nexus_telemetry::{
-    unix_millis, IntervalStats, IntervalSummary, LatencySummary, LatencyWindow, LogEntry, LogLevel,
-    RateCounter, RawReport, SlowCalls, StageLatency, StageWindow, Telemetry,
+    unix_millis, FlowStats, FlowSummary, IntervalStats, IntervalSummary, LatencySummary,
+    LatencyWindow, LogEntry, LogLevel, RateCounter, RawReport, SlowCalls, StageLatency,
+    StageWindow, Telemetry,
 };
 use nexus_virtual_controller::drivers::{probe_drivers, DriverStatus};
 use nexus_virtual_controller::{
@@ -93,6 +94,10 @@ pub struct DeviceSnapshot {
     pub pipeline_latency: LatencySummary,
     /// The same time split by stage, in nanoseconds.
     pub stage_latency: StageLatency,
+    /// Spacing of reports and of virtual-controller frames, and whether
+    /// NEXUS fell behind the controller (see `FlowSummary`).
+    #[serde(default)]
+    pub flow: FlowSummary,
     /// Reports missing according to the controller's sequence counter
     /// (estimate: assumes the counter advances once per report).
     pub sequence_gaps: u64,
@@ -1083,6 +1088,12 @@ struct EngineSessionHandler {
     stale_skipped: u64,
     /// Skipped reports not yet accounted for in the sequence-gap count.
     skip_credit: u64,
+    /// Report and virtual-frame spacing, backlog and repeated frames.
+    flow: FlowStats,
+    /// The report being handled was already queued when read.
+    read_was_queued: bool,
+    /// The last frame sent to the virtual controller, as the game sees it.
+    last_sent: Option<nexus_virtual_controller::translate::XusbReport>,
 }
 
 /// Physical controller feedback for one session: sends a report only when
@@ -1212,6 +1223,7 @@ fn new_session_handler(
             active_layer: None,
             pipeline_latency: LatencySummary::default(),
             stage_latency: StageLatency::default(),
+            flow: FlowSummary::default(),
             sequence_gaps: 0,
             stale_reports_skipped: 0,
             report_intervals: IntervalSummary::default(),
@@ -1238,6 +1250,9 @@ fn new_session_handler(
         sequence_gaps: 0,
         stale_skipped: 0,
         skip_credit: 0,
+        flow: FlowStats::default(),
+        read_was_queued: false,
+        last_sent: None,
         pipeline: build_pipeline(&lock(&shared.processing)),
         processing_generation: shared.processing_generation.load(Ordering::Acquire),
         latency: LatencyWindow::default(),
@@ -1283,6 +1298,9 @@ impl EngineSessionHandler {
         let t2 = Instant::now();
         self.output.submit(&out);
         let t3 = Instant::now();
+        let sent = nexus_virtual_controller::translate::to_xusb(&out);
+        self.flow.output(t3, self.last_sent == Some(sent));
+        self.last_sent = Some(sent);
         self.stages.mapping.record(t1 - t0);
         self.stages.macros.record(t2 - t1);
         self.stages.output.record(t3 - t2);
@@ -1477,6 +1495,8 @@ impl SessionHandler for EngineSessionHandler {
 
         self.rate.record(now, parsed.is_ok());
         self.intervals.record(now);
+        self.flow
+            .report(now, std::mem::take(&mut self.read_was_queued));
         let error = parsed.as_ref().err().map(ToString::to_string);
         self.shared
             .telemetry
@@ -1511,13 +1531,15 @@ impl SessionHandler for EngineSessionHandler {
                 self.latency.summary(),
                 self.intervals.summary(),
                 self.stages.summary(),
+                self.flow.summary(),
             )
         });
         self.shared.update_device(&self.id, |s| {
-            if let Some((l, i, st)) = latency {
+            if let Some((l, i, st, flow)) = latency {
                 s.pipeline_latency = l;
                 s.report_intervals = i;
                 s.stage_latency = st;
+                s.flow = flow;
             }
             s.last_report_ms = Some(unix_millis());
             s.report_rate_hz = rate;
@@ -1593,6 +1615,10 @@ impl SessionHandler for EngineSessionHandler {
             self.shared
                 .update_device(&self.id, |s| s.report_rate_hz = rate);
         }
+    }
+
+    fn on_read_wait(&mut self, waited: Duration) {
+        self.read_was_queued = waited < nexus_device_manager::CAUGHT_UP_WAIT;
     }
 
     fn on_stale_skipped(&mut self, count: usize) {

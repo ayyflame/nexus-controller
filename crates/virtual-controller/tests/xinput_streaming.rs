@@ -137,7 +137,8 @@ fn tag_of(g: &XInputGamepad) -> u32 {
 
 fn stream(m: &mut VirtualOutputManager, slot: u32, n: u32, first: u32, label: &str) {
     let stop = Arc::new(AtomicBool::new(false));
-    let seen: Arc<Mutex<Vec<(Instant, u32, u32)>>> = Arc::new(Mutex::new(Vec::with_capacity(4 * n as usize)));
+    let seen: Arc<Mutex<Vec<(Instant, u32, u32)>>> =
+        Arc::new(Mutex::new(Vec::with_capacity(4 * n as usize)));
     let reader = {
         let (stop, seen) = (stop.clone(), seen.clone());
         std::thread::spawn(move || {
@@ -195,10 +196,19 @@ fn stream(m: &mut VirtualOutputManager, slot: u32, n: u32, first: u32, label: &s
             None => missing += 1,
         }
     }
-    let visible: Vec<&(Instant, u32, u32)> = seen.iter().filter(|(_, _, tag)| *tag >= first && *tag < first + n).collect();
-    let gaps: Vec<f64> = visible.windows(2).map(|w| (w[1].0 - w[0].0).as_secs_f64() * 1e6).collect();
+    let visible: Vec<&(Instant, u32, u32)> = seen
+        .iter()
+        .filter(|(_, _, tag)| *tag >= first && *tag < first + n)
+        .collect();
+    let gaps: Vec<f64> = visible
+        .windows(2)
+        .map(|w| (w[1].0 - w[0].0).as_secs_f64() * 1e6)
+        .collect();
     let packets = visible.last().map_or(0, |l| l.1.wrapping_sub(visible[0].1));
-    let send_gaps: Vec<f64> = sent.windows(2).map(|w| (w[1] - w[0]).as_secs_f64() * 1e6).collect();
+    let send_gaps: Vec<f64> = sent
+        .windows(2)
+        .map(|w| (w[1] - w[0]).as_secs_f64() * 1e6)
+        .collect();
     let last_ok = read(slot).map(|s| tag_of(&s.gamepad)) == Some(first + n - 1);
     println!("STREAM {label}: {n} updates every 4 ms");
     println!("STREAM {label}   submit spacing      {}", dist(send_gaps));
@@ -220,13 +230,17 @@ fn a_stream_of_updates_reaches_xinput_on_time() {
     }
     let before: Vec<u32> = (0..4).filter(|s| read(*s).is_some()).collect();
     let mut m = VirtualOutputManager::new(Box::new(backend));
-    m.set_mode(VirtualOutputKind::Xbox360).expect("create the virtual controller");
+    m.set_mode(VirtualOutputKind::Xbox360)
+        .expect("create the virtual controller");
     let deadline = Instant::now() + Duration::from_secs(10);
     let slot = loop {
         if let Some(s) = (0..4).find(|s| !before.contains(s) && read(*s).is_some()) {
             break s;
         }
-        assert!(Instant::now() < deadline, "the virtual controller never appeared in XInput");
+        assert!(
+            Instant::now() < deadline,
+            "the virtual controller never appeared in XInput"
+        );
         std::thread::sleep(Duration::from_millis(10));
     };
     std::thread::sleep(Duration::from_millis(300));

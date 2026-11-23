@@ -16,7 +16,7 @@ pub const STALE_INPUT_AFTER: Duration = Duration::from_millis(8);
 /// A read that waited at least this long found the queue empty: the reader
 /// was caught up. (A queued report is returned in microseconds; the next
 /// report from a DualSense takes 1–4 ms.)
-const CAUGHT_UP_WAIT: Duration = Duration::from_micros(300);
+pub const CAUGHT_UP_WAIT: Duration = Duration::from_micros(300);
 /// At most this many queued reports are read when skipping (Windows queues
 /// 32 by default), so a device that floods reports can't trap the loop.
 const MAX_SKIP: usize = 512;
@@ -28,6 +28,10 @@ pub trait SessionHandler: Send {
     fn on_report(&mut self, raw: &[u8], parsed: Result<ControllerState, ReportError>);
     /// Called when a read times out with no data (roughly every read timeout).
     fn on_idle(&mut self) {}
+    /// Called just before `on_report` with how long the read waited for that
+    /// report. Under [`CAUGHT_UP_WAIT`] the report was already queued, so
+    /// the reader was behind the controller. Diagnostics only.
+    fn on_read_wait(&mut self, _waited: Duration) {}
     /// After a slow iteration, `count` queued reports were skipped because
     /// they were stale; the newest one is delivered to `on_report` next.
     fn on_stale_skipped(&mut self, _count: usize) {}
@@ -103,11 +107,14 @@ pub(crate) fn run(mut ctx: SessionContext) {
             _ => {}
         }
         let read_began = Instant::now();
+        // How long the read waited (zero for a report kept after skipping).
+        let mut waited = Duration::ZERO;
         let read = match pending.take() {
             Some(n) => Ok(n),
             None => {
                 let r = ctx.connection.read_report(&mut buf, ctx.read_timeout);
-                if matches!(r, Ok(0)) || read_began.elapsed() >= CAUGHT_UP_WAIT {
+                waited = read_began.elapsed();
+                if matches!(r, Ok(0)) || waited >= CAUGHT_UP_WAIT {
                     caught_up = Instant::now();
                 }
                 r
@@ -117,6 +124,7 @@ pub(crate) fn run(mut ctx: SessionContext) {
         match read {
             Ok(0) => ctx.handler.on_idle(),
             Ok(n) => {
+                ctx.handler.on_read_wait(waited);
                 let raw = &buf[..n];
                 let parsed = parser.parse(raw);
                 ctx.handler.on_report(raw, parsed);
