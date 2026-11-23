@@ -5,14 +5,18 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import modelUrl from "../../assets/models/dualsense.glb?url";
+import ds4ModelUrl from "../../assets/models/dualshock4.glb?url";
 import {
-  CAMERA_TARGET, VIEWS, ZOOM, facesCamera, fitRadius, orbitBetween, orbitToOffset, visualFrom, visualKey,
-  type Orbit, type ViewName, type Visual3D,
+  CAMERA_TARGET, VIEWS, ZOOM, facesCamera, fitRadius, modelFor, orbitBetween, orbitToOffset, visualFrom, visualKey,
+  type Orbit, type ViewModel, type ViewName, type Visual3D,
 } from "../../lib/controller3d";
+import { DUALSENSE_SPEC, type ModelSpec } from "../../lib/dualsenseModel";
+import { DS4_MODEL_CREDIT, DUALSHOCK4_SPEC } from "../../lib/dualshock4Model";
+import { usePrimaryDevice } from "../../hooks/useEngine";
 import { describeState } from "../../lib/controllerView";
 import type { ButtonMark } from "../../lib/buttonMapping";
 import type { ControllerState, MacroButton } from "../../types/engine";
-import { applyFinish, applyVisual, buildModel, type BuiltModel, type Finish } from "./modelParts";
+import { applyFinish, applyVisual, buildModel, type BuiltModel, type Finish, type PartNode } from "./modelParts";
 import { useFinish } from "../../lib/controllerViewMode";
 import { useWindowActive } from "../../hooks/useWindowActive";
 
@@ -43,6 +47,15 @@ export const MODEL_CREDIT = {
   changes: "split into separate controls, recoloured glow, animated by NEXUS",
 } as const;
 
+/** Each 3D model: its file, how it is read, and its credit. */
+const MODELS: Record<ViewModel, { url: string; spec: ModelSpec; credit: typeof MODEL_CREDIT | typeof DS4_MODEL_CREDIT }> = {
+  dualSense: { url: modelUrl, spec: DUALSENSE_SPEC, credit: MODEL_CREDIT },
+  dualShock4: { url: ds4ModelUrl, spec: DUALSHOCK4_SPEC, credit: DS4_MODEL_CREDIT },
+};
+
+/** The model shown last, kept while no controller is connected (shared by every 3D view). */
+let lastModel: ViewModel = "dualSense";
+
 type Request = { kind: "view"; view: ViewName; n: number } | { kind: "zoom"; factor: number; n: number };
 type Pick = { over: (b: MacroButton) => void; out: (b: MacroButton) => void; click: (b: MacroButton) => void };
 
@@ -56,6 +69,12 @@ const MARK_COLOURS = { disabled: "#e26a6a", remapped: "#4fa8b8", macro: "#d6a54b
 export default function Controller3D({ state, live, selected = null, onSelect, marks, onAnchors, onFlat, offlineLabel }: Controller3DProps) {
   const vis = visualFrom(state, live);
   const visKey = visualKey(vis);
+  // Follows the controller: the DualShock 4 model for a DualShock 4, the
+  // DualSense model otherwise. Switching loads the other file once (cached).
+  const connected = usePrimaryDevice()?.device.model;
+  const which = modelFor(state?.format, connected, lastModel);
+  useEffect(() => { lastModel = which; }, [which]);
+  const shown = MODELS[which];
   // Same key → same object, so identical status updates do nothing.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const stableVis = useMemo(() => vis, [visKey]);
@@ -100,7 +119,8 @@ export default function Controller3D({ state, live, selected = null, onSelect, m
       >
         <Scene />
         <CameraRig request={request} onUserMove={userMoved} />
-        <DualSense vis={stableVis} visKey={visKey} selected={selected} hovered={hovered} marks={stableMarks} pick={pick} finish={finish}
+        <ControllerModel key={which} url={shown.url} spec={shown.spec}
+          vis={stableVis} visKey={visKey} selected={selected} hovered={hovered} marks={stableMarks} pick={pick} finish={finish}
           onAnchors={onAnchors ? reportAnchors : undefined} />
       </Canvas>
 
@@ -115,17 +135,17 @@ export default function Controller3D({ state, live, selected = null, onSelect, m
         <button type="button" aria-label="Zoom out" title="Zoom out" onClick={() => zoom(1.18)}>−</button>
         <button type="button" aria-label="Zoom in" title="Zoom in" onClick={() => zoom(1 / 1.18)}>+</button>
         <span className="c3d-sep" aria-hidden="true" />
-        <button type="button" className={`c3d-finish ${finish}`} onClick={() => setFinish(finish === "black" ? "white" : "black")}
+        {shown.spec.finishes && <button type="button" className={`c3d-finish ${finish}`} onClick={() => setFinish(finish === "black" ? "white" : "black")}
           title={`Colour: ${finish === "black" ? "Midnight Black" : "White"} (click to change)`}
-          aria-label={`Controller colour: ${finish === "black" ? "Midnight Black" : "White"}. Change`}><i /></button>
+          aria-label={`Controller colour: ${finish === "black" ? "Midnight Black" : "White"}. Change`}><i /></button>}
         {onFlat && <button type="button" onClick={onFlat} title="Show the flat picture">2D</button>}
         <span className="c3d-sep" aria-hidden="true" />
         <button type="button" aria-label="3D model credit" aria-expanded={credit} title="3D model credit" onClick={() => setCredit((c) => !c)}>ⓘ</button>
       </div>
       {credit && (
         <div className="c3d-credit" role="note">
-          3D model: “{MODEL_CREDIT.title}” by {MODEL_CREDIT.author} (Sketchfab), licensed {MODEL_CREDIT.license}.
-          Changes: {MODEL_CREDIT.changes}.
+          3D model: “{shown.credit.title}” by {shown.credit.author} (Sketchfab), licensed {shown.credit.license}.
+          Changes: {shown.credit.changes}.
         </div>
       )}
       {!interacted && !credit && <div className="c3d-hint" aria-hidden="true">Drag to rotate · scroll to zoom</div>}
@@ -171,12 +191,13 @@ function Scene() {
 }
 
 /** The model: loaded once, split into controls, updated only when what is visible changes. */
-function DualSense({ vis, visKey, selected, hovered, marks, pick, onAnchors, finish }: {
+function ControllerModel({ url, spec, vis, visKey, selected, hovered, marks, pick, onAnchors, finish }: {
+  url: string; spec: ModelSpec;
   vis: Visual3D; visKey: string; selected: MacroButton | null; hovered: MacroButton | null; finish: Finish;
   marks?: Partial<Record<MacroButton, ButtonMark>>; pick?: Pick; onAnchors?: (a: Anchors) => void;
 }) {
-  const gltf = useLoader(GLTFLoader, modelUrl);
-  const model = useMemo(() => buildModel(gltf), [gltf]);
+  const gltf = useLoader(GLTFLoader, url);
+  const model = useMemo(() => buildModel(gltf, spec), [gltf, spec]);
   useEffect(() => () => model.dispose(), [model]);
   const invalidate = useThree((s) => s.invalidate);
   // While a game is in front, the scene is not redrawn for input changes:
@@ -227,9 +248,9 @@ function buttonOf(e: ThreeEvent<PointerEvent | MouseEvent>): MacroButton | null 
 const Marks = memo(function Marks({ model, marks }: { model: BuiltModel; marks: Partial<Record<MacroButton, ButtonMark>> }) {
   return (
     <>
-      {(Object.keys(marks) as MacroButton[]).map((b) => {
+      {(Object.keys(marks) as MacroButton[]).filter((b) => model.parts[b]).map((b) => {
         const m = marks[b]!;
-        const a = model.parts[b].frame.anchor;
+        const a = model.parts[b]!.frame.anchor;
         return (["disabled", "remapped", "macro", "special"] as const).filter((k) => m[k]).map((k, i) => (
           <mesh key={`${b}-${k}`} position={[a[0] + 0.24 + i * 0.14, a[1] + 0.22, a[2] + 0.06]}>
             <sphereGeometry args={[0.055, 16, 12]} />
@@ -330,7 +351,7 @@ function AnchorReporter({ model, onAnchors }: { model: BuiltModel; onAnchors: (a
     last.current = sig;
     const cam = camera.position.toArray() as [number, number, number];
     const out: Anchors = {};
-    for (const node of Object.values(model.parts)) {
+    for (const node of Object.values(model.parts) as PartNode[]) {
       const { anchor, normal } = node.frame;
       v.set(...anchor).project(camera);
       out[node.button] = {

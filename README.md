@@ -37,7 +37,7 @@ Built with Tauri 2, React and TypeScript for the UI, and Rust for the engine, wi
 - **Lighting and vibration** for the controller itself (*Controller › Lighting & Haptics*). A DualShock 4 has a light bar and vibration but no player lights.
 
 ### Interactive 3D controller
-- Your controller as a 3D model that follows the real controller (the model is a DualSense, also for a DualShock 4): buttons light up, sticks tilt, L2/R2 swing with their pressure, touches appear on the touchpad.
+- Your controller as a 3D model that follows the real controller (a DualSense model or a DualShock 4 model, whichever is connected): buttons light up, sticks tilt, L2/R2 swing with their pressure, touches appear on the touchpad.
 - Drag to rotate, scroll to zoom, Front/Rear/Top views, Midnight Black or White.
 - Shown on the Dashboard, *Controller › Live*, *Controller › Mapping* and the Live Viewer. A flat 2D picture (or your own photo) is available instead.
 
@@ -161,7 +161,7 @@ Full details: [`docs/game-output.md`](docs/game-output.md).
 - **USB only.** Bluetooth isn't supported, by design, for either controller. The Sony DualShock 4 USB Wireless Adaptor isn't supported either.
 - **DualShock 4:**
   - only Sony's two revisions (CUH-ZCT1, CUH-ZCT2) are recognised. Third-party "DS4-compatible" pads with other USB IDs aren't, and ones that use Sony's IDs are untested;
-  - the 3D model and pictures show a DualSense;
+  - the flat (2D) controller pictures show a DualSense; the 3D view shows a DualShock 4;
   - Share appears as *Create* in the button lists, since both sit in the same place.
 - **One controller type out:** games see a virtual **Xbox 360** controller. DualShock 4 output, adaptive triggers, the light bar, gyro and touchpad position aren't passed to games, and rumble from games doesn't reach the controller. Games show Xbox button icons.
 - **ViGEmBus is retired** by its developer (2023). It works on Windows 11 today, but if a future Windows update breaks it there are no fixes from upstream. NEXUS labels virtual output *experimental*; the replacement options are evaluated in [`docs/virtual-driver-evaluation.md`](docs/virtual-driver-evaluation.md#long-term-update-2026-11-20-what-could-replace-vigembus).
@@ -253,7 +253,9 @@ cd apps\desktop; npm run typecheck; npm test; npm run build
 
 ## Credits
 
-- 3D controller model: **"Playstation 5 Dualsense" by [AHarmlessPotato](https://sketchfab.com/AHarmlessPotato)** ([source](https://sketchfab.com/3d-models/playstation-5-dualsense-878c1f882808477ab81c2fe86d5a3936)), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). NEXUS splits it into separate controls and recolours it at run time. NEXUS is not affiliated with Sony.
+- 3D controller model: **"Playstation 5 Dualsense" by [AHarmlessPotato](https://sketchfab.com/AHarmlessPotato)** ([source](https://sketchfab.com/3d-models/playstation-5-dualsense-878c1f882808477ab81c2fe86d5a3936)), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). NEXUS splits it into separate controls and recolours it at run time.
+- DualShock 4 3D model: **"DualShock 4 PlayStation Controller" by [shaielwolf](https://sketchfab.com/shaielwolf) ([source](https://sketchfab.com/3d-models/dualshock-4-playstation-controller-e3c2f0dc16524fc19cdde45bad1de1a9))**, licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). NEXUS splits it into separate controls at run time.
+- NEXUS is not affiliated with Sony.
 
 ## License
 

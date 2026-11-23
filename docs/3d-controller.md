@@ -1,6 +1,6 @@
 # 3D controller view
 
-NEXUS shows your DualSense as an interactive 3D model on the Dashboard, Controller › Live, Controller › Mapping and the Live Viewer. It moves with your real controller. Everything it shows comes from the same live input the rest of NEXUS uses (`device.input` from the engine's status stream). It never reads the controller on its own and never changes mappings, macros, profiles or the virtual controller.
+NEXUS shows your controller (a DualSense or a DualShock 4) as an interactive 3D model on the Dashboard, Controller › Live, Controller › Mapping and the Live Viewer. It moves with your real controller. Everything it shows comes from the same live input the rest of NEXUS uses (`device.input` from the engine's status stream). It never reads the controller on its own and never changes mappings, macros, profiles or the virtual controller.
 
 ## What it shows
 
@@ -16,6 +16,26 @@ NEXUS shows your DualSense as an interactive 3D model on the Dashboard, Controll
 | Light bar | On while a controller is connected, off when not |
 | No controller | The model rests and a "No controller connected" badge appears. It picks up again as soon as input returns |
 
+### DualShock 4
+
+When a DualShock 4 is connected, the view shows the DualShock 4 model instead, with the same camera views, lighting and highlights:
+
+| Control | In the 3D view |
+|---|---|
+| Cross, Circle, Square, Triangle, Share, Options, PS, L1, R1, each D-pad arm | Light up gold and sink slightly while pressed |
+| L2 / R2 | Swing in with the analog pressure and glow |
+| Left / right stick | Tilt toward where they're pushed; L3/R3 press the stick down |
+| Touchpad | Sinks and lights while clicked; fingers show as gold dots |
+| Light bar | Shown as the model's own (pink) light bar glow, which doesn't change |
+
+It has no Mute button, so nothing lights for it, and the White / Midnight Black switch is hidden: the model is shown in its own black colours.
+
+**Which model is shown:**
+- **The controller's own input decides:** the report format says DualSense or DualShock 4.
+- **Before the first input:** the connected controller's model.
+- **Unplugged:** the last model stays, at rest, with the usual *No controller connected* badge.
+- **Switching controllers** changes the model at once without restarting NEXUS. The other model's file loads the first time it is needed; the loading placeholder shows meanwhile.
+
 ## Using it
 
 - **Rotate:** drag. It turns all the way round, and the movement eases out smoothly.
@@ -29,7 +49,8 @@ NEXUS shows your DualSense as an interactive 3D model on the Dashboard, Controll
 ## Performance
 
 - **Rendering:** it draws a frame only when something visible changes (input, camera, size). With the controller still and the view untouched, it draws nothing.
-- **Loading:** the 3D code (~270 kB gzipped) and the model (~5.9 MB, loaded from the app itself, no network) load only when a 3D view is first shown.
+- **Loading:** the 3D code (~270 kB gzipped) and the model (~5.9 MB DualSense, ~7.1 MB DualShock 4, loaded from the app itself, no network) load only when a 3D view first needs them. The DualShock 4 file isn't loaded unless a DualShock 4 is used.
+- **In the background:** while another program (a game) has the focus, the model doesn't redraw for input; it catches up when NEXUS is focused again. Measured with the DualShock 4 model in headless Chromium: no 3D frames while unfocused with input streaming, a redraw within 1.5 s of focus.
 - **Fallback:** if the PC can't draw WebGL, NEXUS shows the flat picture with a note. The small previews (Sent to the game, macro previews) stay flat.
 
 ## The model
@@ -41,7 +62,19 @@ The file itself is unchanged. When it loads, NEXUS:
 - gives each control a pivot
 - tints it for the Midnight Black finish and the gold/teal highlights.
 
-A test checks that all 19 controls are found in the file at their expected places. The model includes the controller's own markings (the PS button shape and the SONY lettering on the top edge); NEXUS is not affiliated with Sony.
+A test checks that all 19 controls are found in the file at their expected places.
+
+`apps/desktop/src/assets/models/dualshock4.glb`: **"DualShock 4 PlayStation Controller" by [shaielwolf](https://sketchfab.com/shaielwolf)** ([source](https://sketchfab.com/3d-models/dualshock-4-playstation-controller-e3c2f0dc16524fc19cdde45bad1de1a9)), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). The file is unchanged.
+
+**How its parts are found:** the file groups parts by kind: one mesh holds all the buttons, one both sticks, one the bumpers and triggers, one the touchpad. Inside each mesh every control is its own piece of geometry, so NEXUS:
+- moves the file into the same frame as the DualSense (2 units wide, centred);
+- splits each mesh into its pieces and names each by position (`apps/desktop/src/lib/dualshock4Model.ts`).
+
+Each control then moves as itself, as on the DualSense. A test (`dualshock4Model.test.ts`) checks against the real file that:
+- all 18 controls are found, each exactly one piece, at the expected place;
+- the shell, headphone jack, screws, USB port and the thin strips behind the bumpers stay fixed.
+
+Both models include the controllers' own markings (the PS button and the SONY lettering on the top edge); NEXUS is not affiliated with Sony.
 
 ## Hardware checks (not yet done)
 
@@ -59,3 +92,5 @@ These need a real DualSense on Windows. Simulated input and CI don't count.
 | 3D8 | Controller › Mapping: click a control on the model, remap it | The editor opens for that control; the remap works in `joy.cpl` |
 | 3D9 | Leave NEXUS on the Dashboard with the controller untouched | Task Manager shows little GPU/CPU use from NEXUS |
 | 3D10 | Macros, profile switching and game output while the 3D view is open | Unchanged behaviour |
+| 3D11 | With a DualShock 4: 3D1–3D7 (no Mute) | The DualShock 4 model shows and responds the same way |
+| 3D12 | Unplug the DualSense, plug in a DualShock 4 (and back) | The model changes to the controller that's connected, without restarting NEXUS |

@@ -5,7 +5,7 @@
 // Scene axes: x to the right, y up (towards L1/R1), z out of the face.
 
 import { dpadLit } from "./controllerView.ts";
-import type { ControllerState, MacroButton } from "../types/engine";
+import type { ControllerModel, ControllerState, MacroButton, ReportFormat } from "../types/engine";
 
 /** Largest stick tilt (radians), about the DualSense's real ~22°. */
 export const MAX_TILT = 0.38;
@@ -151,4 +151,23 @@ export function orbitBetween(a: Orbit, b: Orbit, t: number): Orbit {
 export function fitRadius(radius: number, aspect: number): number {
   const wanted = 1.5;
   return aspect > 0 && aspect < wanted ? Math.min(ZOOM.max, radius * (wanted / aspect)) : radius;
+}
+
+// ---- Which model ---------------------------------------------------------
+
+/** The 3D models NEXUS has. A DualSense Edge is shown as a DualSense. */
+export type ViewModel = "dualSense" | "dualShock4";
+
+/**
+ * Which 3D model to show. The state says which controller it came from (its
+ * report format). States that don't (macro previews, or no input yet) use
+ * the connected controller's model; with nothing connected, the model shown
+ * last stays, with the usual "No controller connected" badge.
+ */
+export function modelFor(format: ReportFormat | null | undefined, connected: ControllerModel | null | undefined, last: ViewModel): ViewModel {
+  if (format === "dualShock4Usb") return "dualShock4";
+  if (format === "dualSenseUsb" || format === "dualSenseBluetooth" || format === "dualSenseBluetoothBasic") return "dualSense";
+  if (connected === "dualShock4") return "dualShock4";
+  if (connected === "dualSense" || connected === "dualSenseEdge") return "dualSense";
+  return last;
 }

@@ -25,7 +25,7 @@ Everything the SignPath Foundation application asks for, ready to copy. Apply at
 | Requirement | NEXUS |
 |---|---|
 | OSI-approved licence, public source | MIT, public GitHub repository |
-| No proprietary components by the maintainer | None. The only non-code third-party asset is a 3D controller model under CC BY 4.0 (`THIRD_PARTY_NOTICES.md`). Rust crates and npm packages are open source (locked in `Cargo.lock` and `package-lock.json`). |
+| No proprietary components by the maintainer | None. The only non-code third-party assets are two 3D controller models (DualSense, DualShock 4) under CC BY 4.0 (`THIRD_PARTY_NOTICES.md`). Rust crates and npm packages are open source (locked in `Cargo.lock` and `package-lock.json`). |
 | Builds fully automated from the repository | Yes. Every tool is pinned: Rust 1.100.0, Node 22.23.5, and actions by commit SHA. Crates and npm packages come from lockfiles (`--locked`, `npm ci`). Every build records `build-info.txt` and a provenance attestation. |
 | Only the project's own software is signed | Yes. ViGEmBus and HidHide (third-party drivers) are never bundled or signed; users install them from their publishers. |
 | MFA for everyone who can change the code or approve signing | **To do before applying:** turn on two-factor authentication on GitHub (Settings › Password and authentication) and on the SignPath account. |

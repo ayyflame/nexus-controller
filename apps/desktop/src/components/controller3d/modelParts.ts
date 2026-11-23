@@ -1,16 +1,22 @@
-// Turns the loaded DualSense model into a scene where every control is its
-// own object (with its own pivot and material), and applies live input to it.
-// The geometry, materials and textures are the model's own; NEXUS only splits
-// the meshes by control (see lib/dualsenseModel.ts) and adds glow and motion.
+// Turns a loaded controller model (DualSense or DualShock 4) into a scene
+// where every control is its own object (with its own pivot and material),
+// and applies live input to it. The geometry, materials and textures are the
+// model's own; NEXUS only splits the meshes by control (see
+// lib/dualsenseModel.ts and lib/dualshock4Model.ts) and adds glow and motion.
 
 import * as THREE from "three";
 import type { GLTF } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { triggerAngle, type Visual3D } from "../../lib/controller3d";
-import { BLACK_FINISH_GLSL, MODEL_SCALE, PARTS, PRESS_DEPTH, classify, findIslands, frameOf, type Island, type PartFrame, type V3 } from "../../lib/dualsenseModel";
+import {
+  BLACK_FINISH_GLSL, MODEL_SCALE, PRESS_DEPTH, classifyIn, findIslands, frameIn,
+  type Island, type ModelSpec, type Motion, type PartFrame, type V3,
+} from "../../lib/dualsenseModel";
 import type { MacroButton } from "../../types/engine";
 
 export interface PartNode {
   button: MacroButton;
+  /** How it moves when used. */
+  kind: Motion;
   /** Positioned at the pivot; sticks and triggers rotate this. */
   pivot: THREE.Group;
   /** Inside the pivot; presses move this. */
@@ -55,7 +61,10 @@ export interface BuiltModel {
   materials: THREE.MeshStandardMaterial[];
   /** Each material's finish switch (0 = white as made, 1 = Midnight Black). */
   finishUniforms: Array<{ value: number }>;
-  parts: Record<MacroButton, PartNode>;
+  /** Whether the white / Midnight Black finish applies to this model. */
+  finishes: boolean;
+  /** Every control the controller has (no Mute on a DualShock 4). */
+  parts: Partial<Record<MacroButton, PartNode>>;
   /** Touch dots on the touchpad (two, like the hardware). */
   touchDots: THREE.Mesh[];
   dispose: () => void;
@@ -95,7 +104,7 @@ const BLACK = new THREE.Color(0, 0, 0);
 const WHITE = new THREE.Color(1, 1, 1);
 
 /** Splits the model's meshes into the fixed shell and one object per control. */
-export function buildModel(gltf: GLTF): BuiltModel {
+export function buildModel(gltf: GLTF, spec: ModelSpec): BuiltModel {
   const root = new THREE.Group();
   root.scale.setScalar(MODEL_SCALE);
   const created: Array<THREE.BufferGeometry | THREE.Material> = [];
@@ -105,9 +114,23 @@ export function buildModel(gltf: GLTF): BuiltModel {
   const own = (m: THREE.MeshStandardMaterial) => { materials.push(m); finishUniforms.push(installFinish(m)); created.push(m); };
 
   const meshes: THREE.Mesh[] = [];
+  gltf.scene.updateMatrixWorld(true);
   gltf.scene.traverse((o) => { if ((o as THREE.Mesh).isMesh) meshes.push(o as THREE.Mesh); });
+  // Models stored in other units are moved into the shared frame on a copy of
+  // each geometry (the loaded model stays as in the file).
+  const toFrame = spec.normalise
+    ? new THREE.Matrix4()
+      .makeScale(spec.normalise.scale, spec.normalise.scale, spec.normalise.scale)
+      .multiply(new THREE.Matrix4().makeTranslation(-spec.normalise.centre[0], -spec.normalise.centre[1], -spec.normalise.centre[2]))
+    : null;
   for (const mesh of meshes) {
-    const g = mesh.geometry as THREE.BufferGeometry;
+    let g = mesh.geometry as THREE.BufferGeometry;
+    let framed: THREE.BufferGeometry | null = null;
+    if (toFrame) {
+      framed = g.clone();
+      framed.applyMatrix4(new THREE.Matrix4().multiplyMatrices(toFrame, mesh.matrixWorld));
+      g = framed;
+    }
     // A copy: the loaded (cached) model stays exactly as in the file.
     const source = mesh.material as THREE.MeshStandardMaterial;
     const material = source.clone();
@@ -123,7 +146,7 @@ export function buildModel(gltf: GLTF): BuiltModel {
     const fixed: number[] = [];
     const byButton = new Map<MacroButton, Island[]>();
     for (const isl of islands) {
-      const b = classify(material.name, isl);
+      const b = classifyIn(spec.parts, material.name, isl);
       if (b) byButton.set(b, [...(byButton.get(b) ?? []), isl]);
       else fixed.push(...isl.triangles);
     }
@@ -138,7 +161,7 @@ export function buildModel(gltf: GLTF): BuiltModel {
     for (const [b, isls] of byButton) {
       // Face buttons and D-pad arms: a clear cap over a solid inner piece that
       // carries the colour and the printed symbol. The cap stays see-through.
-      const cap = PARTS[b].clearCap ? isls.reduce((a, c) => (c.max[2] > a.max[2] ? c : a)) : null;
+      const cap = spec.parts[b]!.clearCap ? isls.reduce((a, c) => (c.max[2] > a.max[2] ? c : a)) : null;
       const groups = cap ? [isls.filter((i) => i !== cap), [cap]] : [isls];
       for (const group of groups) {
         const pg = subGeometry(g, group.flatMap((i) => i.triangles));
@@ -153,17 +176,18 @@ export function buildModel(gltf: GLTF): BuiltModel {
         pieces.set(b, [...(pieces.get(b) ?? []), { geometry: pg, material: m }]);
       }
     }
+    framed?.dispose();
   }
 
-  const parts = {} as Record<MacroButton, PartNode>;
-  for (const b of Object.keys(PARTS) as MacroButton[]) {
+  const parts: Partial<Record<MacroButton, PartNode>> = {};
+  for (const b of Object.keys(spec.parts) as MacroButton[]) {
     const list = pieces.get(b);
     if (!list) throw new Error(`Controller model: ${b} not found`);
     const box = new THREE.Box3();
     for (const p of list) { p.geometry.computeBoundingBox(); box.union(p.geometry.boundingBox!); }
     const min = box.min.toArray() as V3;
     const max = box.max.toArray() as V3;
-    const f = frameOf(b, min, max);
+    const f = frameIn(spec, b, min, max);
     const pivot = new THREE.Group();
     pivot.position.set(...f.pivot);
     const motion = new THREE.Group();
@@ -179,7 +203,7 @@ export function buildModel(gltf: GLTF): BuiltModel {
     root.add(pivot);
     const s = (v: V3): V3 => [v[0] * MODEL_SCALE, v[1] * MODEL_SCALE, v[2] * MODEL_SCALE];
     parts[b] = {
-      button: b, pivot, motion, materials: list.map((p) => p.material),
+      button: b, kind: spec.parts[b]!.motion, pivot, motion, materials: list.map((p) => p.material),
       frame: { pivot: s(f.pivot), anchor: s(f.anchor), normal: f.normal }, min, max,
     };
   }
@@ -191,18 +215,20 @@ export function buildModel(gltf: GLTF): BuiltModel {
   const touchDots = [0, 1].map(() => {
     const m = new THREE.Mesh(dotGeometry, dotMaterial);
     m.visible = false;
-    parts.touchpad.motion.add(m);
+    parts.touchpad!.motion.add(m);
     return m;
   });
 
   return {
-    root, materials, finishUniforms, parts, touchDots,
+    root, materials, finishUniforms, finishes: spec.finishes, parts, touchDots,
     dispose: () => { for (const c of created) c.dispose(); },
   };
 }
 
 /** Sets the controller's colour. */
 export function applyFinish(model: BuiltModel, finish: Finish): void {
+  // A model with its own colours (the DualShock 4) is shown as made.
+  if (!model.finishes) return;
   for (const u of model.finishUniforms) u.value = finish === "black" ? 1 : 0;
   // Black plastic is a touch glossier than the white's matte finish.
   for (const m of model.materials) m.roughness = finish === "black" ? 0.85 : 1;
@@ -214,7 +240,7 @@ const TEAL_TINT = new THREE.Color(0.62, 0.9, 0.96);
 
 /** Applies one input state (plus selection and hover) to the model. */
 export function applyVisual(model: BuiltModel, vis: Visual3D, selected: MacroButton | null, hovered: MacroButton | null): void {
-  for (const node of Object.values(model.parts)) {
+  for (const node of Object.values(model.parts) as PartNode[]) {
     const b = node.button;
     const lit = vis.lit[b];
     let colour = BLACK, intensity = 0;
@@ -236,7 +262,7 @@ export function applyVisual(model: BuiltModel, vis: Visual3D, selected: MacroBut
     }
 
     // Motion
-    const motion = PARTS[b].motion;
+    const motion = node.kind;
     node.motion.position.set(0, 0, 0);
     node.pivot.rotation.set(0, 0, 0);
     if (motion === "press" && lit) node.motion.position.z = -PRESS_DEPTH * (b === "touchpad" ? 0.5 : 1);
@@ -255,7 +281,7 @@ export function applyVisual(model: BuiltModel, vis: Visual3D, selected: MacroBut
   }
 
   // Touch points on the touchpad surface (u across, v down).
-  const tp = model.parts.touchpad;
+  const tp = model.parts.touchpad!;
   model.touchDots.forEach((dot, i) => {
     const t = vis.touches[i];
     dot.visible = Boolean(t);
