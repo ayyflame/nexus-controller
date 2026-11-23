@@ -42,7 +42,7 @@ It has no Mute button, so nothing lights for it, and the White / Midnight Black 
 - **Zoom:** scroll, or use − / +.
 - **Views:** Reset (the default slight tilt), Front, Rear, and Top (bumpers and triggers).
 - **Colour:** the round swatch switches between Midnight Black and White. The model's textures are painted for a white controller; Midnight Black repaints them (white plastic → black, grey printing → light grey), so the button symbols stay readable.
-- **2D:** switches to the flat picture (drawing or your own photo). The flat picture then has a **3D** button in its corner to switch back, on every page. Controller › Live › Controller picture also switches between 3D and 2D.
+- **2D:** switches to the flat picture (drawing or your own photo). The drawing matches the connected controller: a DualSense, or a DualShock 4 whose outline is traced from the DualShock 4 3D model and whose buttons sit where the model has them (`lib/dualshock4Art.ts`). The flat picture then has a **3D** button in its corner to switch back, on every page. Controller › Live › Controller picture also switches between 3D and 2D.
 - **Controller › Mapping:** click a control on the model to edit it. The leader lines follow the controls as you turn the model, and are hidden for controls facing away.
 - **ⓘ:** shows the 3D model's credit.
 
@@ -94,3 +94,25 @@ These need a real DualSense on Windows. Simulated input and CI don't count.
 | 3D10 | Macros, profile switching and game output while the 3D view is open | Unchanged behaviour |
 | 3D11 | With a DualShock 4: 3D1–3D7 (no Mute) | The DualShock 4 model shows and responds the same way |
 | 3D12 | Unplug the DualSense, plug in a DualShock 4 (and back) | The model changes to the controller that's connected, without restarting NEXUS |
+
+## 2D pictures with a DualShock 4
+
+Every flat picture follows the controller shown, chosen the same way as the 3D model (`hooks/useShownModel.ts`):
+- the controller the input came from;
+- otherwise the connected controller;
+- otherwise the last one shown.
+
+| Where | DualSense | DualShock 4 |
+|---|---|---|
+| Dashboard › Live Input, Controller › Live, Live Viewer › Live (2D mode) | DualSense drawing (or your photo) | DualShock 4 drawing |
+| *Sent to the game* previews (Controller › Live, Live Viewer), Macro Studio preview and live test | DualSense drawing (or your photo) | DualShock 4 drawing |
+| Controller › Mapping (2D and 3D): cards and leader lines | Cards for every control, *Create* | No *Mute* card; *Share* |
+| Macro Studio button pads | With *Mute*, *Create* | No *Mute* key; *Share* |
+| Controller › Touchpad zone editor | 16:9 (1920 × 1080) | DualShock 4 shape (1920 × 942) |
+| Controller › Live › Controller picture | *Use my photo…* available | Drawing only (the photo is of a DualSense) |
+
+The DualShock 4 drawing:
+- **Size and style:** the same viewBox, size, colours, highlights, mark dots and clickable parts as the DualSense drawing.
+- **Shape:** body, touchpad and bumper outlines traced from the DualShock 4 3D model's front view. A test checks the body against the model's silhouette: same width, height and area within 1 %.
+- **Positions:** every button, the D-pad arms, sticks, Share, Options and PS sit at the model's own positions.
+- **Differences from the DualSense drawing:** the D-pad and face-button wells and the coloured face symbols are drawn; there are no light strips and no Mute button.

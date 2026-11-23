@@ -1,6 +1,7 @@
 import { BUTTONS } from "../../lib/macros";
 import type { MacroButton } from "../../types/engine";
 import { ButtonChip } from "./ButtonChip";
+import { useShownModel } from "../../hooks/useShownModel";
 
 interface Props {
   selected: MacroButton[];
@@ -13,11 +14,16 @@ interface Props {
 }
 
 /**
- * Clickable controller layout. Buttons sit where they are on a DualSense so
- * users find them by position, not by name.
+ * Clickable controller layout. Buttons sit where they are on the controller
+ * shown (DualSense or DualShock 4, which share the layout) so users find them
+ * by position, not by name. A DualShock 4 has no Mute key and calls Create
+ * "Share".
  */
 export function ButtonPad({ selected, onPick, blocked = {}, lit = [], label }: Props) {
+  const ds4 = useShownModel() === "dualShock4";
   const key = (b: MacroButton, extra = "") => {
+    if (ds4 && b === "mute") return null;
+    const name = ds4 && b === "select" ? "Share" : BUTTONS[b].name;
     const reason = blocked[b];
     const isSelected = selected.includes(b);
     return (
@@ -28,10 +34,10 @@ export function ButtonPad({ selected, onPick, blocked = {}, lit = [], label }: P
         onClick={() => onPick(b)}
         disabled={!!reason}
         aria-pressed={isSelected}
-        aria-label={BUTTONS[b].name + (reason ? ` (unavailable: ${reason})` : "")}
-        data-tip={reason ?? BUTTONS[b].name}
+        aria-label={name + (reason ? ` (unavailable: ${reason})` : "")}
+        data-tip={reason ?? name}
       >
-        <ButtonChip button={b} size="lg" active={isSelected} />
+        <ButtonChip button={b} size="lg" active={isSelected} label={ds4 && b === "select" ? "Share" : undefined} />
       </button>
     );
   };

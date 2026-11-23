@@ -6,6 +6,7 @@
 
 import type { ButtonMapping } from "./buttonMapping";
 import type { MacroButton, ProcessingConfig, RemapRule, VirtualOutputKind } from "../types/engine";
+import type { ViewModel } from "./controller3d.ts";
 
 /** Cards around the picture, in reading order per side (matches the DualSense layout). */
 export const CALLOUTS: Record<"top" | "left" | "right" | "bottom", MacroButton[]> = {
@@ -16,6 +17,16 @@ export const CALLOUTS: Record<"top" | "left" | "right" | "bottom", MacroButton[]
 };
 
 export const CALLOUT_BUTTONS: MacroButton[] = [...CALLOUTS.top, ...CALLOUTS.left, ...CALLOUTS.right, ...CALLOUTS.bottom];
+
+/** The cards for the controller shown: a DualShock 4 has no Mute button (its layout is otherwise the same). */
+export function calloutsFor(model: ViewModel): typeof CALLOUTS {
+  return model === "dualShock4" ? { ...CALLOUTS, bottom: CALLOUTS.bottom.filter((b) => b !== "mute") } : CALLOUTS;
+}
+
+/** A card's name on the controller shown: Share on a DualShock 4 is Create on a DualSense. */
+export function shortName(button: MacroButton, model: ViewModel): string {
+  return model === "dualShock4" && button === "select" ? "Share" : SHORT_NAMES[button];
+}
 
 /** Short PlayStation names for the cards. */
 export const SHORT_NAMES: Record<MacroButton, string> = {

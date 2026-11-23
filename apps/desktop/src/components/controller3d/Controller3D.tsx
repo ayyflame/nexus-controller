@@ -7,12 +7,12 @@ import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment
 import modelUrl from "../../assets/models/dualsense.glb?url";
 import ds4ModelUrl from "../../assets/models/dualshock4.glb?url";
 import {
-  CAMERA_TARGET, VIEWS, ZOOM, facesCamera, fitRadius, modelFor, orbitBetween, orbitToOffset, visualFrom, visualKey,
+  CAMERA_TARGET, VIEWS, ZOOM, facesCamera, fitRadius, orbitBetween, orbitToOffset, visualFrom, visualKey,
   type Orbit, type ViewModel, type ViewName, type Visual3D,
 } from "../../lib/controller3d";
 import { DUALSENSE_SPEC, type ModelSpec } from "../../lib/dualsenseModel";
 import { DS4_MODEL_CREDIT, DUALSHOCK4_SPEC } from "../../lib/dualshock4Model";
-import { usePrimaryDevice } from "../../hooks/useEngine";
+import { useShownModel } from "../../hooks/useShownModel";
 import { describeState } from "../../lib/controllerView";
 import type { ButtonMark } from "../../lib/buttonMapping";
 import type { ControllerState, MacroButton } from "../../types/engine";
@@ -53,9 +53,6 @@ const MODELS: Record<ViewModel, { url: string; spec: ModelSpec; credit: typeof M
   dualShock4: { url: ds4ModelUrl, spec: DUALSHOCK4_SPEC, credit: DS4_MODEL_CREDIT },
 };
 
-/** The model shown last, kept while no controller is connected (shared by every 3D view). */
-let lastModel: ViewModel = "dualSense";
-
 type Request = { kind: "view"; view: ViewName; n: number } | { kind: "zoom"; factor: number; n: number };
 type Pick = { over: (b: MacroButton) => void; out: (b: MacroButton) => void; click: (b: MacroButton) => void };
 
@@ -71,9 +68,7 @@ export default function Controller3D({ state, live, selected = null, onSelect, m
   const visKey = visualKey(vis);
   // Follows the controller: the DualShock 4 model for a DualShock 4, the
   // DualSense model otherwise. Switching loads the other file once (cached).
-  const connected = usePrimaryDevice()?.device.model;
-  const which = modelFor(state?.format, connected, lastModel);
-  useEffect(() => { lastModel = which; }, [which]);
+  const which = useShownModel(state);
   const shown = MODELS[which];
   // Same key → same object, so identical status updates do nothing.
   // eslint-disable-next-line react-hooks/exhaustive-deps

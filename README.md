@@ -39,7 +39,7 @@ Built with Tauri 2, React and TypeScript for the UI, and Rust for the engine, wi
 ### Interactive 3D controller
 - Your controller as a 3D model that follows the real controller (a DualSense model or a DualShock 4 model, whichever is connected): buttons light up, sticks tilt, L2/R2 swing with their pressure, touches appear on the touchpad.
 - Drag to rotate, scroll to zoom, Front/Rear/Top views, Midnight Black or White.
-- Shown on the Dashboard, *Controller › Live*, *Controller › Mapping* and the Live Viewer. A flat 2D picture (or your own photo) is available instead.
+- Shown on the Dashboard, *Controller › Live*, *Controller › Mapping* and the Live Viewer. A flat 2D picture (or your own photo) is available instead. Both the 3D model and the 2D drawing show whichever controller is connected, DualSense or DualShock 4.
 
 ### Macro Studio
 - **Record** a macro from the controller or **build it** on a controller layout.
@@ -161,7 +161,7 @@ Full details: [`docs/game-output.md`](docs/game-output.md).
 - **USB only.** Bluetooth isn't supported, by design, for either controller. The Sony DualShock 4 USB Wireless Adaptor isn't supported either.
 - **DualShock 4:**
   - only Sony's two revisions (CUH-ZCT1, CUH-ZCT2) are recognised. Third-party "DS4-compatible" pads with other USB IDs aren't, and ones that use Sony's IDs are untested;
-  - the flat (2D) controller pictures show a DualSense; the 3D view shows a DualShock 4;
+  - the optional controller photo (2D) is of a DualSense, so with a DualShock 4 the drawn DualShock 4 is shown instead;
   - Share appears as *Create* in the button lists, since both sit in the same place.
 - **One controller type out:** games see a virtual **Xbox 360** controller. DualShock 4 output, adaptive triggers, the light bar, gyro and touchpad position aren't passed to games, and rumble from games doesn't reach the controller. Games show Xbox button icons.
 - **ViGEmBus is retired** by its developer (2023). It works on Windows 11 today, but if a future Windows update breaks it there are no fixes from upstream. NEXUS labels virtual output *experimental*; the replacement options are evaluated in [`docs/virtual-driver-evaluation.md`](docs/virtual-driver-evaluation.md#long-term-update-2026-11-20-what-could-replace-vigembus).

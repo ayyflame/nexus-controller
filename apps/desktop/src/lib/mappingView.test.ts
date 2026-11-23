@@ -103,3 +103,16 @@ test("leader lines leave the card on the side facing the controller", () => {
   assert.deepEqual(leaderLine("top", { left: 400, top: 0, width: 120, height: 40 }, button).from, { x: 460, y: 40 });
   assert.deepEqual(leaderLine("bottom", { left: 400, top: 600, width: 120, height: 40 }, button).from, { x: 460, y: 600 });
 });
+
+test("Mapping cards follow the controller shown: no Mute card and Share on a DualShock 4", async () => {
+  const { CALLOUTS, calloutsFor, shortName } = await import("./mappingView.ts");
+  assert.equal(calloutsFor("dualSense"), CALLOUTS, "DualSense unchanged");
+  const ds4 = calloutsFor("dualShock4");
+  assert.deepEqual(ds4.bottom, ["home"]);
+  assert.deepEqual(ds4.top, CALLOUTS.top);
+  assert.deepEqual(ds4.left, CALLOUTS.left);
+  assert.deepEqual(ds4.right, CALLOUTS.right);
+  assert.equal(shortName("select", "dualShock4"), "Share");
+  assert.equal(shortName("select", "dualSense"), "Create");
+  assert.equal(shortName("north", "dualShock4"), "Triangle");
+});

@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useEngine, usePrimaryDevice } from "../../hooks/useEngine";
+import { useShownModel } from "../../hooks/useShownModel";
 import { engineApi, errorMessage } from "../../lib/engine";
 import { connectionLabel, modelLabel } from "../../lib/format";
 import { BUTTONS } from "../../lib/macros";
@@ -210,7 +211,8 @@ export function TouchpadTab({ config, onChange }: { config: ProcessingConfig; on
   const set = (patch: Partial<typeof t>) => onChange({ ...config, touchpad: { ...t, ...patch } });
   const [zone, setZone] = useState(0);
   const tp = device?.input?.touchpad;
-  const W = 480, H = 270;
+  // Drawn in the shape of the controller's touchpad: 1920 x 1080 on a DualSense, 1920 x 942 on a DualShock 4.
+  const W = 480, H = useShownModel(device?.input) === "dualShock4" ? Math.round((W * 942) / 1920) : 270;
   const zones = ZONE_NAMES[t.layout];
   const rects = t.layout === "leftRight"
     ? [[0, 0, W / 2, H], [W / 2, 0, W / 2, H]]

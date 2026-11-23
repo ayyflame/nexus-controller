@@ -12,6 +12,7 @@ import { doubleInputAdvice, HIDHIDE_RELEASES } from "../lib/hidhide";
 import { outputSummary } from "../lib/outputStatus";
 import { buttonMapping, buttonMarks, describeMapping } from "../lib/buttonMapping";
 import { isCalibratedPhoto, savePhoto, useControllerPhoto } from "../lib/controllerPhoto";
+import { useShownModel } from "../hooks/useShownModel";
 import { saveViewMode, useViewMode } from "../lib/controllerViewMode";
 import { BUTTONS, pressedButtons } from "../lib/macros";
 import {
@@ -205,6 +206,8 @@ function LiveTab({ config }: { config: ProcessingConfig }) {
 function PhotoPicker() {
   const photo = useControllerPhoto();
   const mode = useViewMode();
+  // The photo option is a DualSense photograph; a DualShock 4 is always drawn.
+  const ds4 = useShownModel() === "dualShock4";
   const input = useRef<HTMLInputElement>(null);
   const [message, setMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
   const choose = async (file: File | undefined) => {
@@ -231,11 +234,13 @@ function PhotoPicker() {
         <button type="button" className={mode === "3d" ? "selected" : ""} aria-pressed={mode === "3d"} onClick={() => saveViewMode("3d")}>3D</button>
         <button type="button" className={mode === "flat" ? "selected" : ""} aria-pressed={mode === "flat"} onClick={() => saveViewMode("flat")}>2D</button>
       </div>
-      <span className="muted">{mode === "3d" ? "Interactive 3D model" : `2D picture: ${photo ? "your photo" : "drawn"}`}</span>
+      <span className="muted">{mode === "3d" ? "Interactive 3D model"
+        : ds4 ? `2D picture: drawn DualShock 4${photo ? " (your photo is of a DualSense and shows with a DualSense)" : ""}`
+        : `2D picture: ${photo ? "your photo" : "drawn"}`}</span>
       <input ref={input} type="file" accept="image/jpeg,image/png" hidden
         onChange={(e) => { void choose(e.target.files?.[0]); e.target.value = ""; }} />
-      {mode === "flat" && <button className="btn-ghost small" onClick={() => input.current?.click()}>Use my photo…</button>}
-      {mode === "flat" && photo && <button className="btn-ghost small" onClick={() => { savePhoto(null); setMessage(null); }}>Use drawing</button>}
+      {mode === "flat" && !ds4 && <button className="btn-ghost small" onClick={() => input.current?.click()}>Use my photo…</button>}
+      {mode === "flat" && !ds4 && photo && <button className="btn-ghost small" onClick={() => { savePhoto(null); setMessage(null); }}>Use drawing</button>}
       {message && <span className={message.tone === "ok" ? "ok-text" : "warn-text"}>{message.text}</span>}
     </div>
   );

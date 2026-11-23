@@ -136,6 +136,12 @@ p { margin: 0; }
 .controller.live .lightbar path { opacity: 1; }
 .controller .arrow { fill: var(--c-symbol); pointer-events: none; }
 .controller .symbol { fill: none; stroke: var(--c-symbol); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+/* DualShock 4 drawing: the recessed wells around the D-pad and face buttons, and its coloured symbols (muted to suit the dark theme). */
+.controller .ds4-well { fill: #18191d; stroke: #2a2c32; stroke-width: 1.2; }
+.controller .symbol.ds4-triangle { stroke: #4fbfa8; }
+.controller .symbol.ds4-circle { stroke: #e0707c; }
+.controller .symbol.ds4-cross { stroke: #7aa2e0; }
+.controller .symbol.ds4-square { stroke: #d08ac4; }
 .controller .part-label { fill: #80858f; font: 700 12px var(--font); text-anchor: middle; pointer-events: none; }
 .controller .part-value { fill: var(--c-gold); font: 600 10px var(--mono); text-anchor: middle; pointer-events: none; }
 .controller .speaker rect { fill: #3a3c43; }

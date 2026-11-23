@@ -3,10 +3,12 @@ import { ControllerVisual } from "../ControllerVisual";
 import type { Anchors } from "../controller3d/Controller3D";
 import { buttonMapping, buttonMarks, describeMapping } from "../../lib/buttonMapping";
 import {
-  CALLOUTS, CALLOUT_BUTTONS, SHORT_NAMES, calloutFor, gameLabel, leaderLine, resetButton, setRemapAlso, setRemapTarget,
+  CALLOUTS, CALLOUT_BUTTONS, calloutFor, calloutsFor, shortName, gameLabel, leaderLine, resetButton, setRemapAlso, setRemapTarget,
   type Box, type Point,
 } from "../../lib/mappingView";
 import { BUTTONS, pressedButtons } from "../../lib/macros";
+import { useShownModel } from "../../hooks/useShownModel";
+import type { ViewModel } from "../../lib/controller3d";
 import type { ControllerState, Macro, MacroButton, ProcessingConfig, VirtualOutputKind } from "../../types/engine";
 
 type Side = keyof typeof CALLOUTS;
@@ -48,6 +50,9 @@ export function MappingView({ config, onEdit, input, output, macros, onOpenOutpu
   const pressed = new Set(pressedButtons(input));
   const marks = buttonMarks(CALLOUT_BUTTONS, config, macros);
   const toggle = (b: MacroButton) => setSelected((cur) => (cur === b ? null : b));
+  // Cards and names follow the controller shown (no Mute card, "Share" on a DualShock 4).
+  const model = useShownModel(input);
+  const callouts = calloutsFor(model);
 
   useEffect(() => {
     if (!selected) return;
@@ -67,7 +72,7 @@ export function MappingView({ config, onEdit, input, output, macros, onOpenOutpu
         aria-label={`${BUTTONS[b].name}: ${c.sends}${c.notes.length ? `. ${c.notes.join(". ")}` : ""}`}
         onClick={() => toggle(b)} onMouseEnter={() => setHover(b)} onMouseLeave={() => setHover(null)}
         onFocus={() => setHover(b)} onBlur={() => setHover(null)}>
-        <span className="map-card-name">{SHORT_NAMES[b]}</span>
+        <span className="map-card-name">{shortName(b, model)}</span>
         <span className="map-card-sends">{c.sends}</span>
         {c.notes.length > 0 && <span className="map-card-note">{c.notes.join(" · ")}</span>}
       </button>
@@ -88,17 +93,17 @@ export function MappingView({ config, onEdit, input, output, macros, onOpenOutpu
             );
           })}
         </svg>
-        <div className="map-top">{CALLOUTS.top.map(cardFor)}</div>
-        <div className="map-side map-left">{CALLOUTS.left.map(cardFor)}</div>
+        <div className="map-top">{callouts.top.map(cardFor)}</div>
+        <div className="map-side map-left">{callouts.left.map(cardFor)}</div>
         <div className="map-visual" ref={visual}>
           <ControllerVisual state={input} live={input !== null} selected={selected} marks={marks} onSelect={toggle} onAnchors={setAnchors} />
         </div>
-        <div className="map-side map-right">{CALLOUTS.right.map(cardFor)}</div>
-        <div className="map-bottom">{CALLOUTS.bottom.map(cardFor)}</div>
+        <div className="map-side map-right">{callouts.right.map(cardFor)}</div>
+        <div className="map-bottom">{callouts.bottom.map(cardFor)}</div>
       </div>
 
       {selected
-        ? <MappingEditor key={selected} button={selected} config={config} onEdit={onEdit} output={output} macros={macros}
+        ? <MappingEditor key={selected} button={selected} model={model} config={config} onEdit={onEdit} output={output} macros={macros}
             onClose={() => setSelected(null)} onOpenOutput={onOpenOutput} />
         : <p className="muted small mapping-hint">Click a card or a button on the controller to change what it sends.</p>}
     </div>
@@ -164,8 +169,8 @@ function useLeaderLines(
 
 type EditorTab = "button" | "also" | "more";
 
-function MappingEditor({ button, config, onEdit, output, macros, onClose, onOpenOutput }: {
-  button: MacroButton; config: ProcessingConfig; onEdit: (c: ProcessingConfig) => void; output: VirtualOutputKind;
+function MappingEditor({ button, model, config, onEdit, output, macros, onClose, onOpenOutput }: {
+  button: MacroButton; model: ViewModel; config: ProcessingConfig; onEdit: (c: ProcessingConfig) => void; output: VirtualOutputKind;
   macros: Macro[]; onClose: () => void; onOpenOutput: () => void;
 }) {
   const [tab, setTab] = useState<EditorTab>("button");
@@ -174,7 +179,9 @@ function MappingEditor({ button, config, onEdit, output, macros, onClose, onOpen
   const rule = config.remap.find((r) => r.from === button);
   const target = !rule || rule.to === button ? "same" : rule.to === null ? "off" : rule.to;
   const also = rule?.also?.[0] ?? null;
-  const others = CALLOUT_BUTTONS.filter((b) => b !== button);
+  // A DualShock 4 has no Mute button to choose.
+  const others = CALLOUT_BUTTONS.filter((b) => b !== button && !(model === "dualShock4" && b === "mute"));
+  const name = (b: MacroButton) => shortName(b, model);
   const own = gameLabel(button, output);
   const extra = mapping.macros.length + mapping.layers.length + mapping.activatesLayers.length + (mapping.gyroButtonHidden ? 1 : 0);
 
@@ -188,7 +195,7 @@ function MappingEditor({ button, config, onEdit, output, macros, onClose, onOpen
   return (
     <section className="map-editor" aria-label={`Edit ${BUTTONS[button].name}`}>
       <header>
-        <h3>{SHORT_NAMES[button]} <span className="map-arrow" aria-hidden="true">→</span> <span className={`tone-${callout.tone}`}>{callout.sends}</span></h3>
+        <h3>{name(button)} <span className="map-arrow" aria-hidden="true">→</span> <span className={`tone-${callout.tone}`}>{callout.sends}</span></h3>
         <div className="row gap">
           <button type="button" className="btn-ghost small" disabled={!rule} onClick={() => onEdit(resetButton(config, button))}>Reset button</button>
           <button type="button" className="map-close" aria-label="Close" onClick={onClose}>✕</button>
@@ -205,15 +212,15 @@ function MappingEditor({ button, config, onEdit, output, macros, onClose, onOpen
         <div className="map-chips" role="group" aria-label={`${BUTTONS[button].name} sends`}>
           {chip("same", target === "same", "Normal", own, () => onEdit(setRemapTarget(config, button, "same")))}
           {chip("off", target === "off", "Disabled", "nothing", () => onEdit(setRemapTarget(config, button, "off")), "danger")}
-          {others.map((b) => chip(b, target === b, SHORT_NAMES[b], gameLabel(b, output), () => onEdit(setRemapTarget(config, button, b))))}
+          {others.map((b) => chip(b, target === b, name(b), gameLabel(b, output), () => onEdit(setRemapTarget(config, button, b))))}
         </div>
       )}
       {tab === "also" && (
         <>
-          <p className="muted small">A second button pressed at the same time as what {SHORT_NAMES[button]} sends.</p>
+          <p className="muted small">A second button pressed at the same time as what {name(button)} sends.</p>
           <div className="map-chips" role="group" aria-label={`${BUTTONS[button].name} also presses`}>
             {chip("none", also === null, "None", undefined, () => onEdit(setRemapAlso(config, button, null)))}
-            {others.map((b) => chip(b, also === b, SHORT_NAMES[b], gameLabel(b, output), () => onEdit(setRemapAlso(config, button, b))))}
+            {others.map((b) => chip(b, also === b, name(b), gameLabel(b, output), () => onEdit(setRemapAlso(config, button, b))))}
           </div>
         </>
       )}
@@ -229,7 +236,7 @@ function MappingEditor({ button, config, onEdit, output, macros, onClose, onOpen
       )}
 
       <footer className="muted small">
-        {own === null && target === "same" && <span className="warn-text">The {output === "dualShock4" ? "DualShock 4" : "Xbox 360"} controller has no {SHORT_NAMES[button]} button, so games don't receive it. Pick a button above to use it. </span>}
+        {own === null && target === "same" && <span className="warn-text">The {output === "dualShock4" ? "DualShock 4" : "Xbox 360"} controller has no {name(button)} button, so games don't receive it. Pick a button above to use it. </span>}
         Output: <b>{output === "dualShock4" ? "DualShock 4" : "Xbox 360 (XInput)"}</b>{output === "disabled" && " — currently off"}.{" "}
         <button type="button" className="map-link" onClick={onOpenOutput}>Change on the Virtual Output tab</button>
       </footer>

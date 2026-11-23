@@ -8,6 +8,7 @@ By default NEXUS draws the controller. Optionally it shows **your own photo** of
 - The overlay positions were measured on one specific front-view image: 400 × 400 px, SHA-256 `b337756a4eb35b87944827d5fe7315016be86f197c62e42e153309c2dcad8b13`. NEXUS accepts only that exact file. Any other picture is refused with a message, because the buttons would not line up.
 - The photo is shown at its own aspect ratio without cropping or filters. Overlays are an SVG with the photo's pixel size as its viewBox, so they scale with it at any window size. Inactive overlays are fully transparent.
 - Every page that shows the controller (Dashboard, Controller, Macro Studio preview and live test) uses the photo once it is set.
+- The photo is of a DualSense. While a **DualShock 4** is connected, every page shows the drawn DualShock 4 instead (and *Use my photo…* is hidden); the photo returns with a DualSense.
 
 ## Measured positions (image pixels)
 

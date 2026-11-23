@@ -5,6 +5,8 @@ import type { ButtonMark } from "../lib/buttonMapping";
 import { HOTSPOTS, PHOTO, STICK_TRAVEL, TOUCH_BOX, TRIGGER_SHAPES, VIEW, useControllerPhoto, useCutoutPhoto, type Hotspot } from "../lib/controllerPhoto";
 import { describeState, dpadLit, stickOffset, touchPosition, triggerLevel, triggerPath, type TriggerShape } from "../lib/controllerView";
 import type { ControllerState, MacroButton } from "../types/engine";
+import { DS4_ART, DS4_OUTLINES, DS4_TOUCH_BOX, DS4_TRIGGERS, artPosition } from "../lib/dualshock4Art";
+import { useShownModel } from "../hooks/useShownModel";
 
 /**
  * Front view of a DualSense-style controller in matte black with blue light
@@ -77,11 +79,14 @@ class Fallback3D extends Component<{ fallback: ReactNode; children: ReactNode },
 /**
  * Shows the user's own controller photo with live overlays when they chose
  * the calibrated image (Controller › Live › Controller picture); otherwise
- * the drawn controller below.
+ * the drawn controller below. A DualShock 4 is always drawn as a DualShock 4
+ * (the photo is of a DualSense).
  */
 function FlatController(props: Omit<VisualProps, "flat" | "onAnchors" | "offlineLabel">) {
+  const model = useShownModel(props.state);
   const photo = useControllerPhoto();
   const cutout = useCutoutPhoto(photo);
+  if (model === "dualShock4") return <DrawnDualShock4 {...props} />;
   if (photo && !cutout) return <div className="controller-photo" style={{ aspectRatio: `${VIEW.w} / ${VIEW.h}` }} />;
   return cutout ? <PhotoController photo={cutout} {...props} /> : <DrawnController {...props} />;
 }
@@ -457,6 +462,192 @@ function DrawnController({ state, live, selected = null, onSelect, marks }: Visu
     </svg>
   );
 }
+
+/**
+ * Front view of a DualShock 4 in the same size, style and viewBox as the
+ * DualSense drawing above. Outlines are traced from the DualShock 4 3D model
+ * and every control sits where the model has it (lib/dualshock4Art.ts).
+ * Same behaviour: gold while pressed, teal when selected, mark dots,
+ * clickable parts with `data-button` for the Mapping screen's leader lines.
+ * No Mute button.
+ */
+function DrawnDualShock4({ state, live, selected = null, onSelect, marks }: VisualProps) {
+  const uid = useId().replace(/:/g, "");
+  const s = live ? state : null;
+  const b = s?.buttons;
+  const d = dpadLit(s?.dpad);
+  const ctx = { selected, onSelect, marks };
+  const part = (id: MacroButton, pressed: boolean | undefined) => partProps(id, pressed, DS4_LABELS[id], ctx);
+  const badge = (id: MacroButton, x: number, y: number) => markDots(marks?.[id], x, y, 4);
+
+  const DP = { x: (artPosition("dpadLeft").x + artPosition("dpadRight").x) / 2, y: (artPosition("dpadUp").y + artPosition("dpadDown").y) / 2 };
+  const FC = { x: (artPosition("west").x + artPosition("east").x) / 2, y: (artPosition("north").y + artPosition("south").y) / 2 };
+  const TRAVEL = 20, REACH = 58;
+
+  const stick = (id: "leftStick" | "rightStick", x: number, y: number) => {
+    const c = artPosition(id);
+    const [dx, dy] = stickOffset(x, y, TRAVEL);
+    const [vx, vy] = stickOffset(x, y, REACH);
+    const moved = Math.hypot(dx, dy) > 1.5;
+    return (
+      <g {...part(id, b?.[id])}>
+        <circle cx={c.x} cy={c.y} r={46} className="stick-well" />
+        <circle cx={c.x} cy={c.y} r={TRAVEL} className="stick-range" />
+        {moved && <line x1={c.x} y1={c.y} x2={c.x + vx} y2={c.y + vy} className="stick-vector" />}
+        <circle cx={c.x + dx} cy={c.y + dy + 2} r={41} className="stick-shadow" />
+        <circle cx={c.x + dx} cy={c.y + dy} r={41} className="stick-cap" fill={`url(#${uid}-cap)`} />
+        <circle cx={c.x + dx} cy={c.y + dy} r={29} className="stick-top" fill={`url(#${uid}-dish)`} />
+        <circle cx={c.x + dx} cy={c.y + dy} r={41} className="stick-ring" />
+        {moved && <line x1={c.x + dx} y1={c.y + dy} x2={c.x + vx} y2={c.y + vy} className="stick-vector front" />}
+        {moved && <circle cx={c.x + vx} cy={c.y + vy} r={7} className="stick-dot" />}
+        {badge(id, c.x + 36, c.y - 42)}
+      </g>
+    );
+  };
+
+  const trigger = (id: "leftTrigger" | "rightTrigger", value: number, digital: boolean | undefined, label: string) => {
+    const t = DS4_TRIGGERS[id];
+    const v = Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0));
+    return (
+      <g {...partProps(id, digital, `${label}, ${Math.round(v * 100)}%`, ctx)}>
+        <TriggerTab id={`${uid}-${id}`} shape={t} value={v} label={label} fontSize={15} />
+        {v > 0.005 && <text x={(t.outer + t.inner) / 2} y={t.top - 8} className="trigger-readout" textAnchor="middle">{Math.round(v * 100)}%</text>}
+        {badge(id, t.inner - (t.inner > t.outer ? 8 : -8), t.top - 2)}
+      </g>
+    );
+  };
+
+  /** A D-pad arm pointing up from the D-pad centre (rotated for the others), sized and placed as in the model. */
+  const hw = DS4_ART.armWidth / 2;
+  const outer = DP.y - artPosition("dpadUp").y + DS4_ART.armLength / 2;
+  const inner = outer - DS4_ART.armLength;
+  const arm = (id: MacroButton, on: boolean, angle: number) => (
+    <g {...part(id, on)} transform={`rotate(${angle} ${DP.x} ${DP.y})`}>
+      <path className="key" fill="#1f2024"
+        d={`M${DP.x - hw} ${DP.y - outer + 7}Q${DP.x - hw} ${DP.y - outer} ${DP.x - hw + 7} ${DP.y - outer}H${DP.x + hw - 7}Q${DP.x + hw} ${DP.y - outer} ${DP.x + hw} ${DP.y - outer + 7}V${DP.y - inner - hw * 0.9}L${DP.x} ${DP.y - inner}L${DP.x - hw} ${DP.y - inner - hw * 0.9}Z`} />
+      <path d={`M${DP.x} ${DP.y - outer + 9}l-4.5 6h9z`} className="arrow" />
+      {badge(id, DP.x + hw - 6, DP.y - outer - 1)}
+    </g>
+  );
+
+  const fr = DS4_ART.faceRadius;
+  const face = (id: MacroButton, on: boolean | undefined, symbol: (x: number, y: number) => ReactNode) => {
+    const { x, y } = artPosition(id);
+    return (
+      <g {...part(id, on)}>
+        <circle cx={x} cy={y + 2} r={fr} className="key-shadow" />
+        <circle cx={x} cy={y} r={fr} className="key round" fill={`url(#${uid}-key)`} />
+        {symbol(x, y)}
+        {badge(id, x + 14, y - 20)}
+      </g>
+    );
+  };
+  const small = (id: "select" | "start") => {
+    const { x, y } = artPosition(id);
+    const w = 12, h = 24;
+    return (
+      <g {...part(id, b?.[id])}>
+        <title>{DS4_LABELS[id]}</title>
+        <rect x={x - w / 2} y={y - h / 2} width={w} height={h} rx={w / 2} className="key small" fill={`url(#${uid}-key)`} />
+        {badge(id, x + 12, y - 16)}
+      </g>
+    );
+  };
+  const touch = s?.touchpad;
+  const ps = artPosition("home");
+
+  return (
+    <svg className={`controller dualshock4${live ? " live" : " idle"}${onSelect ? " interactive" : ""}`}
+      viewBox="0 -38 800 558" role="group"
+      aria-label={live ? `Live controller input. ${describeState(s)}` : "Controller (no live input)"}>
+      <defs>
+        <linearGradient id={`${uid}-shell`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#2e2f33" />
+          <stop offset="0.45" stopColor="#25262a" />
+          <stop offset="1" stopColor="#131418" />
+        </linearGradient>
+        <linearGradient id={`${uid}-pad`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#2a2b30" />
+          <stop offset="1" stopColor="#232429" />
+        </linearGradient>
+        <linearGradient id={`${uid}-key`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#24262b" />
+          <stop offset="1" stopColor="#101114" />
+        </linearGradient>
+        <radialGradient id={`${uid}-cap`} cx="0.42" cy="0.32" r="0.75">
+          <stop offset="0" stopColor="#363a45" />
+          <stop offset="1" stopColor="#22252d" />
+        </radialGradient>
+        <radialGradient id={`${uid}-dish`} cx="0.5" cy="0.62" r="0.65">
+          <stop offset="0" stopColor="#2c2f39" />
+          <stop offset="1" stopColor="#1f2128" />
+        </radialGradient>
+        <filter id={`${uid}-shadow`} x="-10%" y="-10%" width="120%" height="135%">
+          <feDropShadow dx="0" dy="14" stdDeviation="14" floodColor="#000" floodOpacity="0.7" />
+        </filter>
+      </defs>
+
+      {/* Triggers (behind) and bumpers */}
+      {trigger("leftTrigger", s?.leftTrigger.value ?? 0, s?.leftTrigger.digital, "L2")}
+      {trigger("rightTrigger", s?.rightTrigger.value ?? 0, s?.rightTrigger.digital, "R2")}
+      <g {...part("leftShoulder", b?.leftShoulder)}>
+        <path d={DS4_OUTLINES.leftShoulder} className="key shoulder" />
+        {badge("leftShoulder", DS4_TRIGGERS.leftTrigger.inner, 18)}
+      </g>
+      <g {...part("rightShoulder", b?.rightShoulder)}>
+        <path d={DS4_OUTLINES.rightShoulder} className="key shoulder" />
+        {badge("rightShoulder", DS4_TRIGGERS.rightTrigger.outer - 4, 18)}
+      </g>
+
+      {/* Body, traced from the model */}
+      <path d={DS4_OUTLINES.body} filter={`url(#${uid}-shadow)`} fill={`url(#${uid}-shell)`} className="shell" />
+      <circle cx={DP.x} cy={DP.y} r={DS4_ART.wellRadius} className="ds4-well" pointerEvents="none" />
+      <circle cx={FC.x} cy={FC.y} r={DS4_ART.wellRadius} className="ds4-well" pointerEvents="none" />
+
+      {/* Touchpad, traced from the model */}
+      <g {...part("touchpad", b?.touchpad)}>
+        <path className="key touchpad" d={DS4_OUTLINES.touchpad} fill={`url(#${uid}-pad)`} />
+        {touch?.points.filter((p) => p.active).map((p) => {
+          const [x, y] = touchPosition(p, touch, DS4_TOUCH_BOX);
+          return <circle key={p.id} cx={x} cy={y} r={8} className="touch-point" />;
+        })}
+        {badge("touchpad", DS4_TOUCH_BOX.x + DS4_TOUCH_BOX.w - 18, DS4_TOUCH_BOX.y + 14)}
+      </g>
+
+      {small("select")}
+      {small("start")}
+
+      {arm("dpadUp", d.up, 0)}
+      {arm("dpadRight", d.right, 90)}
+      {arm("dpadDown", d.down, 180)}
+      {arm("dpadLeft", d.left, 270)}
+
+      {/* Face buttons, with the DualShock 4's coloured symbols */}
+      {face("north", b?.north, (x, y) => <path d={`M${x} ${y - 10}l10 16.5h-20z`} className="symbol ds4-triangle" />)}
+      {face("east", b?.east, (x, y) => <circle cx={x} cy={y} r={9.5} className="symbol ds4-circle" />)}
+      {face("south", b?.south, (x, y) => <path d={`M${x - 8.5} ${y - 8.5}l17 17M${x + 8.5} ${y - 8.5}l-17 17`} className="symbol ds4-cross" />)}
+      {face("west", b?.west, (x, y) => <rect x={x - 8.5} y={y - 8.5} width={17} height={17} rx={1} className="symbol ds4-square" />)}
+
+      {/* Speaker grille */}
+      <g className="speaker" pointerEvents="none">
+        {[-3, -2, -1, 0, 1, 2, 3].flatMap((c) => [0, 1].map((r) => (
+          <rect key={`${c}${r}`} x={400 + c * 7 - 2} y={204 + r * 7} width={4} height={4} rx={1} />
+        )))}
+      </g>
+
+      {stick("leftStick", s?.leftStick.x ?? 0, s?.leftStick.y ?? 0)}
+      {stick("rightStick", s?.rightStick.x ?? 0, s?.rightStick.y ?? 0)}
+
+      <g {...part("home", b?.home)}>
+        <circle cx={ps.x} cy={ps.y} r={DS4_ART.homeRadius} className="key round home" fill={`url(#${uid}-key)`} />
+        {badge("home", ps.x + 11, ps.y - 17)}
+      </g>
+    </svg>
+  );
+}
+
+/** Accessible names on the DualShock 4 drawing (Share instead of Create; no Mute). */
+const DS4_LABELS: Record<MacroButton, string> = { ...LABELS, select: "Share" };
 
 /** Drawn controller: L2/R2 behind the bumpers (L1 spans x 134–230, top y 20). */
 const DRAWN_TRIGGERS: Record<"leftTrigger" | "rightTrigger", TriggerShape> = {

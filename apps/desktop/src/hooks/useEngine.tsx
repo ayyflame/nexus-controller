@@ -2,7 +2,7 @@ import {
   createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode,
 } from "react";
 import { engineApi, errorMessage, isDesktopShell } from "../lib/engine";
-import type { AppInfo, DeviceEvent, EngineStatus, Profile } from "../types/engine";
+import type { AppInfo, ControllerModel, DeviceEvent, EngineStatus, Profile } from "../types/engine";
 
 export interface TimedDeviceEvent { at: number; event: DeviceEvent }
 
@@ -26,6 +26,12 @@ interface EngineContextValue {
 }
 
 const EngineContext = createContext<EngineContextValue | null>(null);
+/**
+ * The model of the controller the UI focuses on, alone: it changes only when
+ * a different kind of controller is connected, so pictures and labels that
+ * depend on it don't re-render on every status update.
+ */
+const ConnectedModelContext = createContext<ControllerModel | null>(null);
 const MAX_EVENTS = 50;
 
 export function EngineProvider({ children }: { children: ReactNode }) {
@@ -82,13 +88,24 @@ export function EngineProvider({ children }: { children: ReactNode }) {
     () => ({ connection, status, appInfo, profile, deviceEvents, setProfile: set, selectedDeviceId, setSelectedDeviceId }),
     [connection, status, appInfo, profile, deviceEvents, set, selectedDeviceId],
   );
-  return <EngineContext.Provider value={value}>{children}</EngineContext.Provider>;
+  const devices = status?.devices ?? [];
+  const connectedModel = (devices.find((d) => d.device.id === selectedDeviceId) ?? devices[0])?.device.model ?? null;
+  return (
+    <EngineContext.Provider value={value}>
+      <ConnectedModelContext.Provider value={connectedModel}>{children}</ConnectedModelContext.Provider>
+    </EngineContext.Provider>
+  );
 }
 
 export function useEngine(): EngineContextValue {
   const ctx = useContext(EngineContext);
   if (!ctx) throw new Error("useEngine must be used inside <EngineProvider>");
   return ctx;
+}
+
+/** Model of the controller the UI focuses on (null: none connected). Re-renders only when it changes. */
+export function useConnectedModel(): ControllerModel | null {
+  return useContext(ConnectedModelContext);
 }
 
 /** The controller the UI focuses on: the selected one, else the first. */

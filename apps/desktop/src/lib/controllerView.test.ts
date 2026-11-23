@@ -74,3 +74,11 @@ test("the screen-reader text lists everything pressed at once", () => {
   s.leftStick = { x: 0.8, y: 0, rawX: 230, rawY: 128 };
   assert.equal(describeState(s), "Pressed: Cross, L1, R2 42%, D-pad up, D-pad left, Left stick moved");
 });
+
+test("the picture's description names Share on a DualShock 4", async () => {
+  const { describeState } = await import("./controllerView.ts");
+  const { stateOf } = await import("./diagFixtures.ts");
+  const s = stateOf({ buttons: { select: true } });
+  assert.match(describeState(s), /Create/);
+  assert.match(describeState({ ...s, format: "dualShock4Usb" }), /Share/);
+});
