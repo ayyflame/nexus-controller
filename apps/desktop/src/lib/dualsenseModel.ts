@@ -165,6 +165,47 @@ export function frameIn(spec: ModelSpec, b: MacroButton, min: V3, max: V3): Part
   }
 }
 
+/** First point where the ray from `from` through `toward` meets one of `tris` (9 numbers per triangle), or null. */
+export function rayHit(tris: ArrayLike<number>, from: V3, toward: V3): V3 | null {
+  const d: V3 = [toward[0] - from[0], toward[1] - from[1], toward[2] - from[2]];
+  const len = Math.hypot(d[0], d[1], d[2]);
+  if (len === 0) return null;
+  d[0] /= len; d[1] /= len; d[2] /= len;
+  let best = Infinity;
+  for (let t = 0; t + 8 < tris.length; t += 9) {
+    // Möller–Trumbore.
+    const e1 = [tris[t + 3]! - tris[t]!, tris[t + 4]! - tris[t + 1]!, tris[t + 5]! - tris[t + 2]!];
+    const e2 = [tris[t + 6]! - tris[t]!, tris[t + 7]! - tris[t + 1]!, tris[t + 8]! - tris[t + 2]!];
+    const h = [d[1] * e2[2]! - d[2] * e2[1]!, d[2] * e2[0]! - d[0] * e2[2]!, d[0] * e2[1]! - d[1] * e2[0]!];
+    const a = e1[0]! * h[0]! + e1[1]! * h[1]! + e1[2]! * h[2]!;
+    if (Math.abs(a) < 1e-12) continue;
+    const f = 1 / a;
+    const sv = [from[0] - tris[t]!, from[1] - tris[t + 1]!, from[2] - tris[t + 2]!];
+    const u = f * (sv[0]! * h[0]! + sv[1]! * h[1]! + sv[2]! * h[2]!);
+    if (u < 0 || u > 1) continue;
+    const q = [sv[1]! * e1[2]! - sv[2]! * e1[1]!, sv[2]! * e1[0]! - sv[0]! * e1[2]!, sv[0]! * e1[1]! - sv[1]! * e1[0]!];
+    const v = f * (d[0] * q[0]! + d[1] * q[1]! + d[2] * q[2]!);
+    if (v < 0 || u + v > 1) continue;
+    const dist = f * (e2[0]! * q[0]! + e2[1]! * q[1]! + e2[2]! * q[2]!);
+    if (dist > 1e-6 && dist < best) best = dist;
+  }
+  return best === Infinity ? null : [from[0] + d[0] * best, from[1] + d[1] * best, from[2] + d[2] * best];
+}
+
+/**
+ * The point a Mapping connector ends on, in model units. Usually the
+ * bounding-box anchor of frameIn. A trigger's top is curved and sits behind
+ * the bumper, so its box corner can be empty space: its anchor is instead
+ * the first point of the trigger itself seen from `eye` (the default camera)
+ * when looking at the top of the blade.
+ */
+export function partAnchor(spec: ModelSpec, b: MacroButton, min: V3, max: V3, tris: ArrayLike<number>, eye: V3): V3 {
+  const f = frameIn(spec, b, min, max);
+  if (spec.parts[b]!.motion !== "trigger") return f.anchor;
+  const aim: V3 = [(min[0] + max[0]) / 2, max[1] - 0.1 * (max[1] - min[1]), (min[2] + max[2]) / 2];
+  return rayHit(tris, eye, aim) ?? f.anchor;
+}
+
 /** The DualSense model as shipped: already in the shared frame, painted white. */
 export const DUALSENSE_SPEC: ModelSpec = {
   model: "dualSense",

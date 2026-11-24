@@ -35,7 +35,7 @@ export function describeCheck(c: OutputCheck): { tone: Tone; title: string; deta
       return { tone: "idle", title: "No controller", detail: "Connect your controller by USB to check what reaches Windows." };
     case "notXbox":
       return { tone: "idle", title: "Virtual Xbox 360 controller not active",
-        detail: "Turn on the virtual controller (Xbox 360) under Controller › Virtual Output. Only the Xbox 360 controller can be read back through XInput." };
+        detail: "Turn on the virtual controller (Xbox 360) on the Virtual Controller page. Only the Xbox 360 controller can be read back through XInput." };
     case "slotUnknown":
       return { tone: "warn", title: "Waiting for Windows", detail: "The virtual controller exists but Windows hasn't reported its player slot yet." };
     case "unavailable":

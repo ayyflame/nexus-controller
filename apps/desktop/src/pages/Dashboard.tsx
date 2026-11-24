@@ -98,7 +98,7 @@ export function Dashboard() {
             ? (device?.output.playerIndex != null ? `Connected · player ${device.output.playerIndex + 1}` : "Connected")
             : device?.output.retrying ? "Trying again automatically" : requested === "disabled" ? "Turned off" : driverReady ? "Waiting for controller" : "Not available yet"}
         />
-        <StatCard label="Output type" value={outputLabel[requested]} sub="Controller › Virtual Output" />
+        <StatCard label="Output type" value={outputLabel[requested]} sub="Setup › Virtual Controller" />
         <StatCard
           label="Driver (ViGEmBus)"
           value={vigem === "installed" ? "Installed" : vigem === "notInstalled" ? "Not installed" : "Unknown"}

@@ -299,7 +299,7 @@ export function Settings() {
         </div>
       </div>
 
-      <div className="notice dev">Virtual controller type and driver status are under <strong>Controller › Virtual Output</strong>.</div>
+      <div className="notice dev">Virtual controller type and driver status are on the <strong>Virtual Controller</strong> page.</div>
       <HidDevicesSection />
       <ReportInspector />
       <DiagnosticsSection />

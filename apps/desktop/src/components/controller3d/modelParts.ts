@@ -6,9 +6,9 @@
 
 import * as THREE from "three";
 import type { GLTF } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { triggerAngle, type Visual3D } from "../../lib/controller3d";
+import { CAMERA_TARGET, VIEWS, orbitToOffset, triggerAngle, type Visual3D } from "../../lib/controller3d";
 import {
-  BLACK_FINISH_GLSL, MODEL_SCALE, PRESS_DEPTH, classifyIn, findIslands, frameIn,
+  BLACK_FINISH_GLSL, MODEL_SCALE, PRESS_DEPTH, classifyIn, findIslands, frameIn, partAnchor,
   type Island, type ModelSpec, type Motion, type PartFrame, type V3,
 } from "../../lib/dualsenseModel";
 import type { MacroButton } from "../../types/engine";
@@ -98,10 +98,31 @@ function subGeometry(g: THREE.BufferGeometry, triangles: number[]): THREE.Buffer
 
 const GOLD = new THREE.Color("#d6a54b");
 const TEAL = new THREE.Color("#4fa8b8");
+/** NEXUS accent (--gold-bright): selection in the Mapping workspace. */
+const ACCENT = new THREE.Color("#f0cb72");
 const MUTE_ORANGE = new THREE.Color("#ff8a3c");
 const BLACK = new THREE.Color(0, 0, 0);
 /** Base colour: the textures carry the colour, so materials stay white. */
 const WHITE = new THREE.Color(1, 1, 1);
+
+/** The default camera position in model units: connector anchors are the points of each control seen from here. */
+const DEFAULT_EYE: V3 = (() => {
+  const o = orbitToOffset(VIEWS.default);
+  return [0, 1, 2].map((k) => (CAMERA_TARGET[k]! + o[k]!) / MODEL_SCALE) as V3;
+})();
+
+/** A geometry's triangles as a flat list of corner coordinates. */
+function triangleList(g: THREE.BufferGeometry): Float32Array {
+  const pos = g.getAttribute("position");
+  const idx = g.index;
+  const n = idx ? idx.count : pos.count;
+  const out = new Float32Array(n * 3);
+  for (let k = 0; k < n; k++) {
+    const v = idx ? idx.getX(k) : k;
+    out[3 * k] = pos.getX(v); out[3 * k + 1] = pos.getY(v); out[3 * k + 2] = pos.getZ(v);
+  }
+  return out;
+}
 
 /** Splits the model's meshes into the fixed shell and one object per control. */
 export function buildModel(gltf: GLTF, spec: ModelSpec): BuiltModel {
@@ -188,6 +209,9 @@ export function buildModel(gltf: GLTF, spec: ModelSpec): BuiltModel {
     const min = box.min.toArray() as V3;
     const max = box.max.toArray() as V3;
     const f = frameIn(spec, b, min, max);
+    // Where the Mapping connectors end: a visible point of this control.
+    const tris = list.length === 1 ? triangleList(list[0]!.geometry) : Float32Array.from(list.flatMap((p) => Array.from(triangleList(p.geometry))));
+    const anchor = partAnchor(spec, b, min, max, tris, DEFAULT_EYE);
     const pivot = new THREE.Group();
     pivot.position.set(...f.pivot);
     const motion = new THREE.Group();
@@ -204,7 +228,7 @@ export function buildModel(gltf: GLTF, spec: ModelSpec): BuiltModel {
     const s = (v: V3): V3 => [v[0] * MODEL_SCALE, v[1] * MODEL_SCALE, v[2] * MODEL_SCALE];
     parts[b] = {
       button: b, kind: spec.parts[b]!.motion, pivot, motion, materials: list.map((p) => p.material),
-      frame: { pivot: s(f.pivot), anchor: s(f.anchor), normal: f.normal }, min, max,
+      frame: { pivot: s(f.pivot), anchor: s(anchor), normal: f.normal }, min, max,
     };
   }
 
@@ -239,7 +263,10 @@ const GOLD_TINT = new THREE.Color(1, 0.74, 0.36);
 const TEAL_TINT = new THREE.Color(0.62, 0.9, 0.96);
 
 /** Applies one input state (plus selection and hover) to the model. */
-export function applyVisual(model: BuiltModel, vis: Visual3D, selected: MacroButton | null, hovered: MacroButton | null): void {
+export function applyVisual(
+  model: BuiltModel, vis: Visual3D, selected: MacroButton | null, hovered: MacroButton | null, accent = false,
+): void {
+  const pick = accent ? ACCENT : TEAL;
   for (const node of Object.values(model.parts) as PartNode[]) {
     const b = node.button;
     const lit = vis.lit[b];
@@ -251,8 +278,8 @@ export function applyVisual(model: BuiltModel, vis: Visual3D, selected: MacroBut
       colour = b === "mute" ? MUTE_ORANGE : GOLD;
       intensity = b === "home" || b === "mute" ? 0.9 : b === "touchpad" ? 0.18 : 0.35;
     }
-    if (intensity === 0 && selected === b) { colour = TEAL; intensity = 0.32; }
-    else if (intensity === 0 && hovered === b) { colour = TEAL; intensity = 0.16; }
+    if (intensity === 0 && selected === b) { colour = pick; intensity = accent ? 0.42 : 0.32; }
+    else if (intensity === 0 && hovered === b) { colour = pick; intensity = 0.16; }
     const tint = intensity === 0 ? null : colour === TEAL ? TEAL_TINT : GOLD_TINT;
     for (const m of node.materials) {
       m.emissive.copy(colour);

@@ -25,7 +25,7 @@ export function Onboarding({ forceOpen, onClose, onNavigate }: {
       Plug your DualSense (USB-C) or DualShock 4 (Micro-USB) into the PC with a data cable. NEXUS finds it automatically and shows which one it is.
       <div className={`onb-status tone-${phase.tone}`}><span className="dot" /> {phase.label}: {phase.detail}</div></> },
     { title: "Let games see it", body: <>Games see NEXUS as an Xbox 360 controller through <b>ViGEmBus</b>, a free driver you install yourself (NEXUS never installs drivers). The <b>Dashboard</b> shows a <b>Get ready to play</b> checklist with each step and what to do if something isn't working.</> },
-    { title: "Make it yours", body: <>Open <b>Controller</b> to tune sticks, triggers, gyro and the touchpad, or start from a template in <b>Profiles</b>. Changes save automatically.</> },
+    { title: "Make it yours", body: <>Open <b>Mapping</b> to remap buttons, or <b>Sticks</b>, <b>Triggers</b>, <b>Motion</b> and <b>Touchpad</b> in the sidebar to tune them, or start from a template in <b>Profiles</b>. Changes save automatically.</> },
     { title: "Find anything fast", body: <>Press <kbd>Ctrl</kbd> + <kbd>K</kbd> anywhere to search every setting. Hover any control for an explanation.</> },
   ];
   const s = steps[step]!;
@@ -40,7 +40,7 @@ export function Onboarding({ forceOpen, onClose, onNavigate }: {
           {step > 0 && <button className="btn-ghost" onClick={() => setStep(step - 1)}>Back</button>}
           {step < steps.length - 1
             ? <button className="btn-primary" autoFocus onClick={() => setStep(step + 1)}>Next</button>
-            : <button className="btn-primary" autoFocus onClick={() => { close(); onNavigate("controller"); }}>Open Controller</button>}
+            : <button className="btn-primary" autoFocus onClick={() => { close(); onNavigate("mapping"); }}>Open Mapping</button>}
         </div>
       </div>
     </div>

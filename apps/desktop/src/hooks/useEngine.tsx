@@ -20,7 +20,7 @@ interface EngineContextValue {
   profile: Profile | null;
   deviceEvents: TimedDeviceEvent[];
   setProfile: (p: Profile) => void;
-  /** Controller shown on Dashboard / Controller pages (multi-controller). */
+  /** Controller shown on Dashboard and the controller settings pages (multi-controller). */
   selectedDeviceId: string | null;
   setSelectedDeviceId: (id: string | null) => void;
 }

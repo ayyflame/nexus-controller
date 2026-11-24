@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Canvas, useFrame, useLoader, useThree, type ThreeEvent } from "@react-three/fiber";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
@@ -31,6 +32,10 @@ export interface Controller3DProps {
   marks?: Partial<Record<MacroButton, ButtonMark>>;
   /** Called when the projected control positions change (camera moved or resized). */
   onAnchors?: (a: Anchors) => void;
+  /** Selected and hovered controls in the NEXUS accent colour instead of teal. */
+  accentSelection?: boolean;
+  /** Show the view buttons in this element (outside the picture) instead of over the picture. */
+  toolbarHost?: HTMLElement | null;
   /** Switch back to the 2D picture. */
   onFlat?: () => void;
   /** Badge text while there is no live input. */
@@ -63,7 +68,7 @@ const MARK_COLOURS = { disabled: "#e26a6a", remapped: "#4fa8b8", macro: "#d6a54b
  * the input changes, while the camera moves, or when the size changes —
  * nothing runs while everything is still.
  */
-export default function Controller3D({ state, live, selected = null, onSelect, marks, onAnchors, onFlat, offlineLabel }: Controller3DProps) {
+export default function Controller3D({ state, live, selected = null, onSelect, marks, onAnchors, onFlat, offlineLabel, accentSelection = false, toolbarHost = null }: Controller3DProps) {
   const vis = visualFrom(state, live);
   const visKey = visualKey(vis);
   // Follows the controller: the DualShock 4 model for a DualShock 4, the
@@ -100,6 +105,26 @@ export default function Controller3D({ state, live, selected = null, onSelect, m
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const stableMarks = useMemo(() => marks, [marksKey]);
 
+  const toolbar = (
+  <div className="c3d-toolbar" role="toolbar" aria-label="3D view">
+    {(["default", "front", "rear", "top"] as ViewName[]).map((v) => (
+      <button key={v} type="button" className={view === v ? "selected" : ""} aria-pressed={view === v} onClick={() => go(v)}>
+        {v === "default" ? "Reset" : v === "top" ? "Top" : v === "front" ? "Front" : "Rear"}
+      </button>
+    ))}
+    <span className="c3d-sep" aria-hidden="true" />
+    <button type="button" aria-label="Zoom out" title="Zoom out" onClick={() => zoom(1.18)}>−</button>
+    <button type="button" aria-label="Zoom in" title="Zoom in" onClick={() => zoom(1 / 1.18)}>+</button>
+    <span className="c3d-sep" aria-hidden="true" />
+    {shown.spec.finishes && <button type="button" className={`c3d-finish ${finish}`} onClick={() => setFinish(finish === "black" ? "white" : "black")}
+      title={`Colour: ${finish === "black" ? "Midnight Black" : "White"} (click to change)`}
+      aria-label={`Controller colour: ${finish === "black" ? "Midnight Black" : "White"}. Change`}><i /></button>}
+    {onFlat && <button type="button" onClick={onFlat} title="Show the flat picture">2D</button>}
+    <span className="c3d-sep" aria-hidden="true" />
+    <button type="button" aria-label="3D model credit" aria-expanded={credit} title="3D model credit" onClick={() => setCredit((c) => !c)}>ⓘ</button>
+  </div>
+  );
+
   return (
     <div className={`c3d${vis.connected ? " live" : " idle"}${hovered ? " hovering" : ""}`}
       role="group" aria-label={vis.connected ? `3D controller. ${describeState(state)}` : "3D controller (no controller connected)"}>
@@ -115,28 +140,12 @@ export default function Controller3D({ state, live, selected = null, onSelect, m
         <Scene />
         <CameraRig request={request} onUserMove={userMoved} />
         <ControllerModel key={which} url={shown.url} spec={shown.spec}
-          vis={stableVis} visKey={visKey} selected={selected} hovered={hovered} marks={stableMarks} pick={pick} finish={finish}
+          vis={stableVis} visKey={visKey} selected={selected} hovered={hovered} marks={stableMarks} pick={pick} finish={finish} accent={accentSelection}
           onAnchors={onAnchors ? reportAnchors : undefined} />
       </Canvas>
 
       {!vis.connected && <div className="c3d-status" role="status">{offlineLabel ?? "No controller connected"}</div>}
-      <div className="c3d-toolbar" role="toolbar" aria-label="3D view">
-        {(["default", "front", "rear", "top"] as ViewName[]).map((v) => (
-          <button key={v} type="button" className={view === v ? "selected" : ""} aria-pressed={view === v} onClick={() => go(v)}>
-            {v === "default" ? "Reset" : v === "top" ? "Top" : v === "front" ? "Front" : "Rear"}
-          </button>
-        ))}
-        <span className="c3d-sep" aria-hidden="true" />
-        <button type="button" aria-label="Zoom out" title="Zoom out" onClick={() => zoom(1.18)}>−</button>
-        <button type="button" aria-label="Zoom in" title="Zoom in" onClick={() => zoom(1 / 1.18)}>+</button>
-        <span className="c3d-sep" aria-hidden="true" />
-        {shown.spec.finishes && <button type="button" className={`c3d-finish ${finish}`} onClick={() => setFinish(finish === "black" ? "white" : "black")}
-          title={`Colour: ${finish === "black" ? "Midnight Black" : "White"} (click to change)`}
-          aria-label={`Controller colour: ${finish === "black" ? "Midnight Black" : "White"}. Change`}><i /></button>}
-        {onFlat && <button type="button" onClick={onFlat} title="Show the flat picture">2D</button>}
-        <span className="c3d-sep" aria-hidden="true" />
-        <button type="button" aria-label="3D model credit" aria-expanded={credit} title="3D model credit" onClick={() => setCredit((c) => !c)}>ⓘ</button>
-      </div>
+      {toolbarHost ? createPortal(toolbar, toolbarHost) : toolbar}
       {credit && (
         <div className="c3d-credit" role="note">
           3D model: “{shown.credit.title}” by {shown.credit.author} (Sketchfab), licensed {shown.credit.license}.
@@ -186,8 +195,8 @@ function Scene() {
 }
 
 /** The model: loaded once, split into controls, updated only when what is visible changes. */
-function ControllerModel({ url, spec, vis, visKey, selected, hovered, marks, pick, onAnchors, finish }: {
-  url: string; spec: ModelSpec;
+function ControllerModel({ url, spec, vis, visKey, selected, hovered, marks, pick, onAnchors, finish, accent }: {
+  url: string; spec: ModelSpec; accent: boolean;
   vis: Visual3D; visKey: string; selected: MacroButton | null; hovered: MacroButton | null; finish: Finish;
   marks?: Partial<Record<MacroButton, ButtonMark>>; pick?: Pick; onAnchors?: (a: Anchors) => void;
 }) {
@@ -202,10 +211,10 @@ function ControllerModel({ url, spec, vis, visKey, selected, hovered, marks, pic
   useLayoutEffect(() => {
     if (!active) return;
     applyFinish(model, finish);
-    applyVisual(model, vis, selected, hovered);
+    applyVisual(model, vis, selected, hovered, accent);
     invalidate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [model, visKey, selected, hovered, finish, invalidate, active]);
+  }, [model, visKey, selected, hovered, finish, invalidate, active, accent]);
 
   // Stable across renders: new handler props would make the 3D library
   // schedule a redraw on every status update.

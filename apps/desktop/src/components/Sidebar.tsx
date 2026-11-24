@@ -1,21 +1,12 @@
-import { Icon, type IconName } from "./Icons";
+import { Icon } from "./Icons";
+import { NAV_GROUPS, type PageId } from "../lib/navigation";
 import { useControllerPhase } from "./StatusPill";
 import { ProfileSwitcher } from "./ProfileSwitcher";
 import { useEngine, usePrimaryDevice } from "../hooks/useEngine";
 import { outputLine } from "../lib/sidebarStatus";
 import { modelLabel } from "../lib/format";
 
-export type PageId =
-  | "dashboard" | "controller" | "live-viewer" | "macro-studio" | "profiles" | "performance" | "settings";
-
-export const NAV: Array<{ id: PageId; label: string; icon: IconName }> = [
-  { id: "dashboard", label: "Dashboard", icon: "dashboard" },
-  { id: "controller", label: "Controller", icon: "controller" },
-  { id: "live-viewer", label: "Live Viewer", icon: "stick" },
-  { id: "macro-studio", label: "Macro Studio", icon: "macro" },
-  { id: "profiles", label: "Profiles", icon: "profiles" },
-  { id: "performance", label: "Performance", icon: "performance" },
-];
+export type { PageId } from "../lib/navigation";
 
 function NexusMark() {
   return (
@@ -50,16 +41,21 @@ export function Sidebar({ page, onNavigate }: { page: PageId; onNavigate: (p: Pa
       <ProfileSwitcher />
 
       <nav className="nav" aria-label="Main">
-        {NAV.map((item) => (
-          <button
-            key={item.id}
-            className={`nav-item${page === item.id ? " active" : ""}`}
-            onClick={() => onNavigate(item.id)}
-            aria-current={page === item.id ? "page" : undefined}
-          >
-            <Icon name={item.icon} />
-            <span>{item.label}</span>
-          </button>
+        {NAV_GROUPS.map((group) => (
+          <div key={group.label ?? "top"} className="nav-group" role="group" aria-label={group.label ?? undefined}>
+            {group.label && <div className="nav-group-label" aria-hidden="true">{group.label}</div>}
+            {group.items.map((item) => (
+              <button
+                key={item.id}
+                className={`nav-item${page === item.id ? " active" : ""}`}
+                onClick={() => onNavigate(item.id)}
+                aria-current={page === item.id ? "page" : undefined}
+              >
+                <Icon name={item.icon} />
+                <span>{item.label}</span>
+              </button>
+            ))}
+          </div>
         ))}
       </nav>
 

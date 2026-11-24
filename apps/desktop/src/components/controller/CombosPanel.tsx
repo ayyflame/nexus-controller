@@ -5,7 +5,7 @@ import { MAX_COMBOS, MAX_COMBO_BUTTONS, MAX_COMBO_SENDS, comboProblem, newCombo,
 import type { ComboRule, MacroButton, ProcessingConfig } from "../../types/engine";
 
 /**
- * Controller › Mapping › Button combinations: holding 2–3 buttons together
+ * Mapping › Button combinations: holding 2–3 buttons together
  * presses 1–3 others (e.g. L1 + R1 → Triangle). Saved in the profile.
  */
 export function CombosPanel({ config, onChange }: { config: ProcessingConfig; onChange: (c: ProcessingConfig) => void }) {

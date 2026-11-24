@@ -2,15 +2,16 @@
 // convenience in localStorage; unavailable storage simply starts on the
 // dashboard). Pure parsing is tested.
 
-const KEY = "nexus.lastPage.v1";
-export const PAGES = ["dashboard", "controller", "live-viewer", "macro-studio", "profiles", "performance", "settings"] as const;
-export type SavedPage = (typeof PAGES)[number];
+import { resolvePage, type PageId } from "./navigation.ts";
 
-export function parsePage(saved: string | null | undefined): SavedPage {
-  return (PAGES as readonly string[]).includes(saved ?? "") ? (saved as SavedPage) : "dashboard";
+const KEY = "nexus.lastPage.v1";
+
+/** A saved value as a current page: unknown values open the dashboard, the old Controller page opens Mapping. */
+export function parsePage(saved: string | null | undefined): PageId {
+  return resolvePage(saved).page;
 }
 
-export function loadPage(): SavedPage {
+export function loadPage(): PageId {
   try { return parsePage(localStorage.getItem(KEY)); } catch { return "dashboard"; }
 }
 

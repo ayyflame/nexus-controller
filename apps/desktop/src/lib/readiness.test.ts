@@ -56,7 +56,7 @@ test("ViGEmBus missing points to the official page; installed but unusable says 
 test("virtual output off is a to-do with a shortcut to turn it on", () => {
   const s = step(all({ consent: false }), "output");
   assert.equal(s.state, "todo");
-  assert.deepEqual(s.action, { label: "Open Virtual Output", page: "controller", tab: "output" });
+  assert.deepEqual(s.action, { label: "Open Virtual Controller", page: "virtual-controller" });
   assert.equal(step(all({ status: status({ requestedOutput: "disabled" }) }), "output").state, "todo");
   assert.equal(step(all({ consent: null }), "output").state, "waiting");
 });

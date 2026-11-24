@@ -19,7 +19,7 @@ test("each check state has clear wording; a match is green", () => {
   assert.equal(diff.tone, "warn");
   assert.match(diff.title, /2 differences/);
   assert.match(describeCheck({ state: "missing", slot: 0 }).title, /player 1/);
-  assert.match(describeCheck({ state: "notXbox", active: null }).detail, /Virtual Output/);
+  assert.match(describeCheck({ state: "notXbox", active: null }).detail, /Virtual Controller/);
   assert.equal(describeCheck({ state: "noController" }).tone, "idle");
   assert.equal(describeCheck({ state: "unavailable", reason: "x" }).detail, "x");
 });

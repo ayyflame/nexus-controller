@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buttonMapping } from "./buttonMapping.ts";
 import {
-  CALLOUT_BUTTONS, EMPTY_HISTORY, calloutFor, gameLabel, leaderLine, recordEdit, redoRemap, resetButton,
+  CALLOUT_BUTTONS, EMPTY_HISTORY, STUB, calloutFor, chooseRoute, gameLabel, leaderRoute, recordEdit, routeHitsBoxes, routesCross, redoRemap, resetButton,
   setRemapAlso, setRemapTarget, undoRemap,
 } from "./mappingView.ts";
 import { defaultProcessing } from "./processing.ts";
@@ -96,12 +96,40 @@ test("undo and redo walk the remap history", () => {
   assert.equal(fresh.future.length, 0, "a new edit clears redo");
 });
 
-test("leader lines leave the card on the side facing the controller", () => {
-  const button = { left: 500, top: 300, width: 20, height: 20 };
-  assert.deepEqual(leaderLine("left", { left: 0, top: 100, width: 120, height: 40 }, button), { from: { x: 120, y: 120 }, to: { x: 510, y: 310 } });
-  assert.deepEqual(leaderLine("right", { left: 900, top: 100, width: 120, height: 40 }, button).from, { x: 900, y: 120 });
-  assert.deepEqual(leaderLine("top", { left: 400, top: 0, width: 120, height: 40 }, button).from, { x: 460, y: 40 });
-  assert.deepEqual(leaderLine("bottom", { left: 400, top: 600, width: 120, height: 40 }, button).from, { x: 460, y: 600 });
+test("a connector leaves its card on the side facing the controller and ends exactly on the control", () => {
+  const control = { x: 510, y: 310 };
+  const left = leaderRoute("left", { left: 0, top: 100, width: 120, height: 40 }, control);
+  // Card edge at the height nearest the control (clamped inside the card), a short stub, then the control.
+  assert.deepEqual(left, [{ x: 120, y: 131 }, { x: 120 + STUB, y: 131 }, control]);
+  const level = leaderRoute("left", { left: 0, top: 290, width: 120, height: 40 }, control);
+  assert.deepEqual(level[0], { x: 120, y: 310 }, "level with the control: a straight line");
+  assert.deepEqual(leaderRoute("right", { left: 900, top: 100, width: 120, height: 40 }, control)[0], { x: 900, y: 131 });
+  assert.deepEqual(leaderRoute("top", { left: 400, top: 0, width: 120, height: 40 }, control)[0], { x: 510, y: 40 });
+  assert.deepEqual(leaderRoute("bottom", { left: 400, top: 600, width: 120, height: 40 }, control)[0], { x: 510, y: 600 });
+  for (const side of ["left", "right", "top", "bottom"] as const) {
+    const r = leaderRoute(side, { left: 300, top: 300, width: 100, height: 40 }, control);
+    assert.deepEqual(r[r.length - 1], control, `${side}: ends on the control`);
+  }
+});
+
+test("a connector goes around other cards instead of through them", () => {
+  // L2's card sits right above L1's; the trigger is below both.
+  const l2 = { left: 100, top: 0, width: 150, height: 44 };
+  const l1 = { left: 100, top: 52, width: 150, height: 44 };
+  const trigger = { x: 175, y: 200 };
+  const direct = leaderRoute("top", l2, trigger);
+  assert.ok(routeHitsBoxes(direct.slice(1), [l1]), "the direct route would cross L1's card");
+  // With L1 offset, a route along L2's edge clears it.
+  const offset = { ...l1, left: 190 };
+  const r = chooseRoute("top", l2, trigger, [offset]);
+  assert.ok(!routeHitsBoxes(r.slice(1), [offset]));
+  assert.deepEqual(r[r.length - 1], trigger);
+});
+
+test("crossing connectors are detected (touching ends are not crossings)", () => {
+  assert.ok(routesCross([{ x: 0, y: 0 }, { x: 10, y: 10 }], [{ x: 0, y: 10 }, { x: 10, y: 0 }]));
+  assert.ok(!routesCross([{ x: 0, y: 0 }, { x: 10, y: 0 }], [{ x: 0, y: 5 }, { x: 10, y: 5 }]));
+  assert.ok(!routesCross([{ x: 0, y: 0 }, { x: 10, y: 10 }], [{ x: 10, y: 10 }, { x: 20, y: 0 }]));
 });
 
 test("Mapping cards follow the controller shown: no Mute card and Share on a DualShock 4", async () => {

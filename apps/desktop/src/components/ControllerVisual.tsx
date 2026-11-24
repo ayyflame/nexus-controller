@@ -1,4 +1,5 @@
 import { Component, Suspense, lazy, useId, type KeyboardEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import type { Anchors } from "./controller3d/Controller3D";
 import { saveViewMode, useViewMode, webglAvailable } from "../lib/controllerViewMode";
 import type { ButtonMark } from "../lib/buttonMapping";
@@ -31,6 +32,10 @@ interface VisualProps {
   offlineLabel?: string;
   /** 3D only: projected positions of the controls, for leader lines. */
   onAnchors?: (a: Anchors) => void;
+  /** Show the selected control in the NEXUS accent colour (the Mapping workspace) instead of teal. */
+  accentSelection?: boolean;
+  /** Put the picture's view buttons (3D view presets, 2D/3D switch) in this element instead of over the picture. */
+  toolbarHost?: HTMLElement | null;
 }
 
 /** The 3D view is loaded on first use, so pages that only show the flat picture stay light. */
@@ -41,13 +46,13 @@ const Controller3D = lazy(() => import("./controller3d/Controller3D"));
  * default, or the flat picture (drawing or the user's photo) when chosen,
  * when `flat` is set, or when this PC can't draw WebGL.
  */
-export function ControllerVisual({ flat, onAnchors, offlineLabel, ...props }: VisualProps) {
+export function ControllerVisual({ flat, onAnchors, offlineLabel, accentSelection, toolbarHost, ...props }: VisualProps) {
   const mode = useViewMode();
   if (!flat && mode === "3d" && webglAvailable()) {
     return (
       <Fallback3D fallback={<FlatController {...props} />}>
         <Suspense fallback={<div className="c3d c3d-loading" aria-label="Loading the 3D controller" />}>
-          <Controller3D {...props} onAnchors={onAnchors} offlineLabel={offlineLabel} onFlat={() => saveViewMode("flat")} />
+          <Controller3D {...props} onAnchors={onAnchors} offlineLabel={offlineLabel} accentSelection={accentSelection} toolbarHost={toolbarHost} onFlat={() => saveViewMode("flat")} />
         </Suspense>
       </Fallback3D>
     );
@@ -57,7 +62,9 @@ export function ControllerVisual({ flat, onAnchors, offlineLabel, ...props }: Vi
     return (
       <div className="flat-view">
         <FlatController {...props} />
-        <button type="button" className="flat-to-3d" onClick={() => saveViewMode("3d")} title="Show the interactive 3D controller">3D</button>
+        {toolbarHost
+          ? createPortal(<div className="c3d-toolbar" role="toolbar" aria-label="Picture"><button type="button" onClick={() => saveViewMode("3d")} title="Show the interactive 3D controller">3D</button></div>, toolbarHost)
+          : <button type="button" className="flat-to-3d" onClick={() => saveViewMode("3d")} title="Show the interactive 3D controller">3D</button>}
       </div>
     );
   }
@@ -78,11 +85,11 @@ class Fallback3D extends Component<{ fallback: ReactNode; children: ReactNode },
 
 /**
  * Shows the user's own controller photo with live overlays when they chose
- * the calibrated image (Controller › Live › Controller picture); otherwise
+ * the calibrated image (Live Viewer › Live › controller picture); otherwise
  * the drawn controller below. A DualShock 4 is always drawn as a DualShock 4
  * (the photo is of a DualSense).
  */
-function FlatController(props: Omit<VisualProps, "flat" | "onAnchors" | "offlineLabel">) {
+function FlatController(props: Omit<VisualProps, "flat" | "onAnchors" | "offlineLabel" | "accentSelection" | "toolbarHost">) {
   const model = useShownModel(props.state);
   const photo = useControllerPhoto();
   const cutout = useCutoutPhoto(photo);

@@ -1,5 +1,5 @@
 // One place that turns the engine's virtual-controller status into the words
-// shown on the Dashboard and the Virtual Output tab.
+// shown on the Dashboard and the Virtual Controller page.
 
 import type { OutputStatus, VirtualOutputKind } from "../types/engine";
 

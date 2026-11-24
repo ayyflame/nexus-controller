@@ -1,3 +1,4 @@
+import { PhotoPicker } from "../components/controller/PhotoPicker";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CalibrationWizard } from "../components/CalibrationWizard";
 import { ControllerVisual } from "../components/ControllerVisual";
@@ -119,6 +120,7 @@ function LiveTab({ device, config, onCalibrate }: { device: DeviceSnapshot; conf
           <span><i className="l-remapped" />Remapped</span><span><i className="l-macro" />Starts a macro</span>
           <span><i className="l-disabled" />Disabled</span><span><i className="l-special" />Layer or gyro</span>
         </div>
+        <PhotoPicker />
         {mapping && (
           <div className="mapping-card" aria-live="polite">
             <h4>{BUTTONS[mapping.button].name}<span className="mapping-kind">{mapping.kind}</span></h4>
@@ -250,7 +252,7 @@ function AnalogTab({ device, config }: { device: DeviceSnapshot; config: Process
           </Panel>
         );
       })}
-      <p className="muted small span-2">Values update about 60 times a second here. Nothing on this page changes calibration; use Controller › Sticks or Triggers to change settings.</p>
+      <p className="muted small span-2">Values update about 60 times a second here. Nothing on this page changes calibration; use the Sticks or Triggers page to change settings.</p>
     </div>
   );
 }

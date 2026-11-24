@@ -1,4 +1,4 @@
-// Optional HidHide guidance (Controller › Virtual Output). NEXUS never
+// Optional HidHide guidance (Virtual Controller page). NEXUS never
 // installs HidHide or changes its settings; it only explains the setup.
 
 export const HIDHIDE_RELEASES = "https://github.com/nefarius/HidHide/releases";

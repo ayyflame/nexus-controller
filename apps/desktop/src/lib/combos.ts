@@ -1,4 +1,4 @@
-// Button combinations (Controller › Mapping): holding 2–3 buttons together
+// Button combinations (Mapping page): holding 2–3 buttons together
 // presses 1–3 others. The same limits as the engine
 // (crates/input-processing, ComboRule); pure, unit-tested.
 

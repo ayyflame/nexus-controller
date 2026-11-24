@@ -7,7 +7,7 @@ export interface OutputLine { label: string; tone: "ok" | "warn" | "error" | "id
 export function outputLine(status: EngineStatus | null, device: DeviceSnapshot | null): OutputLine {
   if (!status) return { label: "Xbox output: …", tone: "idle", tip: "Starting" };
   if (status.requestedOutput === "disabled") {
-    return { label: "Xbox output: off", tone: "idle", tip: "Games don't see NEXUS. Turn it on in Controller › Virtual Output." };
+    return { label: "Xbox output: off", tone: "idle", tip: "Games don't see NEXUS. Turn it on on the Virtual Controller page." };
   }
   if (status.outputBackendStatus.state !== "ready") {
     return { label: "Xbox output: no driver", tone: "error", tip: "ViGEmBus isn't available. See the Dashboard checklist." };

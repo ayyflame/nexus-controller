@@ -62,19 +62,21 @@ p { margin: 0; }
 .page-header p { margin-top: 4px; max-width: 720px; }
 
 /* Sidebar */
-.sidebar { background: var(--bg-sidebar); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 18px 12px; }
-.brand { display: flex; align-items: center; gap: 12px; padding: 4px 10px 22px; }
+.sidebar { background: var(--bg-sidebar); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 18px 12px 12px; min-height: 0; overflow: hidden; }
+.brand { display: flex; align-items: center; gap: 12px; padding: 2px 10px 16px; }
 .brand-name { font-family: var(--font-display); font-weight: 700; font-size: 19px; letter-spacing: 0.28em; color: var(--gold-bright); }
 .brand-sub { font-size: 11px; color: var(--text-faint); letter-spacing: 0.06em; text-transform: uppercase; }
-.nav { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+.nav { display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; overflow-y: auto; margin: 0 -12px; padding: 0 12px; }
+.nav-group { display: flex; flex-direction: column; gap: 1px; }
+.nav-group-label { padding: 4px 12px 3px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-faint); }
 .nav-item {
-  display: flex; align-items: center; gap: 12px; width: 100%; padding: 9px 12px; border: 0; border-radius: var(--radius-sm);
+  display: flex; align-items: center; gap: 12px; width: 100%; padding: 7px 12px; border: 0; border-radius: var(--radius-sm);
   background: transparent; color: var(--text-dim); cursor: pointer; text-align: left; position: relative;
   transition: background 140ms, color 140ms;
 }
 .nav-item:hover { background: var(--panel); color: var(--text); }
 .nav-item.active { background: var(--gold-wash); color: var(--gold-bright); }
-.nav-item.active::before { content: ""; position: absolute; left: -12px; top: 8px; bottom: 8px; width: 3px; border-radius: 0 3px 3px 0; background: var(--gold); }
+.nav-item.active::before { content: ""; position: absolute; left: -12px; top: 7px; bottom: 7px; width: 3px; border-radius: 0 3px 3px 0; background: var(--gold); }
 .nav-item:focus-visible, button:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 .sidebar-footer { border-top: 1px solid var(--border); padding-top: 12px; display: flex; flex-direction: column; gap: 6px; }
 .mini-status { display: flex; align-items: center; gap: 8px; padding: 6px 12px; font-size: 12px; color: var(--text-dim); }
@@ -809,79 +811,138 @@ input[type="color"]:disabled { opacity: 0.4; cursor: not-allowed; }
 .cal-result { border: 1px solid var(--border-strong); border-radius: 10px; padding: 10px 14px; }
 .cal-result h4 { margin: 0 0 6px; }
 
-/* ---- Controller › Mapping (cards around the picture) ------------------- */
-.map-toolbar { align-items: center; flex-wrap: wrap; }
-.map-toolbar .segmented { margin: 0; }
+/* ---- Mapping workspace (pages/Mapping.tsx, controller/MappingView.tsx) --- */
 .segmented.small button { padding: 5px 12px; font-size: 12.5px; }
+.mapping-page { max-width: 1480px; }
+.map-workspace { display: flex; flex-direction: column; gap: 12px; }
+.map-info { margin: 0; }
 .map-link { background: none; border: 0; padding: 0; color: var(--gold-bright); cursor: pointer; font: inherit; text-decoration: underline; text-underline-offset: 2px; }
 .map-link:hover { color: var(--gold); }
-.mapping { display: flex; flex-direction: column; gap: 14px; margin-top: 10px; }
-.mapping-stage {
-  position: relative; display: grid; gap: 12px 28px; align-items: center;
-  grid-template-columns: minmax(130px, 170px) minmax(280px, 1fr) minmax(130px, 170px);
-  grid-template-areas: "top top top" "left pad right" "bottom bottom bottom";
-  padding: 6px 0 4px;
+.map-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px 16px; flex-wrap: wrap; }
+.map-toolbar-info, .map-toolbar-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.map-toolbar .segmented { margin: 0; }
+.map-pill {
+  display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 12px; border-radius: 8px;
+  border: 1px solid var(--border-strong); background: var(--panel); color: var(--text); font-size: 12.5px; white-space: nowrap;
 }
-.mapping-lines { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; z-index: 0; }
-.mapping-lines line { stroke: var(--border-strong); stroke-width: 1; transition: stroke 120ms; }
-.mapping-lines circle { fill: var(--text-faint); transition: fill 120ms; }
-.mapping-lines .hot line { stroke: var(--gold); stroke-width: 1.4; }
-.mapping-lines .hot circle { fill: var(--gold-bright); }
-.map-top { grid-area: top; display: grid; grid-template-columns: repeat(3, minmax(120px, 160px)); justify-content: center; gap: 8px 36px; position: relative; z-index: 1; }
+.map-pill svg { color: var(--gold); }
+.map-pill-link { cursor: pointer; color: var(--text-dim); font: inherit; font-size: 12.5px; }
+.map-pill-link:hover { color: var(--text); border-color: var(--gold-deep); }
 
-.map-side { display: flex; flex-direction: column; gap: 8px; position: relative; z-index: 1; }
+.mapping { display: flex; flex-direction: column; gap: 12px; }
+/* Cards around the controller: top band, a column on each side, bottom band.
+   The connectors are an SVG layer above the controller (so no line is hidden
+   behind it) and below the cards. */
+.mapping-stage {
+  position: relative; display: grid; gap: 10px 26px; align-items: center;
+  grid-template-columns: minmax(124px, 158px) minmax(0, 1fr) minmax(124px, 158px);
+  grid-template-areas: "top top top" "left pad right" "bottom bottom bottom";
+  padding: 4px 0;
+}
+.mapping-lines { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; z-index: 2; }
+.mapping-lines polyline { fill: none; stroke-linejoin: round; stroke-linecap: round; }
+/* A dark halo under each line keeps it visible over the light parts of the controller. */
+.mapping-lines .halo { stroke: rgba(8, 9, 11, 0.55); stroke-width: 3; }
+.mapping-lines .wire { stroke: rgba(196, 200, 208, 0.5); stroke-width: 1; }
+.mapping-lines .tip { fill: #cfd2d8; stroke: rgba(8, 9, 11, 0.8); stroke-width: 1.2; }
+.mapping-lines .hot .wire { stroke: rgba(235, 232, 226, 0.9); stroke-width: 1.2; }
+.mapping-lines .hot .tip { fill: #fff; }
+.mapping-lines .selected .halo { stroke-width: 3.6; stroke: rgba(8, 9, 11, 0.7); }
+.mapping-lines .selected .wire { stroke: var(--gold-bright); stroke-width: 1.7; }
+.mapping-lines .selected .tip { fill: var(--gold-bright); stroke: #1b1608; }
+.mapping-lines .selected .ring { fill: rgba(240, 203, 114, 0.14); stroke: var(--gold-bright); stroke-width: 1.5; }
+/* Control on the far side of the 3D model (view turned): dashed, hollow end. */
+.mapping-lines .hidden-side .wire { stroke-dasharray: 3 3; }
+.mapping-lines .hidden-side .tip { fill: none; stroke: rgba(196, 200, 208, 0.8); }
+.mapping-lines .hidden-side.selected .tip { stroke: var(--gold-bright); }
+
+.map-top { grid-area: top; display: grid; grid-template-columns: repeat(5, minmax(0, 150px)); justify-content: center; gap: 6px 14px; position: relative; z-index: 3; }
+.map-side { display: flex; flex-direction: column; gap: 6px; position: relative; z-index: 3; }
 .map-left { grid-area: left; }
 .map-right { grid-area: right; }
-.map-bottom { grid-area: bottom; display: flex; justify-content: center; gap: 36px; position: relative; z-index: 1; }
-.map-bottom .map-card { width: 160px; }
+.map-bottom { grid-area: bottom; display: grid; grid-template-columns: repeat(3, minmax(0, 150px)); justify-content: center; gap: 6px 14px; position: relative; z-index: 3; }
 .map-visual { grid-area: pad; position: relative; z-index: 1; min-width: 0; }
-.map-visual .controller, .map-visual .controller-photo { max-width: 600px; width: 100%; margin: 0 auto; }
+.map-visual .controller, .map-visual .controller-photo { max-width: 620px; width: 100%; margin: 0 auto; }
 .map-visual .controller-photo .controller-overlay { max-width: none; }
+/* Wide enough that the model fills the view (lib/controller3d fitRadius). */
+.map-visual > .c3d { max-width: none; min-height: 300px; aspect-ratio: 3 / 2; max-height: 62vh; }
+/* The view buttons live in the workspace toolbar (portal), styled as a toolbar group there. */
+.map-view-tools:empty { display: none; }
+.map-view-tools .c3d-toolbar { position: static; background: var(--panel); backdrop-filter: none; border-color: var(--border-strong); }
+.map-view-tools .c3d-toolbar button { height: 24px; }
+/* Hints over the picture would sit under the connectors; the toolbar pill says whether a controller is connected. */
+.map-visual .c3d-hint, .map-visual .c3d-status { display: none; }
 /* The mapping picture is a picker, not live data: keep it readable without a controller. */
 .map-visual .controller.idle, .map-visual .controller-photo.idle { opacity: 0.9; filter: none; }
+/* Selection in the accent colour, matching the card and its connector. */
+.map-visual .controller .part.selected .key, .map-visual .controller .part.selected .stick-cap { stroke: var(--gold-bright); }
+.map-visual .controller .part.selected .trigger-edge { stroke: var(--gold-bright); }
+.map-visual .controller.interactive .pickable:hover .key, .map-visual .controller.interactive .pickable:hover .trigger-edge,
+.map-visual .controller.interactive .pickable:hover .stick-cap { stroke: var(--gold); }
 
 .map-card {
-  display: flex; flex-direction: column; align-items: flex-start; gap: 1px; text-align: left; min-width: 0;
-  padding: 8px 12px; border-radius: 9px; border: 1px solid var(--border); background: var(--panel-2); color: var(--text);
-  cursor: pointer; font: inherit; transition: border-color 120ms, background 120ms, box-shadow 120ms;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 0; text-align: left; min-width: 0; min-height: 44px;
+  padding: 6px 11px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel-2); color: var(--text);
+  cursor: pointer; font: inherit; line-height: 1.35;
 }
 .map-card:hover { border-color: var(--border-strong); background: var(--panel-3); }
 .map-card:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
-.map-card.selected { border-color: var(--gold); background: var(--gold-wash); box-shadow: 0 0 0 1px var(--gold-deep) inset; }
-.map-card.lit { border-color: var(--ok); box-shadow: 0 0 10px rgba(98, 196, 131, 0.25); }
-.map-card-name { font-size: 13px; font-weight: 600; }
-.map-card-sends { font-size: 12px; color: var(--text-dim); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.map-card-note { font-size: 11px; color: var(--gold); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.map-card.selected { border-color: var(--gold-bright); background: var(--gold-wash); box-shadow: 0 0 0 1px var(--gold-deep) inset; }
+.map-card.lit { border-color: var(--ok); }
+.map-card.selected.lit { border-color: var(--gold-bright); }
+.map-card-name { font-size: 12.5px; font-weight: 600; }
+.map-card-sends { font-size: 11.5px; color: var(--text-dim); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.map-card-note { font-size: 10.5px; color: var(--gold); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .map-card.tone-remapped .map-card-sends, .map-editor .tone-remapped { color: var(--gold-bright); }
 .map-card.tone-disabled .map-card-sends, .map-editor .tone-disabled { color: var(--error); }
 .map-card.tone-unsent .map-card-sends, .map-editor .tone-unsent { color: var(--text-faint); font-style: italic; }
-.mapping-hint { text-align: center; margin: 0; }
+.mapping-hint { text-align: center; margin: 0; padding: 14px; border: 1px dashed var(--border); border-radius: var(--radius); }
 
-.map-editor { border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--panel-2); padding: 14px 18px 12px; display: flex; flex-direction: column; gap: 12px; }
+/* Editor for the selected control, under the controller. */
+.map-editor { border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--panel); padding: 14px 18px 12px; display: flex; flex-direction: column; gap: 12px; }
 .map-editor header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.map-editor-title { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; min-width: 0; }
 .map-editor h3 { margin: 0; font-size: 17px; font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--text); }
+.map-editor-notes { font-size: 12px; color: var(--gold); }
 .map-arrow { color: var(--text-faint); margin: 0 4px; }
 .map-close { background: none; border: 1px solid transparent; color: var(--text-dim); border-radius: 6px; width: 28px; height: 28px; cursor: pointer; font-size: 14px; }
 .map-close:hover { color: var(--text); border-color: var(--border-strong); }
-.map-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
-.map-tabs button { padding: 5px 12px; border-radius: 7px; border: 1px solid var(--border-strong); background: transparent; color: var(--text-dim); cursor: pointer; font-size: 13px; }
+.map-tabs { display: flex; gap: 6px; flex-wrap: wrap; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.map-tabs button { padding: 5px 14px; border-radius: 7px; border: 1px solid var(--border-strong); background: transparent; color: var(--text-dim); cursor: pointer; font-size: 13px; }
 .map-tabs button:hover { color: var(--text); }
 .map-tabs button.selected { color: var(--gold-bright); border-color: var(--gold); background: var(--gold-wash); }
-.map-chips { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 6px; }
-.map-chip { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); cursor: pointer; font: inherit; font-size: 13px; text-align: left; }
+.map-editor-body { display: flex; flex-direction: column; gap: 12px; }
+.map-field { display: flex; flex-direction: column; gap: 6px; }
+.map-field-inline { flex-direction: row; align-items: center; flex-wrap: wrap; gap: 8px 12px; }
+.map-field-inline .select { width: auto; min-width: 220px; max-width: 340px; flex: 0 1 auto; }
+.map-field-label { font-size: 11px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: var(--text-faint); min-width: 92px; }
+.map-chips { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 6px; }
+.map-chip { display: flex; flex-direction: column; align-items: flex-start; gap: 0; padding: 5px 10px; border-radius: 7px; border: 1px solid var(--border); background: var(--bg); color: var(--text); cursor: pointer; font: inherit; font-size: 12.5px; text-align: left; line-height: 1.35; }
 .map-chip small { font-size: 11px; color: var(--text-faint); }
 .map-chip:hover { border-color: var(--border-strong); }
-.map-chip.active { border-color: var(--gold); background: var(--gold-wash); }
+.map-chip.active { border-color: var(--gold-bright); background: var(--gold-wash); }
 .map-chip.active small { color: var(--gold); }
 .map-chip.danger.active { border-color: var(--error); background: rgba(226, 106, 106, 0.1); }
 .map-chip.danger.active small { color: var(--error); }
-.map-more ul { margin: 0 0 8px; padding-left: 18px; font-size: 13px; }
+.map-layer-list { margin: 0; padding-left: 18px; font-size: 13px; }
+.map-macro-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.map-macro-list li { display: flex; align-items: center; gap: 12px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
+.map-macro-list li .btn-ghost { margin-left: auto; }
+.btn-primary.small { padding: 5px 14px; font-size: 12.5px; }
 .map-editor footer { border-top: 1px solid var(--border); padding-top: 10px; }
 
-@media (max-width: 980px) {
+/* Narrow windows: tighter cards, then the picture on top and the cards below it (no connectors). */
+@media (max-width: 1240px) {
+  .mapping-stage { gap: 8px 18px; grid-template-columns: minmax(112px, 140px) minmax(0, 1fr) minmax(112px, 140px); }
+  .map-top, .map-bottom { grid-template-columns: repeat(5, minmax(0, 136px)); gap: 6px 10px; }
+  .map-bottom { grid-template-columns: repeat(3, minmax(0, 136px)); }
+}
+@media (max-width: 1000px) {
   .mapping-stage { grid-template-columns: 1fr 1fr; grid-template-areas: "pad pad" "top top" "left right" "bottom bottom"; }
   .mapping-lines { display: none; }
-  .map-top { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .map-top { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  .map-bottom { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .map-bottom .map-card { grid-column: auto !important; }
 }
 
 /* ---- 3D controller (components/controller3d) ---------------------------- */
@@ -915,7 +976,6 @@ input[type="color"]:disabled { opacity: 0.4; cursor: not-allowed; }
 }
 .c3d-hint { position: absolute; left: 12px; bottom: 14px; color: var(--text-faint); font-size: 11.5px; pointer-events: none; }
 .c3d-note { text-align: center; margin: 6px 0 0; }
-.map-visual > .c3d { max-width: none; min-height: 340px; }
 @media (max-width: 720px) { .c3d-hint { display: none; } }
 .c3d-credit {
   position: absolute; left: 10px; right: 10px; bottom: 50px; padding: 8px 12px; border-radius: 8px;
@@ -990,3 +1050,23 @@ td.perf-stage { padding-left: 22px; color: var(--text-dim); }
 .profile-switcher { display: flex; flex-direction: column; gap: 4px; margin: 0 12px 12px; }
 .profile-switcher-label { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-faint); }
 .profile-switcher .select { width: 100%; }
+
+/* Short windows: a tighter sidebar so every destination stays visible without scrolling. */
+@media (max-height: 820px) {
+  .sidebar { padding-top: 12px; }
+  .brand { padding-bottom: 10px; }
+  .brand-sub { display: none; }
+  .profile-switcher { margin-bottom: 8px; }
+  .nav { gap: 6px; }
+  .nav-item { padding: 5px 12px; }
+  .nav-item.active::before { top: 5px; bottom: 5px; }
+  .nav-group-label { padding: 2px 12px 1px; }
+  .search-button { margin: 6px 0; padding: 6px 12px; }
+  .sidebar-footer { padding-top: 8px; gap: 2px; }
+  .mini-status { padding: 3px 12px; }
+}
+@media (max-height: 730px) {
+  .profile-switcher-label { display: none; }
+  .nav-item { padding: 4px 12px; }
+  .nav { gap: 4px; }
+}

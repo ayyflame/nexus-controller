@@ -27,7 +27,7 @@ export interface ReadinessInput {
   consent: boolean | null;
 }
 
-const OUTPUT_TAB = { page: "controller", tab: "output" } as const;
+const OUTPUT_TAB = { page: "virtual-controller" } as const;
 
 function controllerStep({ status, device, phase }: ReadinessInput): ReadyStep {
   const title = `${(device && modelLabel[device.device.model]) || "Controller"} connected by USB`;
@@ -83,7 +83,7 @@ function outputStep({ status, consent }: ReadinessInput): ReadyStep {
   return {
     id: "output", title, state: "todo",
     detail: "Turn on Use the experimental virtual controller and choose Xbox 360.",
-    action: { label: "Open Virtual Output", ...OUTPUT_TAB },
+    action: { label: "Open Virtual Controller", ...OUTPUT_TAB },
   };
 }
 
@@ -99,7 +99,7 @@ function gamesStep(i: ReadinessInput, ready: boolean): ReadyStep {
     return {
       id: "games", title, state: "problem",
       detail: `Connected as player ${slot + 1}: another Xbox-type controller holds player 1. Many games only listen to player 1. Unplug the other controller, then turn the virtual output off and on.`,
-      action: { label: "Open Virtual Output", ...OUTPUT_TAB },
+      action: { label: "Open Virtual Controller", ...OUTPUT_TAB },
     };
   }
   if (out?.retrying) {
@@ -110,8 +110,8 @@ function gamesStep(i: ReadinessInput, ready: boolean): ReadyStep {
   }
   return {
     id: "games", title, state: "problem",
-    detail: out?.lastError ? `Not connected: ${out.lastError}` : "Not connected yet. Turn the virtual output off and on in Controller › Virtual Output.",
-    action: { label: "Open Virtual Output", ...OUTPUT_TAB },
+    detail: out?.lastError ? `Not connected: ${out.lastError}` : "Not connected yet. Turn the virtual output off and on on the Virtual Controller page.",
+    action: { label: "Open Virtual Controller", ...OUTPUT_TAB },
   };
 }
 
