@@ -3607,3 +3607,109 @@ fn flow_diagnostics_count_backlog_repeated_frames_and_spacing() {
         "alternating frames are not repeats"
     );
 }
+
+#[test]
+fn a_profile_switch_is_never_seen_half_applied() {
+    let (backend, e) = connected_engine();
+    // Profile A: no remapping; R3 starts a macro that holds Cross.
+    e.switch_profile(
+        nexus_input_processing::ProcessingConfig::passthrough(),
+        vec![jump_macro(PlaybackMode::Once)],
+    );
+    backend.push_report(PATH, report(&[]));
+    wait_status(&e, "profile A applied", |s| {
+        s.devices[0].processed.is_some_and(|p| !p.buttons.south)
+    });
+
+    // Profile B is half written: its settings (Circle remapped to Square) are
+    // in, its macros (none) not yet.
+    let switch = e.hold_profile_switch();
+    let mut b = nexus_input_processing::ProcessingConfig::passthrough();
+    b.remap = vec![nexus_input_processing::RemapRule::new(
+        MacroButton::East,
+        Some(MacroButton::West),
+    )];
+    e.switch_processing(b);
+    backend.push_report(PATH, report(&[CIRCLE, R3]));
+    std::thread::sleep(Duration::from_millis(150));
+    let s = e.status();
+    assert!(
+        !s.devices[0].input.is_some_and(|i| i.buttons.east),
+        "the report waits for the switch to finish instead of running half of it"
+    );
+    e.set_macros(vec![]);
+    drop(switch);
+
+    let s = wait_status(&e, "profile B applied", |s| {
+        s.devices[0].input.is_some_and(|i| i.buttons.east)
+    });
+    let out = s.devices[0].processed.unwrap();
+    assert!(out.buttons.west && !out.buttons.east, "B's remapping");
+    assert!(
+        !out.buttons.south && s.devices[0].playing_macros.is_empty(),
+        "and not A's macro: R3 starts nothing in profile B"
+    );
+}
+
+#[test]
+fn switching_profiles_applies_settings_and_macros_together() {
+    let (backend, e) = connected_engine();
+    let mut cfg = nexus_input_processing::ProcessingConfig::passthrough();
+    cfg.remap = vec![nexus_input_processing::RemapRule::new(
+        MacroButton::East,
+        Some(MacroButton::West),
+    )];
+    e.switch_profile(cfg, vec![jump_macro(PlaybackMode::Once)]);
+    backend.push_report(PATH, report(&[]));
+    backend.push_report(PATH, report(&[CIRCLE, R3]));
+    let s = wait_status(&e, "both applied", |s| {
+        !s.devices[0].playing_macros.is_empty()
+    });
+    let out = s.devices[0].processed.unwrap();
+    assert!(
+        out.buttons.west && !out.buttons.east,
+        "remap from the new profile"
+    );
+    assert!(out.buttons.south, "macro from the new profile");
+    // Back to a plain profile: the macro stops, Circle is Circle again.
+    e.switch_profile(
+        nexus_input_processing::ProcessingConfig::passthrough(),
+        vec![],
+    );
+    backend.push_report(PATH, report(&[CIRCLE]));
+    let s = wait_status(&e, "plain profile", |s| {
+        s.devices[0].processed.is_some_and(|p| p.buttons.east)
+    });
+    assert!(s.devices[0].playing_macros.is_empty());
+    assert!(!s.devices[0].processed.unwrap().buttons.south);
+}
+
+#[test]
+fn the_start_up_profile_has_its_macros_from_the_first_report() {
+    let backend = MockHidBackend::new();
+    backend.plug(usb_info());
+    let mut cfg = nexus_input_processing::ProcessingConfig::passthrough();
+    cfg.remap = vec![nexus_input_processing::RemapRule::new(
+        MacroButton::East,
+        Some(MacroButton::West),
+    )];
+    let e = Engine::start(
+        Arc::new(backend.clone()),
+        vec![Arc::new(DualSenseDriver)],
+        Arc::new(|| Box::new(UnavailableBackend)),
+        EngineConfig {
+            processing: cfg,
+            macros: vec![jump_macro(PlaybackMode::Once)],
+            ..config()
+        },
+    );
+    wait_status(&e, "connect", |s| s.devices.len() == 1);
+    backend.push_report(PATH, report(&[]));
+    backend.push_report(PATH, report(&[CIRCLE, R3]));
+    let s = wait_status(&e, "macro", |s| !s.devices[0].playing_macros.is_empty());
+    let out = s.devices[0].processed.unwrap();
+    assert!(
+        out.buttons.west && out.buttons.south,
+        "settings and macro both active from the start"
+    );
+}

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { engineApi, errorMessage } from "../../lib/engine";
 import { pickable } from "../../lib/games";
 import { restoreLabel, visiblePoints } from "../../lib/restorePoints";
-import type { ExportResult, ImportMode, ImportPreview, ImportReport, Profile, ProfileTemplate, RestorePoint } from "../../types/engine";
+import type { ExportResult, ImportMode, ImportPreview, ImportReport, Profile, RestorePoint } from "../../types/engine";
 import { ConfirmDialog, Switch } from "../macro/common";
 
 /** Game executables that switch to a profile. */
@@ -49,38 +49,6 @@ export function AutoSwitchToggle() {
     <Switch checked={on} label={on ? "Switch profiles automatically for games" : "Automatic switching off"}
       tip="When a game listed on a profile is in front, NEXUS switches to that profile and switches back when you leave the game"
       onChange={async (v) => { await engineApi.setAutoSwitch(v); setOn(v); }} />
-  );
-}
-
-export function TemplatePicker({ onCreated }: { onCreated: (p: Profile) => void }) {
-  const [templates, setTemplates] = useState<ProfileTemplate[]>([]);
-  const [chosen, setChosen] = useState<ProfileTemplate | null>(null);
-  const [name, setName] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => { engineApi.listTemplates().then(setTemplates).catch(() => setTemplates([])); }, []);
-  return (
-    <div className="templates">
-      <div className="template-grid">
-        {templates.map((t) => (
-          <button key={t.id} className={`template-card${chosen?.id === t.id ? " selected" : ""}`}
-            onClick={() => { setChosen(t); setName(t.name); }}>
-            <strong>{t.name}</strong><span className="muted small">{t.description}</span>
-          </button>
-        ))}
-      </div>
-      {chosen && (
-        <form className="row gap" onSubmit={async (e) => {
-          e.preventDefault(); setError(null);
-          try { onCreated(await engineApi.createProfileFromTemplate(name, chosen.id)); setChosen(null); }
-          catch (err) { setError(errorMessage(err)); }
-        }}>
-          <input className="text-input" value={name} maxLength={40} onChange={(e) => setName(e.target.value)} aria-label="New profile name" />
-          <button className="btn-primary" disabled={!name.trim()}>Create “{chosen.name}” profile</button>
-          <button type="button" className="btn-ghost" onClick={() => setChosen(null)}>Cancel</button>
-        </form>
-      )}
-      {error && <p className="small err-text">{error}</p>}
-    </div>
   );
 }
 

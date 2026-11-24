@@ -315,6 +315,20 @@ Report format and how it was checked: `docs/dualshock4-protocol.md`. Note the re
 | D47 | DualSense and DualShock 4 plugged in together | Both are listed with their own model; each one's input shows only on its own entry |
 | D48 | *Lighting & Haptics*: light bar on with a colour, *Test vibration* | The light bar changes colour; both motors run and stop |
 
+## Profile Manager (November 2026): needs Windows, a controller and two games
+
+Simulated-engine and unit tests cover the store, the switching rules and the page; these checks need real games in front.
+
+| # | Check | Expected | Result |
+|---|---|---|---|
+| PM1 | Link game A to profile A, auto switching on; start game A, wait 2 s | Profile A becomes active (sidebar and *Profiles*), its mapping works in the game | |
+| PM2 | Alt-tab to the desktop for 2 s, then back | The profile before the game returns on the desktop; profile A again in the game | |
+| PM3 | Close game A | The previous profile returns | |
+| PM4 | Link game B to profile B; switch straight from game A to game B | Profile B in game B; after closing both, the original profile | |
+| PM5 | In game A, pick another profile by hand | It stays; leaving the game does not override your choice | |
+| PM6 | Hold a button while a game switches the profile (e.g. hold R2 while alt-tabbing in) | No stuck or doubled input; the new profile's mapping applies from the next press | |
+| PM7 | Duplicate profile A, change the copy's mapping; switch between them | Each keeps its own settings; the original is unchanged | |
+
 ## Release gate
 
 No release (versioned or announced) until all of these are done on a real Windows 11 PC with a USB DualSense, and the results are recorded here with the date and NEXUS commit:

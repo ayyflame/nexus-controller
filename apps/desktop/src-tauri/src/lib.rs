@@ -177,16 +177,18 @@ pub fn run() {
                     eprintln!("NEXUS: daily backup failed: {e}");
                 }
             }
+            // The macro library is shared; which macros are on is per profile.
+            // Settings and macros go in together, before any controller is read.
+            let macros = store.list_macros_for(profile.id).unwrap_or_else(|e| {
+                eprintln!("NEXUS: could not load macros: {e}");
+                Vec::new()
+            });
             let engine = Arc::new(Engine::start_default(EngineConfig {
                 initial_output: commands::effective_output(&store, profile.virtual_output),
                 processing: profile.processing.clone(),
+                macros,
                 ..Default::default()
             }));
-            // The macro library is shared; which macros are on is per profile.
-            match store.list_macros_for(profile.id) {
-                Ok(macros) => engine.set_macros(macros),
-                Err(e) => eprintln!("NEXUS: could not load macros: {e}"),
-            }
             let bridge = bridge::Bridge::spawn(app.handle().clone(), engine.clone());
             let auto_switch = store.auto_switch_enabled().unwrap_or(true);
 
@@ -264,6 +266,8 @@ pub fn run() {
             commands::get_output_consent,
             commands::set_output_consent,
             commands::create_profile,
+            commands::get_profile_meta,
+            commands::set_profile_pinned,
             commands::rename_profile,
             commands::duplicate_profile,
             commands::delete_profile,

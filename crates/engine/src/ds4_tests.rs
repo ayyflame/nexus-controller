@@ -731,3 +731,64 @@ fn the_report_inspector_names_dualshock4_bytes() {
     let a = crate::inspector::analyse_with(&layout, &counting, &counting);
     assert_eq!(a.verdict, Verdict::NoChange);
 }
+
+#[test]
+fn a_profile_switch_with_macros_applies_to_a_dualshock4() {
+    use nexus_macro_engine::{Macro, MacroStep, PlaybackMode};
+    let (backend, e, log) = one_ds4();
+    let mut a = ProcessingConfig::passthrough();
+    a.remap = vec![RemapRule::new(MacroButton::South, Some(MacroButton::North))];
+    // Profile A: Cross → Y, and Options starts a macro that holds Square.
+    let hold_square = Macro {
+        id: "sq".into(),
+        name: "Square".into(),
+        description: String::new(),
+        enabled: true,
+        steps: vec![MacroStep {
+            id: "s".into(),
+            buttons: vec![MacroButton::West],
+            hold_ms: 3000,
+            delay_after_ms: 0,
+        }],
+        trigger: Some(MacroButton::Start),
+        mode: PlaybackMode::Once,
+        repeat_delay_ms: 0,
+        block_trigger: true,
+        activation_ms: 0,
+        created_at_ms: 0,
+        updated_at_ms: 0,
+    };
+    e.switch_profile(a, vec![hold_square]);
+    expect_ds4(
+        &backend,
+        &log,
+        &pressed(button::CROSS),
+        pad(xusb::Y),
+        "profile A: Cross → Y",
+    );
+    expect_ds4(&backend, &log, &Ds4::neutral(), pad(0), "release");
+    expect_ds4(
+        &backend,
+        &log,
+        &pressed(button::OPTIONS),
+        pad(xusb::X),
+        "profile A: Options starts the Square macro",
+    );
+    // Profile B (plain, no macros): the macro stops at once and Cross is A again.
+    e.switch_profile(ProcessingConfig::passthrough(), vec![]);
+    expect_ds4(
+        &backend,
+        &log,
+        &Ds4::neutral(),
+        pad(0),
+        "the macro stopped with the switch",
+    );
+    expect_ds4(
+        &backend,
+        &log,
+        &pressed(button::CROSS),
+        pad(xusb::A),
+        "profile B: Cross → A",
+    );
+    expect_ds4(&backend, &log, &Ds4::neutral(), pad(0), "release");
+}

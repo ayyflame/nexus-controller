@@ -321,8 +321,15 @@ fn default_profile_is_used_at_start_and_cleared_when_deleted() {
         assert!(s.set_default_profile(Some(9999)).is_err());
         assert_eq!(s.set_default_profile(None).unwrap(), None);
         s.set_default_profile(Some(other)).unwrap();
-        // Deleting the default profile leaves no default (and start-up keeps the active one).
+        // The start-up profile is protected from deletion...
         s.set_active_profile(game).unwrap();
+        assert!(matches!(
+            s.delete_profile(other),
+            Err(ProfileError::Protected(ref n)) if n == "Other"
+        ));
+        assert!(s.get_profile(other).is_ok(), "nothing was deleted");
+        // ...until another start-up profile is chosen (or none).
+        s.set_default_profile(None).unwrap();
         s.delete_profile(other).unwrap();
         assert_eq!(s.default_profile().unwrap(), None);
         assert_eq!(s.activate_default_profile().unwrap().id, game);
@@ -413,4 +420,195 @@ fn app_settings_survive_a_restart() {
     );
     drop(s);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ---- Profile Manager ---------------------------------------------------------
+
+fn test_macro(name: &str, trigger: nexus_macro_engine::MacroButton) -> nexus_macro_engine::Macro {
+    use nexus_macro_engine::{Macro, MacroButton, MacroStep, PlaybackMode};
+    Macro {
+        id: String::new(),
+        name: name.into(),
+        description: String::new(),
+        enabled: true,
+        steps: vec![MacroStep {
+            id: String::new(),
+            buttons: vec![MacroButton::South],
+            hold_ms: 100,
+            delay_after_ms: 0,
+        }],
+        trigger: Some(trigger),
+        mode: PlaybackMode::Once,
+        repeat_delay_ms: 50,
+        block_trigger: false,
+        activation_ms: 0,
+        created_at_ms: 0,
+        updated_at_ms: 0,
+    }
+}
+
+#[test]
+fn a_copy_has_the_full_configuration_under_its_own_name_but_not_the_games() {
+    let mut s = ProfileStore::open_in_memory().unwrap();
+    let src = s.create_profile("Warzone").unwrap();
+    let mut cfg = ProcessingConfig {
+        remap: vec![RemapRule::new(Button::South, Some(Button::East))],
+        ..Default::default()
+    };
+    cfg.left_stick.deadzone = 0.11;
+    cfg.right_trigger.deadzone = 0.2;
+    s.set_processing(src.id, &cfg).unwrap();
+    s.set_virtual_output(src.id, VirtualOutputKind::Xbox360)
+        .unwrap();
+    s.set_profile_games(src.id, &["cod.exe".into()]).unwrap();
+    s.set_active_profile(src.id).unwrap();
+    let m = s
+        .save_macro(test_macro(
+            "Rapid",
+            nexus_macro_engine::MacroButton::RightShoulder,
+        ))
+        .unwrap();
+    assert!(m.enabled);
+
+    let copy = s
+        .duplicate_profile_named(src.id, Some("  Warzone ranked "))
+        .unwrap();
+    assert_eq!(copy.name, "Warzone ranked");
+    assert_eq!(
+        copy.processing,
+        cfg.sanitized(),
+        "remaps, sticks and triggers copied"
+    );
+    assert_eq!(copy.virtual_output, VirtualOutputKind::Xbox360);
+    assert!(copy.games.is_empty(), "a game switches to one profile only");
+    let on: Vec<_> = s
+        .list_macros_for(copy.id)
+        .unwrap()
+        .into_iter()
+        .filter(|m| m.enabled)
+        .map(|m| m.id)
+        .collect();
+    assert_eq!(on, vec![m.id.clone()], "the same macros are switched on");
+    // The original is unchanged.
+    assert_eq!(
+        s.get_profile(src.id).unwrap().games,
+        vec!["cod.exe".to_owned()]
+    );
+    // Names are checked like any other.
+    assert!(matches!(
+        s.duplicate_profile_named(src.id, Some("warzone")),
+        Err(ProfileError::NameTaken(_))
+    ));
+    assert!(matches!(
+        s.duplicate_profile_named(src.id, Some("")),
+        Err(ProfileError::InvalidName)
+    ));
+    assert!(matches!(
+        s.duplicate_profile_named(999, None),
+        Err(ProfileError::NotFound(999))
+    ));
+}
+
+#[test]
+fn deleting_a_profile_removes_only_that_profile() {
+    let mut s = ProfileStore::open_in_memory().unwrap();
+    let keep = s.create_profile("Keep").unwrap();
+    let gone = s.create_profile("Gone").unwrap();
+    s.set_active_profile(keep.id).unwrap();
+    let a = s
+        .save_macro(test_macro("A", nexus_macro_engine::MacroButton::North))
+        .unwrap();
+    s.set_active_profile(gone.id).unwrap();
+    s.set_macro_enabled(&a.id, true).unwrap();
+    s.set_profile_games(gone.id, &["game.exe".into()]).unwrap();
+    s.set_profile_pinned(gone.id, true).unwrap();
+    s.set_profile_pinned(keep.id, true).unwrap();
+    s.set_auto_switch_enabled(false).unwrap();
+
+    let active = s.delete_profile(gone.id).unwrap();
+    assert_eq!(
+        active.id,
+        s.protected_profile().unwrap(),
+        "the deleted profile was active: back to the protected one"
+    );
+    assert!(s.get_profile(gone.id).is_err());
+    // The macro library, the other profile, its macro choice and app settings stay.
+    assert_eq!(s.list_macros_for(keep.id).unwrap().len(), 1);
+    assert!(s.list_macros_for(keep.id).unwrap()[0].enabled);
+    assert!(!s.auto_switch_enabled().unwrap());
+    let meta = s.profile_meta().unwrap();
+    assert_eq!(
+        meta.pinned,
+        vec![keep.id],
+        "the deleted profile is unpinned, the other stays"
+    );
+    assert!(!meta.last_used_ms.contains_key(&gone.id));
+    // Its game is free for another profile now.
+    s.set_profile_games(keep.id, &["game.exe".into()]).unwrap();
+}
+
+#[test]
+fn the_start_up_profile_or_else_the_oldest_profile_is_protected() {
+    let mut s = ProfileStore::open_in_memory().unwrap();
+    let first = s.active_profile().unwrap();
+    let b = s.create_profile("B").unwrap();
+    assert_eq!(
+        s.protected_profile().unwrap(),
+        first.id,
+        "no start-up profile: the oldest"
+    );
+    assert!(matches!(
+        s.delete_profile(first.id),
+        Err(ProfileError::Protected(_))
+    ));
+    s.set_default_profile(Some(b.id)).unwrap();
+    assert_eq!(s.profile_meta().unwrap().protected, b.id);
+    assert!(matches!(
+        s.delete_profile(b.id),
+        Err(ProfileError::Protected(_))
+    ));
+    s.delete_profile(first.id).unwrap();
+    assert_eq!(s.list_profiles().unwrap().len(), 1);
+}
+
+#[test]
+fn pins_and_last_used_times_are_kept_and_survive_restarts() {
+    let dir = std::env::temp_dir().join(format!("nexus-meta-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("profiles.db");
+    let _ = std::fs::remove_file(&path);
+    let (a, b);
+    {
+        let mut s = ProfileStore::open(&path).unwrap();
+        a = s.create_profile("A").unwrap().id;
+        b = s.create_profile("B").unwrap().id;
+        assert!(s.profile_meta().unwrap().pinned.is_empty());
+        s.set_profile_pinned(b, true).unwrap();
+        s.set_profile_pinned(a, true).unwrap();
+        assert_eq!(s.set_profile_pinned(b, false).unwrap().pinned, vec![a]);
+        s.set_profile_pinned(b, true).unwrap();
+        s.set_profile_pinned(b, true).unwrap();
+        s.set_active_profile(a).unwrap();
+        s.set_active_profile(b).unwrap();
+        assert!(s.set_profile_pinned(999, true).is_err());
+    }
+    let s = ProfileStore::open(&path).unwrap();
+    let meta = s.profile_meta().unwrap();
+    assert_eq!(meta.pinned, vec![a, b], "no duplicates, in pin order");
+    let (ua, ub) = (meta.last_used_ms[&a], meta.last_used_ms[&b]);
+    assert!(ub >= ua && ua > 0, "b was used after a");
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn unreadable_organisation_data_is_ignored_not_fatal() {
+    let mut s = ProfileStore::open_in_memory().unwrap();
+    s.set_setting("pinned_profiles", "not json").unwrap();
+    s.set_setting("profile_last_used", "{\"x\": 1}").unwrap();
+    let meta = s.profile_meta().unwrap();
+    assert!(meta.pinned.is_empty() && meta.last_used_ms.is_empty());
+    let id = s.active_profile().unwrap().id;
+    s.set_active_profile(id).unwrap();
+    assert!(s.profile_meta().unwrap().last_used_ms.contains_key(&id));
 }

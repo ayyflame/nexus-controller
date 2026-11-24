@@ -1,3 +1,4 @@
+import type { ProfileMeta } from "./profileManager";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
@@ -51,7 +52,10 @@ export const engineApi = {
   getActiveProfile: () => invoke<Profile>("get_active_profile"),
   setActiveProfile: (id: number) => invoke<Profile>("set_active_profile", { id }),
   setVirtualOutput: (mode: VirtualOutputKind) => invoke<Profile>("set_virtual_output", { mode }),
-  createProfile: (name: string) => invoke<Profile>("create_profile", { name }),
+  /** A blank profile, or (with `copyFrom`) a full copy of another one under `name`. */
+  createProfile: (name: string, copyFrom?: number) => invoke<Profile>("create_profile", { name, copyFrom: copyFrom ?? null }),
+  getProfileMeta: () => invoke<ProfileMeta>("get_profile_meta"),
+  setProfilePinned: (id: number, pinned: boolean) => invoke<ProfileMeta>("set_profile_pinned", { id, pinned }),
   renameProfile: (id: number, name: string) => invoke<Profile>("rename_profile", { id, name }),
   duplicateProfile: (id: number) => invoke<Profile>("duplicate_profile", { id }),
   /** Returns the active profile afterwards. */

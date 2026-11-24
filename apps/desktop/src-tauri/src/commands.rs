@@ -6,7 +6,7 @@ use nexus_controller_core::VirtualOutputKind;
 use nexus_engine::{EngineStatus, HidDiagnostic};
 use nexus_input_processing::ProcessingConfig;
 use nexus_macro_engine::{Macro, RecordingResult, ValidationIssue};
-use nexus_profile_manager::{Profile, ProfileError, ProfileStore};
+use nexus_profile_manager::{Profile, ProfileError, ProfileMeta, ProfileStore};
 use nexus_telemetry::{LogEntry, RawReport};
 use serde::Serialize;
 use tauri::State;
@@ -178,13 +178,16 @@ pub(crate) fn apply_profile(
     store: &ProfileStore,
     profile: &Profile,
 ) -> CmdResult<()> {
+    // Read everything first, so a store error leaves the engine untouched.
+    let macros = store.list_macros_for(profile.id).map_err(profile_error)?;
     state
         .engine
         .set_output_mode(effective_output(store, profile.virtual_output));
-    // A different profile: its toggles start off (held buttons carry over).
-    state.engine.switch_processing(profile.processing.clone());
-    let macros = store.list_macros_for(profile.id).map_err(profile_error)?;
-    state.engine.set_macros(macros);
+    // Settings and macros as one change: no report is processed with half of
+    // the switch. Toggles start off; held buttons carry over.
+    state
+        .engine
+        .switch_profile(profile.processing.clone(), macros);
     Ok(())
 }
 
@@ -284,10 +287,37 @@ pub fn set_start_with_windows(
     }
 }
 
+/// Creates a profile: blank (default settings), or a full copy of
+/// `copy_from` (settings, virtual output, macro choices; not its games).
 #[tauri::command]
-pub fn create_profile(state: State<'_, AppState>, name: String) -> CmdResult<Profile> {
+pub fn create_profile(
+    state: State<'_, AppState>,
+    name: String,
+    copy_from: Option<i64>,
+) -> CmdResult<Profile> {
     let mut store = state.store.lock().map_err(|_| "profile store poisoned")?;
-    store.create_profile(&name).map_err(profile_error)
+    match copy_from {
+        Some(id) => store.duplicate_profile_named(id, Some(&name)),
+        None => store.create_profile(&name),
+    }
+    .map_err(profile_error)
+}
+
+/// Pinned profiles, last-used times, the start-up and the protected profile.
+#[tauri::command]
+pub fn get_profile_meta(state: State<'_, AppState>) -> CmdResult<ProfileMeta> {
+    let store = state.store.lock().map_err(|_| "profile store poisoned")?;
+    store.profile_meta().map_err(profile_error)
+}
+
+#[tauri::command]
+pub fn set_profile_pinned(
+    state: State<'_, AppState>,
+    id: i64,
+    pinned: bool,
+) -> CmdResult<ProfileMeta> {
+    let mut store = state.store.lock().map_err(|_| "profile store poisoned")?;
+    store.set_profile_pinned(id, pinned).map_err(profile_error)
 }
 
 #[tauri::command]

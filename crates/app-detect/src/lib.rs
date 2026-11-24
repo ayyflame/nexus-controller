@@ -416,6 +416,71 @@ mod tests {
     }
 
     #[test]
+    fn closing_the_game_returns_to_the_profile_used_before() {
+        let mut sim = Sim::new();
+        assert_eq!(
+            sim.focus(exe("game.exe"), 1500),
+            vec![GAME],
+            "game launched"
+        );
+        // The game exits: no window in front for a moment, then the desktop.
+        assert_eq!(sim.focus(Foreground::Nothing, 1500), vec![HOME]);
+        assert!(
+            sim.focus(exe("explorer.exe"), 1500).is_empty(),
+            "already home"
+        );
+        // Launching it again switches again.
+        assert_eq!(sim.focus(exe("game.exe"), 1500), vec![GAME]);
+    }
+
+    #[test]
+    fn a_game_unlinked_while_it_is_in_front_hands_back_the_previous_profile() {
+        let mut s = AutoSwitcher::new(Duration::from_millis(1000), &[]);
+        let t = Instant::now();
+        let linked = |e: &str| (e == "game.exe").then_some(GAME);
+        let none = |_: &str| None;
+        let mut active = HOME;
+        for ms in [0, 500, 1000, 1500] {
+            if let Some(p) = s.update(
+                t + Duration::from_millis(ms),
+                exe("game.exe"),
+                active,
+                linked,
+            ) {
+                active = p;
+            }
+        }
+        assert_eq!(active, GAME);
+        // The link is removed (or its profile deleted) while still playing.
+        let back = s.update(
+            t + Duration::from_millis(2000),
+            exe("game.exe"),
+            active,
+            none,
+        );
+        assert_eq!(
+            back,
+            Some(HOME),
+            "the game no longer has a profile: back to the previous one"
+        );
+    }
+
+    #[test]
+    fn two_linked_games_alternating_quickly_do_not_flap() {
+        let mut sim = Sim::new();
+        assert_eq!(sim.focus(exe("game.exe"), 1500), vec![GAME]);
+        // Alt-tabbing between two linked games every half second: neither stays
+        // in front long enough, so nothing switches.
+        for _ in 0..4 {
+            assert!(sim.focus(exe("racer.exe"), 500).is_empty());
+            assert!(sim.focus(exe("game.exe"), 500).is_empty());
+        }
+        assert_eq!(sim.active, GAME);
+        // Settling on the other game switches once.
+        assert_eq!(sim.focus(exe("racer.exe"), 1500), vec![3]);
+    }
+
+    #[test]
     fn already_on_the_game_profile_and_reset() {
         let mut sim = Sim::new();
         sim.active = GAME;

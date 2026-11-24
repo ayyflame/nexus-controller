@@ -50,7 +50,11 @@ Built with Tauri 2, React and TypeScript for the UI, and Rust for the engine, wi
 
 ### Profiles
 - Each profile keeps its own sticks, triggers, mapping, layers, gyro, touchpad, lighting and output settings.
-- Templates (Standard, Shooter, Racing, Relaxed), rename, duplicate, delete, and a **default profile** NEXUS starts with.
+- **Profile Manager** (*Profiles*): every profile in one list with its game, when it was last used and changed, and which is active. Search, sort (recently used, name, last modified, newest) and pin favourites to the top.
+- Create a profile from default settings, as a copy of the current or any other profile (settings and macro choices, not its games), or from a template (Standard, Shooter, Racing, Relaxed). Rename, duplicate, export one profile, delete with confirmation.
+- A **start-up profile** NEXUS starts with. It, or (if none is chosen) your first profile, is protected from deletion.
+- Shows which controllers a profile fully works with: settings for the Mute button or the player lights do nothing on a DualShock 4.
+- Switching profile (by hand or by a game) applies the settings and the macros as one change: no controller report is ever processed with half of a switch.
 - **Automatic switching** when a linked game (`.exe`) is in the foreground. Pick the game from the programs you used recently, or type its file name.
 - Macros are shared by all profiles. Import/export and backups.
 - **Restore points:** a backup every day (last 14 kept), before every restore and before every update, all restorable from *Profiles*. Restoring saves a safety copy first.
@@ -142,7 +146,7 @@ More detail: [`docs/install-windows.md`](docs/install-windows.md).
 - leave at least **20 ms** between two presses of the same button;
 - make presses at least **40–50 ms** long, because games read the controller once per frame.
 
-**Profiles:** switch from the sidebar, create from templates, choose a **default** to start with, and link a game's `.exe` to switch automatically.
+**Profiles:** switch from the sidebar or in *Profiles*, create from templates or copies, choose a **start-up profile**, pin favourites, and link a game's `.exe` to switch automatically.
 
 **Keep it running while you play:** close the window; NEXUS stays in the tray. Use *Settings › Windows* to start it with Windows, and tray › *Quit NEXUS* to really close it.
 

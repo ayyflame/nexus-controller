@@ -56,6 +56,9 @@ pub struct EngineConfig {
     pub hotplug: bool,
     /// Stick, trigger and remapping settings at start-up (from the profile).
     pub processing: ProcessingConfig,
+    /// The start-up profile's macros, in place before any controller is
+    /// read (so the first report already has the whole profile).
+    pub macros: Vec<Macro>,
     /// Scan interval used as a safety net while notifications are active.
     pub hotplug_fallback_interval: Duration,
 }
@@ -69,6 +72,7 @@ impl Default for EngineConfig {
             raw_report_capacity: 256,
             hotplug: true,
             processing: ProcessingConfig::default(),
+            macros: Vec::new(),
             hotplug_fallback_interval: Duration::from_secs(5),
         }
     }
@@ -332,6 +336,11 @@ struct Shared {
     /// Whether the latest settings change keeps toggles (an edit) or not (a
     /// profile switch).
     processing_keep_toggles: std::sync::atomic::AtomicBool,
+    /// Held for writing while a profile switch replaces the settings and the
+    /// macros, and for reading while a session adopts changes, so a session
+    /// never runs one profile's settings with another profile's macros.
+    /// Sessions take it only when something changed, never per report.
+    profile_switch: std::sync::RwLock<()>,
     rumble_request: Mutex<(u64, f32, u32)>,
     /// Generation of `rumble_request`, read lock-free on every report.
     rumble_generation: AtomicU64,
@@ -421,11 +430,16 @@ impl Engine {
             capturing: std::sync::atomic::AtomicBool::new(false),
             capture: Mutex::new(None),
             drivers: Mutex::new(probe_drivers()),
-            macros: Arc::new(MacroLibrary::new()),
+            macros: Arc::new({
+                let library = MacroLibrary::new();
+                library.set(config.macros.clone());
+                library
+            }),
             recording: Mutex::new(None),
             processing: Mutex::new(Arc::new(config.processing.sanitized())),
             processing_generation: AtomicU64::new(0),
             processing_keep_toggles: std::sync::atomic::AtomicBool::new(true),
+            profile_switch: std::sync::RwLock::new(()),
             rumble_request: Mutex::new((0, 0.0, 0)),
             rumble_generation: AtomicU64::new(0),
             stats: Mutex::new(EngineStats::default()),
@@ -619,6 +633,39 @@ impl Engine {
 
     pub fn processing(&self) -> ProcessingConfig {
         (**lock(&self.shared.processing)).clone()
+    }
+
+    /// Applies another profile as one change: its settings and its macros
+    /// are adopted together by every session, between two reports. No report
+    /// is ever processed with half of the switch (new settings with the old
+    /// profile's macros, or the reverse). Toggles start off and running
+    /// macros stop, as with [`Engine::switch_processing`] and
+    /// [`Engine::set_macros`].
+    pub fn switch_profile(&self, config: ProcessingConfig, macros: Vec<Macro>) {
+        let _switch = self
+            .shared
+            .profile_switch
+            .write()
+            .unwrap_or_else(|e| e.into_inner());
+        *lock(&self.shared.processing) = Arc::new(config.sanitized());
+        self.shared
+            .processing_keep_toggles
+            .store(false, Ordering::Release);
+        self.shared
+            .processing_generation
+            .fetch_add(1, Ordering::AcqRel);
+        self.shared.macros.set(macros);
+        drop(_switch);
+        self.shared.bump();
+    }
+
+    /// Holds a profile switch open (as if it were half written), for tests.
+    #[cfg(test)]
+    pub(crate) fn hold_profile_switch(&self) -> std::sync::RwLockWriteGuard<'_, ()> {
+        self.shared
+            .profile_switch
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
     }
 
     /// Replaces the macros the engine runs. Running macros stop; each starts
@@ -1258,7 +1305,12 @@ fn new_session_handler(
         latency: LatencyWindow::default(),
         stages: Stages::default(),
         reports_since_latency_publish: 0,
-        macros: MacroRunner::new(shared.macros.clone()),
+        // Macros are adopted together with the settings (sync_settings).
+        macros: {
+            let mut r = MacroRunner::new(shared.macros.clone());
+            r.set_manual_reload(true);
+            r
+        },
         last_physical: None,
         unreadable_run: 0,
         unreadable_failsafe: false,
@@ -1288,7 +1340,7 @@ impl EngineSessionHandler {
         physical: &ControllerState,
         received: Option<Instant>,
     ) -> (ControllerState, Option<Vec<String>>) {
-        self.sync_processing();
+        self.sync_settings(Some(*physical));
         // Four clock reads per report split the time by stage; macros reuse
         // one of them as their "now".
         let t0 = Instant::now();
@@ -1322,7 +1374,27 @@ impl EngineSessionHandler {
         (out, playing)
     }
 
-    /// Picks up new settings (pipeline and feedback) before anything uses them.
+    /// Picks up new settings and macros before anything uses them. Nothing
+    /// to do (two atomic reads) unless something changed; then both are
+    /// adopted under the profile-switch lock, so a switch in progress is
+    /// waited for and never seen half applied.
+    fn sync_settings(&mut self, physical: Option<ControllerState>) {
+        let generation = self.shared.processing_generation.load(Ordering::Acquire);
+        if generation == self.processing_generation && self.macros.is_current() {
+            return;
+        }
+        let shared = self.shared.clone();
+        let _switch = shared
+            .profile_switch
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
+        self.sync_processing();
+        if let Some(p) = physical.or(self.last_physical) {
+            self.macros.refresh(&p);
+        }
+    }
+
+    /// Picks up new settings (pipeline and feedback). Called by sync_settings.
     fn sync_processing(&mut self) {
         let generation = self.shared.processing_generation.load(Ordering::Acquire);
         if generation != self.processing_generation {
@@ -1476,7 +1548,7 @@ impl SessionHandler for EngineSessionHandler {
     fn on_report(&mut self, raw: &[u8], parsed: Result<ControllerState, ReportError>) {
         let now = Instant::now();
         self.sync_output_mode();
-        self.sync_processing();
+        self.sync_settings(parsed.as_ref().ok().copied());
 
         // Input path first: processing, macros and the virtual controller.
         // Everything below is bookkeeping and runs after the game already has
@@ -1571,11 +1643,11 @@ impl SessionHandler for EngineSessionHandler {
 
     fn on_idle(&mut self) {
         self.sync_output_mode();
-        self.sync_processing();
+        // Also picks up macro changes, so a new macro is ready before its trigger.
+        self.sync_settings(None);
         self.feedback.update(&self.shared, Instant::now());
         // Keep macro timing moving even if reports pause briefly.
         if let Some(physical) = self.last_physical {
-            self.macros.refresh(&physical);
             if self.macros.take_playing_changed() {
                 // A reload (e.g. profile switch) stopped a macro while no
                 // reports arrive. The virtual controller still holds the

@@ -144,6 +144,10 @@ pub struct MacroRunner {
     playing_seen: Vec<bool>,
     /// Set when a reload discarded slots that were playing.
     playing_dirty: bool,
+    /// When set, library changes are picked up only by
+    /// [`MacroRunner::refresh`], never by [`MacroRunner::process`]: the owner
+    /// decides when, e.g. together with the profile's other settings.
+    manual_reload: bool,
 }
 
 impl MacroRunner {
@@ -156,6 +160,7 @@ impl MacroRunner {
             slots: Vec::new(),
             playing_seen: Vec::new(),
             playing_dirty: false,
+            manual_reload: false,
         }
     }
 
@@ -184,7 +189,9 @@ impl MacroRunner {
         output: &mut ControllerState,
         now: Instant,
     ) {
-        self.reload_if_changed(physical);
+        if !self.manual_reload {
+            self.reload_if_changed(physical);
+        }
 
         let stops = self.library.stop_requests();
         if stops != self.stops_seen {
@@ -292,9 +299,21 @@ impl MacroRunner {
     }
 
     /// Picks up library changes without producing output. Call it when no
-    /// report arrived, so a new macro is ready before its trigger is pressed.
+    /// report arrived, so a new macro is ready before its trigger is pressed
+    /// (and, with manual reload, whenever the owner adopts new settings).
     pub fn refresh(&mut self, physical: &ControllerState) {
         self.reload_if_changed(physical);
+    }
+
+    /// Manual reload: [`MacroRunner::process`] keeps the macros it has until
+    /// [`MacroRunner::refresh`] is called.
+    pub fn set_manual_reload(&mut self, manual: bool) {
+        self.manual_reload = manual;
+    }
+
+    /// Whether the runner has the library's latest macros.
+    pub fn is_current(&self) -> bool {
+        self.generation == Some(self.library.generation())
     }
 
     fn reload_if_changed(&mut self, physical: &ControllerState) {
@@ -382,6 +401,37 @@ mod tests {
         m.mode = mode;
         m.repeat_delay_ms = 50;
         m
+    }
+
+    #[test]
+    fn manual_reload_keeps_the_current_macros_until_refreshed() {
+        let (lib, mut r) = runner(vec![two_step(PlaybackMode::Once)]);
+        r.set_manual_reload(true);
+        assert!(r.is_current());
+        let t0 = Instant::now();
+        let idle = ControllerState::default();
+        // The library changes (as in the middle of a profile switch): until the
+        // owner refreshes, the runner keeps running what it had.
+        lib.set(vec![]);
+        assert!(!r.is_current());
+        frame(&mut r, &idle, t0);
+        let out = frame(&mut r, &pressed(MacroButton::RightStick), at(t0, 10));
+        assert!(
+            out.buttons.south,
+            "the old macro still runs: no half-applied change"
+        );
+        r.refresh(&idle);
+        assert!(r.is_current());
+        assert!(
+            r.playing().is_empty(),
+            "the refresh adopted the new (empty) library"
+        );
+        // Without manual reload, process() adopts changes by itself (unchanged default).
+        let (lib, mut auto) = runner(vec![]);
+        lib.set(vec![two_step(PlaybackMode::Once)]);
+        frame(&mut auto, &idle, t0);
+        let out = frame(&mut auto, &pressed(MacroButton::RightStick), at(t0, 10));
+        assert!(out.buttons.south);
     }
 
     #[test]
