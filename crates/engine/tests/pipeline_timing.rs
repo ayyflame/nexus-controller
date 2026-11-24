@@ -257,9 +257,12 @@ fn run(
     stamps: &SharedStamps,
     first: u32,
     n: u32,
+    period: Duration,
     hold_r3: bool,
     label: &str,
 ) {
+    // Per-run stamps: tags may be reused by a later run.
+    *stamps.lock().unwrap() = Stamps::default();
     // The slot the virtual controller is in now (it moves if it was re-created).
     let slot = u32::from(e.status().devices[0].output.player_index.unwrap_or(0));
     let log_before = e.recent_log(500).len();
@@ -313,10 +316,10 @@ fn run(
     let flow_before = e.status().devices[0].flow;
     // The stand-in controller is hardware: it must not be starved by the load.
     set_priority(15);
-    // The "controller": a report every 4 ms by deadline.
-    let period = Duration::from_millis(4);
+    // The "controller": a report every `period` by deadline.
     let start = Instant::now() + Duration::from_millis(10);
     let mut pushed = Vec::with_capacity(n as usize);
+    let mut late_pushes = 0u32;
     for i in 0..n {
         let due = start + period * i;
         let now = Instant::now();
@@ -325,6 +328,9 @@ fn run(
         }
         while Instant::now() < due {
             std::hint::spin_loop();
+        }
+        if Instant::now() - due > period {
+            late_pushes += 1;
         }
         let (lock, ready) = &**q;
         let t = Instant::now();
@@ -352,8 +358,10 @@ fn run(
     // Where the time goes, per report: wake-up (push -> read returned), NEXUS
     // plus the driver call (read -> call returned), delivery (call -> XInput).
     let (mut wake, mut nexus, mut deliver) = (Vec::new(), Vec::new(), Vec::new());
+    let st_reads;
     {
         let st = stamps.lock().unwrap();
+        st_reads = st.read.len();
         let us = |a: Instant, b: Instant| b.saturating_duration_since(a).as_secs_f64() * 1e6;
         for (i, t) in pushed.iter().enumerate() {
             let tag = first + i as u32;
@@ -384,7 +392,15 @@ fn run(
     let s = e.status();
     let d = &s.devices[0];
     let final_ok = read(slot).map(|s| tag_of(&s.gamepad)) == Some(first + n - 1);
-    println!("PIPELINE {label}: {n} reports every 4 ms");
+    let span = (pushed[pushed.len() - 1] - pushed[0])
+        .as_secs_f64()
+        .max(1e-9);
+    println!(
+        "PIPELINE {label}: {n} reports every {:.1} us ({:.0} Hz requested, {:.0} Hz achieved by the stand-in device; late pushes {late_pushes})",
+        period.as_secs_f64() * 1e6,
+        1.0 / period.as_secs_f64(),
+        f64::from(n - 1) / span
+    );
     println!(
         "PIPELINE {label}   report spacing (sent)   {}",
         dist(push_gaps)
@@ -405,6 +421,16 @@ fn run(
     println!(
         "PIPELINE {label}   split: call returned -> XInput shows {}",
         dist(deliver)
+    );
+    let fd = |a: u64, b: u64| a.saturating_sub(b);
+    println!(
+        "PIPELINE {label}   flow: reports read already queued {} of {} read; longest backlog run {} (since engine start); XInput showed {} distinct of our updates ({:.0}/s); NEXUS busy (mean processing x rate) {:.1} % of a core",
+        fd(d.flow.queued_reports, flow_before.queued_reports),
+        st_reads,
+        d.flow.longest_backlog,
+        ours.len(),
+        ours.len() as f64 / span,
+        100.0 * f64::from(d.pipeline_latency.mean_us) / 1e6 / period.as_secs_f64()
     );
     println!(
         "PIPELINE {label}   never visible: {missing} of {n} ({:.1} %); stale reports skipped by NEXUS: {}; final state shown: {final_ok}",
@@ -451,9 +477,9 @@ fn run(
     );
 }
 
-#[test]
-#[ignore = "needs Windows with ViGEmBus; run by the XInput loopback workflow"]
-fn controller_reports_reach_xinput_through_nexus_on_time() {
+/// Starts the engine on the stand-in device and the real ViGEmBus backend;
+/// waits for the virtual controller and checks the tag passes through exactly.
+fn start_engine() -> (Engine, Queue, SharedStamps) {
     let q: Queue = Arc::new((Mutex::new(VecDeque::new()), Condvar::new()));
     let stamps: SharedStamps = Arc::default();
     let factory_stamps = stamps.clone();
@@ -505,6 +531,56 @@ fn controller_reports_reach_xinput_through_nexus_on_time() {
             std::thread::sleep(Duration::from_millis(1));
         }
     }
+    (e, q, stamps)
+}
+
+/// Measurement only (high-rate feasibility): the stand-in controller sends
+/// 125 to 8000 reports per second for 2 s each, default settings, through
+/// the whole engine and the real driver to XInput. Synthetic input on a
+/// virtual machine: what NEXUS and the driver can carry, not what a physical
+/// controller produces (a USB DualSense or DualShock 4 sends 250 per second).
+#[test]
+#[ignore = "needs Windows with ViGEmBus; run by the XInput loopback workflow"]
+fn input_rate_sweep_through_nexus() {
+    let (e, q, stamps) = start_engine();
+    std::thread::sleep(Duration::from_millis(200));
+    let mut k = 1000;
+    for loaded in [false, true] {
+        let _load = loaded.then(Load::start);
+        let tail = if loaded { ", all cores busy" } else { "" };
+        let rates: &[u32] = if loaded {
+            &[1000, 8000]
+        } else {
+            &[125, 250, 500, 1000, 2000, 4000, 8000]
+        };
+        std::thread::sleep(Duration::from_millis(200));
+        for &rate in rates {
+            let n = rate * 2;
+            if k + n >= 65_000 {
+                k = 1000;
+            }
+            let period = Duration::from_nanos(1_000_000_000 / u64::from(rate));
+            run(
+                &e,
+                &q,
+                &stamps,
+                k,
+                n,
+                period,
+                false,
+                &format!("sweep {rate} Hz{tail}"),
+            );
+            k += n + 100;
+            std::thread::sleep(Duration::from_millis(200));
+        }
+    }
+    e.shutdown();
+}
+
+#[test]
+#[ignore = "needs Windows with ViGEmBus; run by the XInput loopback workflow"]
+fn controller_reports_reach_xinput_through_nexus_on_time() {
+    let (e, q, stamps) = start_engine();
     let n = 1500;
     let mapping = {
         let mut c = ProcessingConfig::default();
@@ -543,6 +619,7 @@ fn controller_reports_reach_xinput_through_nexus_on_time() {
         created_at_ms: 0,
         updated_at_ms: 0,
     };
+    let four = Duration::from_millis(4);
     let mut k = 1000;
     for loaded in [false, true] {
         let _load = loaded.then(Load::start);
@@ -550,10 +627,28 @@ fn controller_reports_reach_xinput_through_nexus_on_time() {
         std::thread::sleep(Duration::from_millis(200));
         e.set_processing(ProcessingConfig::default());
         e.set_macros(vec![]);
-        run(&e, &q, &stamps, k, n, false, &format!("B default{tail}"));
+        run(
+            &e,
+            &q,
+            &stamps,
+            k,
+            n,
+            four,
+            false,
+            &format!("B default{tail}"),
+        );
         k += n + 100;
         e.set_processing(mapping.clone());
-        run(&e, &q, &stamps, k, n, false, &format!("C mappings{tail}"));
+        run(
+            &e,
+            &q,
+            &stamps,
+            k,
+            n,
+            four,
+            false,
+            &format!("C mappings{tail}"),
+        );
         k += n + 100;
         e.set_processing(ProcessingConfig::default());
         e.set_macros(vec![rapid.clone()]);
@@ -563,6 +658,7 @@ fn controller_reports_reach_xinput_through_nexus_on_time() {
             &stamps,
             k,
             n,
+            four,
             true,
             &format!("D macro playing{tail}"),
         );

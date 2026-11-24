@@ -59,13 +59,25 @@ jobs:
       - name: Read the virtual controller back through XInput
         run: cargo test -p nexus-virtual-controller --locked --test xinput_loopback -- --ignored --nocapture
 
+      # Measurement only (high-rate feasibility): 125 to 8000 updates per
+      # second through ViGEmBus alone, then through the whole NEXUS engine
+      # (synthetic reports). No buttons pressed. Simulated input on a virtual
+      # machine; not a physical controller or a game.
+      - name: Rate sweep - ViGEmBus alone (125 to 8000 Hz through XInput)
+        if: success() || failure()
+        run: cargo test --release -p nexus-virtual-controller --locked --test xinput_rate_sweep -- --ignored --nocapture --test-threads=1
+
+      - name: Rate sweep - NEXUS engine end to end (125 to 8000 Hz synthetic reports)
+        if: success() || failure()
+        run: cargo test --release -p nexus-engine --locked --test pipeline_timing input_rate_sweep_through_nexus -- --ignored --nocapture --test-threads=1 --exact
+
       # Timing of a 250 Hz stream (a controller's pace) through the real
       # driver, measured through XInput: ViGEmBus alone, then the whole NEXUS
       # engine (synthetic DualSense reports, no USB hardware). Release builds,
       # as the app. Simulated input; not a physical controller or a game.
       - name: Timing - NEXUS engine end to end (synthetic reports -> ViGEmBus -> XInput)
         if: success() || failure()
-        run: cargo test --release -p nexus-engine --locked --test pipeline_timing -- --ignored --nocapture --test-threads=1
+        run: cargo test --release -p nexus-engine --locked --test pipeline_timing controller_reports_reach_xinput_through_nexus_on_time -- --ignored --nocapture --test-threads=1 --exact
 
       - name: Timing - ViGEmBus alone (stream at 250 Hz through XInput)
         if: success() || failure()
