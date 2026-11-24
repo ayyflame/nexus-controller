@@ -103,7 +103,7 @@ export const SEARCH_ITEMS: PaletteItem[] = [
   { label: "Virtual controller", hint: "Xbox 360 output and drivers", page: "virtual-controller", keywords: "xbox 360 dualshock ds4 output driver vigem vigembus hidhide double input" },
   { label: "Profiles", hint: "Switch, create, games", page: "profiles", keywords: "profile game automatic switch template" },
   { label: "Backup & restore", hint: "Profiles", page: "profiles", keywords: "backup restore export import transfer file" },
-  { label: "Live input", hint: "Live Viewer", page: "live-viewer", tab: "live", keywords: "visualization test buttons photo picture 3d 2d" },
+  { label: "Live input", hint: "Live Viewer", page: "live-viewer", tab: "live", keywords: "visualization test buttons picture 3d model" },
   { label: "Controller test", hint: "Live Viewer", page: "live-viewer", tab: "test", keywords: "test every button check" },
   { label: "Drift test", hint: "Live Viewer", page: "live-viewer", tab: "drift", keywords: "drift stick wander" },
   { label: "Calibration wizard", hint: "Live Viewer", page: "live-viewer", tab: "calibration", keywords: "calibrate wizard stick trigger" },

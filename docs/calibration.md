@@ -1,6 +1,6 @@
 # Controller calibration wizard
 
-**Live Viewer › Calibration** (also opened from *Controller › Sticks* and *Triggers*, and from *Live › Calibration* status).
+**Live Viewer › Calibration** (also opened from *Sticks* and *Triggers*, and from *Live › Calibration* status).
 
 Calibrates the left stick, right stick, L2 and R2 of the current profile from your DualSense's raw input. **Nothing changes until you review the results and press _Apply and save_.**
 
@@ -27,7 +27,7 @@ Then choose:
 - **Cancel (change nothing)**.
 - After applying, **Reset to previous calibration** puts back exactly the values from before.
 
-Calibration belongs to each profile. Switching profiles loads that profile's calibration. *Controller › Sticks/Triggers* show the status and can reset to factory.
+Calibration belongs to each profile. Switching profiles loads that profile's calibration. *Sticks/Triggers* show the status and can reset to factory.
 
 ## How it is applied
 
@@ -58,9 +58,9 @@ An axis end that wasn't reached at least 60 % from the centre keeps its previous
 | CAL3 | Deadzone step | Recommended value shown; the gold ring follows typed values; the teal dot stays inside the grey area at rest |
 | CAL4 | Full range: up, down, left, right, diagonals, circle | All eight directions ticked, circle about 100 %, diagonal ratio near 1.0, *Reaches 95 % straight: Yes* |
 | CAL5 | L2: released, then fully pressed | Released about 0, pressed 255 (or close); no incomplete warning |
-| CAL6 | Results: untick "Apply deadzone", apply | Profile deadzone unchanged; centre/range applied; Controller › Sticks shows "Calibrated: centre …" |
+| CAL6 | Results: untick "Apply deadzone", apply | Profile deadzone unchanged; centre/range applied; Sticks shows "Calibrated: centre …" |
 | CAL7 | After applying, Live tab and `joy.cpl` | At rest the processed stick reads 0 / 0; full push reaches the edge; L2 reaches 100 % |
-| CAL8 | Reset to previous calibration | Previous values back; Controller › Sticks shows the old state |
+| CAL8 | Reset to previous calibration | Previous values back; Sticks shows the old state |
 | CAL9 | Calibrate profile A, switch to profile B, then back | B shows its own (or no) calibration; A's comes back |
 | CAL10 | Restart NEXUS | Profile A still calibrated |
 | CAL11 | Cancel halfway through | Nothing changed |

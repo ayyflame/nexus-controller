@@ -4,7 +4,7 @@ import {
   AT_REST, MAX_TILT, TRIGGER_SWING, VIEWS, ZOOM, facesCamera, fitRadius, orbitBetween, orbitToOffset, stickPose, triggerAngle,
   visualFrom, visualKey,
 } from "./controller3d.ts";
-import { parseFinish, parseViewMode } from "./controllerViewMode.ts";
+import { parseFinish } from "./controllerViewMode.ts";
 import { stateOf } from "./diagFixtures.ts";
 import type { ControllerState } from "../types/engine";
 
@@ -95,10 +95,7 @@ test("leader lines only for controls facing the camera", () => {
   assert.equal(facesCamera(face, [0, 0, -10]), false, "rear view hides face-button lines");
 });
 
-test("view preferences: 3D and Midnight Black unless chosen otherwise", () => {
-  assert.equal(parseViewMode(null), "3d");
-  assert.equal(parseViewMode("flat"), "flat");
-  assert.equal(parseViewMode("junk"), "3d");
+test("view preference: Midnight Black unless chosen otherwise", () => {
   assert.equal(parseFinish(null), "black");
   assert.equal(parseFinish("white"), "white");
 });

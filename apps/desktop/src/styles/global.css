@@ -107,11 +107,6 @@ p { margin: 0; }
 
 .dash-main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 14px; }
 .visual-wrap { position: relative; display: flex; justify-content: center; padding: 6px 0 10px; }
-.visual-overlay {
-  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 8px 18px; border-radius: 999px;
-  background: rgba(15, 16, 18, 0.88); border: 1px solid var(--border-strong); font-size: 12px; letter-spacing: 0.16em;
-  text-transform: uppercase; color: var(--text-dim); pointer-events: none; white-space: nowrap;
-}
 .events-card { display: flex; flex-direction: column; min-height: 0; max-height: 640px; }
 .event-list, .log-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
 .event { display: grid; grid-template-columns: 70px 1fr; gap: 8px; padding: 7px 8px; border-radius: 6px; font-size: 13px; animation: page-in 200ms ease-out; }
@@ -120,72 +115,6 @@ p { margin: 0; }
 .ev-disconnected span:last-child, .ev-openFailed span:last-child { color: var(--warn); }
 .ev-enumerationFailed span:last-child { color: var(--error); }
 
-/* Controller visual */
-.controller { width: 100%; max-width: 640px; height: auto; display: block; margin: 0 auto; transition: opacity 250ms; overflow: visible;
-  --c-gold: #d6a54b; --c-gold-glow: rgba(214, 165, 75, 0.55); --c-teal: #4fa8b8; --c-blue: #3d3ea9; --c-blue-glow: rgba(61, 62, 169, 0.8);
-  --c-key-edge: #34363c; --c-symbol: #8a8d94; }
-.controller.idle { opacity: 0.45; filter: saturate(0.3); }
-/* Matte black shell: a faint rim keeps the outline readable on the dark page. */
-.controller .shell { stroke: #3b3d43; stroke-width: 1.2; }
-.controller .deck { stroke: rgba(255, 255, 255, 0.04); stroke-width: 1; pointer-events: none; }
-.controller .key { stroke: var(--c-key-edge); stroke-width: 1.2; transition: fill 50ms, stroke 50ms, filter 50ms; }
-.controller .key-shadow { fill: #000; opacity: 0.55; }
-.controller .key.touchpad { stroke: #1d1e22; stroke-width: 1.2; }
-.controller .key.shoulder { fill: #494c52; stroke: #5a5d63; }
-.controller .key.home { stroke: #3a3d45; }
-.controller .key.mute { fill: #1d1f24; stroke: #33363d; }
-.controller .lightbar path { fill: none; stroke: var(--c-blue); stroke-width: 4; stroke-linecap: round; opacity: 0.75; }
-.controller.live .lightbar path { opacity: 1; }
-.controller .arrow { fill: var(--c-symbol); pointer-events: none; }
-.controller .symbol { fill: none; stroke: var(--c-symbol); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
-/* DualShock 4 drawing: the recessed wells around the D-pad and face buttons, and its coloured symbols (muted to suit the dark theme). */
-.controller .ds4-well { fill: #18191d; stroke: #2a2c32; stroke-width: 1.2; }
-.controller .symbol.ds4-triangle { stroke: #4fbfa8; }
-.controller .symbol.ds4-circle { stroke: #e0707c; }
-.controller .symbol.ds4-cross { stroke: #7aa2e0; }
-.controller .symbol.ds4-square { stroke: #d08ac4; }
-.controller .part-label { fill: #80858f; font: 700 12px var(--font); text-anchor: middle; pointer-events: none; }
-.controller .part-value { fill: var(--c-gold); font: 600 10px var(--mono); text-anchor: middle; pointer-events: none; }
-.controller .speaker rect { fill: #3a3c43; }
-.controller .stick-well { fill: #15161a; stroke: #2c2e34; stroke-width: 1.2; }
-.controller .stick-range { fill: none; stroke: rgba(255, 255, 255, 0.06); stroke-dasharray: 2 4; }
-.controller .stick-vector { stroke: var(--c-gold); stroke-width: 5; stroke-linecap: round; opacity: 0.9; pointer-events: none; }
-.controller .stick-dot { fill: var(--c-gold); stroke: #fff4d8; stroke-width: 1.5; filter: drop-shadow(0 0 6px var(--c-gold-glow)); pointer-events: none; }
-.controller .stick-shadow { fill: #000; opacity: 0.45; }
-.controller .stick-cap { stroke: #42454d; stroke-width: 1.2; }
-.controller .stick-top { stroke: #2a2d35; stroke-width: 1.5; }
-.controller .stick-ring { fill: none; stroke: transparent; stroke-width: 3; }
-/* L2/R2: a tab rising from behind the bumper, in the controller's colour. */
-.controller .trigger-hit { fill: transparent; stroke: none; }
-.controller .trigger-body { stroke: none; transition: filter 60ms; }
-.controller .trigger-fill { fill: var(--c-gold); opacity: 0.88; transition: y 40ms, height 40ms; }
-.controller .trigger-edge { fill: none; stroke: rgba(255, 255, 255, 0.13); stroke-width: 1; vector-effect: non-scaling-stroke; pointer-events: none; }
-.controller .trigger-label { fill: #8a8d94; font-family: var(--font); font-weight: 700; pointer-events: none; }
-.controller .trigger-readout { fill: var(--c-gold); font: 700 15px var(--mono); pointer-events: none; }
-.controller-overlay .trigger-readout { font-size: 6px; }
-.controller .part.on .trigger-edge { stroke: #f3cd7f; }
-.controller .part.on .trigger-body { filter: drop-shadow(0 0 5px var(--c-gold-glow)); }
-.controller .trigger-label.filled { fill: #24190a; }
-.controller .touch-point { fill: var(--c-gold); stroke: #fff4d8; stroke-width: 1.5; filter: drop-shadow(0 0 6px var(--c-gold-glow)); pointer-events: none; }
-/* Pressed: gold */
-.controller .part.on .key { fill: var(--c-gold); stroke: #f3cd7f; filter: drop-shadow(0 0 7px var(--c-gold-glow)); }
-.controller .part.on .symbol { stroke: #24190a; }
-.controller .part.on .arrow { fill: #24190a; }
-.controller .part.on .part-label { fill: #24190a; }
-.controller .part.on .stick-ring { stroke: var(--c-gold); filter: drop-shadow(0 0 7px var(--c-gold-glow)); }
-/* Selected (mapping shown): teal */
-.controller.interactive .pickable { cursor: pointer; outline: none; }
-.controller.interactive .pickable:hover .key, .controller.interactive .pickable:hover .trigger-edge, .controller.interactive .pickable:hover .stick-cap { stroke: var(--c-teal); }
-.controller .part.selected .key, .controller .part.selected .stick-cap { stroke: var(--c-teal); stroke-width: 3; }
-.controller .part.selected .trigger-edge { stroke: var(--c-teal); stroke-width: 2.2; }
-.controller .pickable:focus-visible .key, .controller .pickable:focus-visible .trigger-edge, .controller .pickable:focus-visible .stick-cap { stroke: var(--c-teal); stroke-width: 3; stroke-dasharray: 4 3; }
-/* Mapping marks */
-.controller .part.disabled .key, .controller .part.disabled .trigger-body, .controller .part.disabled .trigger-edge, .controller .part.disabled .stick-cap { opacity: 0.45; stroke-dasharray: 3 3; }
-.controller .part.disabled.on .key { opacity: 0.8; }
-.controller .mark-remapped { fill: var(--c-teal); stroke: #0f1012; stroke-width: 1.5; }
-.controller .mark-macro { fill: var(--c-gold); stroke: #0f1012; stroke-width: 1.5; }
-.controller .mark-disabled { fill: #e26a6a; stroke: #0f1012; stroke-width: 1.5; }
-.controller .mark-special { fill: #0f1012; stroke: var(--c-teal); stroke-width: 2; }
 .controller-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--text-dim); margin-top: 6px; }
 .controller-legend span { display: inline-flex; align-items: center; gap: 6px; }
 .controller-legend i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; border: 1.5px solid #0f1012; }
@@ -446,7 +375,7 @@ p { margin: 0; }
 .preview-progress { height: 3px; border-radius: 2px; background: var(--panel-3); overflow: hidden; }
 .preview-progress div { height: 100%; background: var(--gold); }
 .preview-visual { position: relative; display: flex; justify-content: center; }
-.preview-visual .controller { max-width: 460px; }
+.preview-visual > .c3d, .preview-visual > .c3d-unavailable { max-width: 460px; }
 .preview-visual .badge { position: absolute; top: 4px; right: 4px; }
 
 /* Timeline */
@@ -525,7 +454,7 @@ p { margin: 0; }
 
 /* Live test */
 .live-test-visual { display: flex; justify-content: center; margin: 6px 0; }
-.live-test-visual .controller { max-width: 340px; }
+.live-test-visual > .c3d, .live-test-visual > .c3d-unavailable { max-width: 340px; }
 .live-test-status { display: flex; align-items: center; gap: 8px; min-height: 22px; font-size: 13px; }
 
 @media (max-width: 1320px) {
@@ -550,7 +479,7 @@ p { margin: 0; }
 .panel { display: flex; flex-direction: column; gap: 12px; }
 .panel h2 { margin: 0; }
 .live-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-.live-grid .controller { max-width: 420px; margin: 0 auto; }
+.live-grid .c3d { max-width: 420px; }
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
 .span-2 { grid-column: 1 / -1; }
 .tune-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 14px; align-items: start; }
@@ -742,25 +671,6 @@ input[type="color"]:disabled { opacity: 0.4; cursor: not-allowed; }
 .driver-steps { margin: 8px 0 10px 18px; display: flex; flex-direction: column; gap: 6px; }
 .tl-wait.risky .tl-wait-line { background: repeating-linear-gradient(90deg, #e3aa4a 0 6px, transparent 6px 10px); height: 3px; }
 .tl-wait.risky .tl-wait-label { color: #f0cf96; }
-/* Photo mode: the user's own controller photo, unchanged, with overlays on top. */
-.controller-photo { position: relative; width: 100%; max-width: 620px; margin: 0 auto; overflow: hidden; }
-.controller-photo img { position: absolute; max-width: none; display: block; user-select: none; pointer-events: none; }
-.controller-photo .controller-overlay { position: absolute; inset: 0; width: 100%; height: 100%; max-width: none; margin: 0; }
-.controller-overlay .hit { fill: transparent; stroke: transparent; stroke-width: 1.4; transition: fill 40ms, stroke 40ms; }
-.controller-overlay .press-ring { fill: none; stroke: transparent; stroke-width: 1.8; pointer-events: none; }
-.controller-overlay .part.on .hit { fill: rgba(214, 165, 75, 0.5); stroke: #f3cd7f; filter: drop-shadow(0 0 2.5px rgba(214, 165, 75, 0.9)); }
-.controller-overlay .part.on .press-ring { stroke: #d6a54b; filter: drop-shadow(0 0 2.5px rgba(214, 165, 75, 0.9)); }
-.controller-overlay .part.on[data-button="leftStick"] .hit, .controller-overlay .part.on[data-button="rightStick"] .hit { fill: rgba(214, 165, 75, 0.18); }
-.controller-overlay .part.selected .hit { stroke: #4fa8b8; stroke-width: 1.6; }
-.controller-overlay.interactive .pickable, .controller-photo.interactive .pickable { cursor: pointer; outline: none; }
-.controller-photo.interactive .pickable:hover .hit, .controller-photo.interactive .pickable:hover .trigger-edge { stroke: rgba(79, 168, 184, 0.75); }
-.controller-photo .pickable:focus-visible .hit { stroke: #4fa8b8; stroke-dasharray: 2 1.5; }
-.controller-overlay .stick-vector { stroke: #d6a54b; stroke-width: 2.2; stroke-linecap: round; opacity: 0.95; }
-.controller-overlay .stick-dot { fill: #d6a54b; stroke: #fff4d8; stroke-width: 0.6; filter: drop-shadow(0 0 2px rgba(214, 165, 75, 0.9)); pointer-events: none; }
-.controller-overlay .touch-point { fill: #d6a54b; stroke: #fff4d8; stroke-width: 0.6; filter: drop-shadow(0 0 2px rgba(214, 165, 75, 0.9)); }
-.controller-overlay .mark-remapped, .controller-overlay .mark-macro, .controller-overlay .mark-disabled, .controller-overlay .mark-special { stroke-width: 0.7; }
-.controller-overlay .part.disabled .hit { stroke: rgba(226, 106, 106, 0.6); stroke-dasharray: 1.5 1.5; }
-.photo-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; font-size: 12.5px; }
 /* Live Viewer */
 .lv-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 16px; align-items: start; }
 .lv-grid .span-2 { grid-column: 1 / -1; }
@@ -862,8 +772,6 @@ input[type="color"]:disabled { opacity: 0.4; cursor: not-allowed; }
 .map-right { grid-area: right; }
 .map-bottom { grid-area: bottom; display: grid; grid-template-columns: repeat(3, minmax(0, 150px)); justify-content: center; gap: 6px 14px; position: relative; z-index: 3; }
 .map-visual { grid-area: pad; position: relative; z-index: 1; min-width: 0; }
-.map-visual .controller, .map-visual .controller-photo { max-width: 620px; width: 100%; margin: 0 auto; }
-.map-visual .controller-photo .controller-overlay { max-width: none; }
 /* Wide enough that the model fills the view (lib/controller3d fitRadius). */
 .map-visual > .c3d { max-width: none; min-height: 300px; aspect-ratio: 3 / 2; max-height: 62vh; }
 /* The view buttons live in the workspace toolbar (portal), styled as a toolbar group there. */
@@ -872,13 +780,6 @@ input[type="color"]:disabled { opacity: 0.4; cursor: not-allowed; }
 .map-view-tools .c3d-toolbar button { height: 24px; }
 /* Hints over the picture would sit under the connectors; the toolbar pill says whether a controller is connected. */
 .map-visual .c3d-hint, .map-visual .c3d-status { display: none; }
-/* The mapping picture is a picker, not live data: keep it readable without a controller. */
-.map-visual .controller.idle, .map-visual .controller-photo.idle { opacity: 0.9; filter: none; }
-/* Selection in the accent colour, matching the card and its connector. */
-.map-visual .controller .part.selected .key, .map-visual .controller .part.selected .stick-cap { stroke: var(--gold-bright); }
-.map-visual .controller .part.selected .trigger-edge { stroke: var(--gold-bright); }
-.map-visual .controller.interactive .pickable:hover .key, .map-visual .controller.interactive .pickable:hover .trigger-edge,
-.map-visual .controller.interactive .pickable:hover .stick-cap { stroke: var(--gold); }
 
 .map-card {
   display: flex; flex-direction: column; align-items: flex-start; gap: 0; text-align: left; min-width: 0; min-height: 44px;
@@ -975,7 +876,10 @@ input[type="color"]:disabled { opacity: 0.4; cursor: not-allowed; }
   background: rgba(15, 16, 18, 0.8); border: 1px solid var(--border-strong); color: var(--text-dim); font-size: 12px; pointer-events: none;
 }
 .c3d-hint { position: absolute; left: 12px; bottom: 14px; color: var(--text-faint); font-size: 11.5px; pointer-events: none; }
-.c3d-note { text-align: center; margin: 6px 0 0; }
+.c3d-unavailable {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; text-align: center;
+  width: 100%; min-height: 220px; padding: 24px; border-radius: var(--radius); border: 1px dashed var(--border-strong); background: var(--panel);
+}
 @media (max-width: 720px) { .c3d-hint { display: none; } }
 .c3d-credit {
   position: absolute; left: 10px; right: 10px; bottom: 50px; padding: 8px 12px; border-radius: 8px;
@@ -985,18 +889,6 @@ input[type="color"]:disabled { opacity: 0.4; cursor: not-allowed; }
 .c3d-finish.black i { background: linear-gradient(135deg, #3a3c42, #121316); }
 .c3d-finish.white i { background: linear-gradient(135deg, #ffffff, #c9ccd3); }
 .c3d-hint { top: 12px; bottom: auto; }
-/* The 3D view shows the page's offline wording itself. */
-.visual-wrap:has(.c3d) .visual-overlay { display: none; }
-
-/* 2D picture chosen instead of 3D: a small button to go back. */
-.flat-view { position: relative; width: 100%; }
-.flat-to-3d {
-  position: absolute; top: 6px; right: 6px; z-index: 2; height: 26px; padding: 0 11px; border-radius: 7px;
-  border: 1px solid var(--border-strong); background: rgba(15, 16, 18, 0.82); color: var(--text-dim);
-  font: 600 12px var(--font); cursor: pointer; transition: color 120ms, border-color 120ms;
-}
-.flat-to-3d:hover { color: var(--gold-bright); border-color: var(--gold); }
-.flat-to-3d:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
 .perf-stages-head { color: var(--text-dim); font-size: 12px; padding-top: 10px; }
 td.perf-stage { padding-left: 22px; color: var(--text-dim); }
 .oc-head { display: flex; align-items: center; gap: 12px; }

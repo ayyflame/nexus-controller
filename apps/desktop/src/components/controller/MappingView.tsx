@@ -19,9 +19,6 @@ const SIDE_OF: Record<MacroButton, Side> = Object.fromEntries(
   (Object.keys(CALLOUTS) as Side[]).flatMap((side) => CALLOUTS[side].map((b) => [b, side])),
 ) as Record<MacroButton, Side>;
 
-/** Children of a drawn control that have no shape of their own. */
-const NOT_DRAWN = new Set(["clippath", "title", "desc", "defs"]);
-
 /** One connector: its polyline (card end first, control last) and whether the control faces away. */
 export interface Connector { button: MacroButton; points: Point[]; hidden: boolean }
 
@@ -128,12 +125,13 @@ export function MappingView({ config, onEdit, input, output, macros, onMacrosCha
 
 /**
  * Measures cards and controls (relative to the stage) and routes the
- * connectors. Each connector ends exactly on its own control's anchor:
- * - 3D: the point the model reports for that control, projected through the
- *   camera (it moves when the view is turned or the canvas resized);
- * - 2D: the centre of that control's drawn shape at rest.
- * Re-measured whenever the stage, the picture or a card changes size, and
- * when the picture is swapped (drawing ↔ photo ↔ 3D), never per report.
+ * connectors. Each connector ends exactly on its own control's anchor: the
+ * point the 3D model reports for that control (a visible point of it from
+ * the default view), projected through the camera, so it moves when the
+ * view is turned or the picture resized. Re-measured whenever the stage, the
+ * picture or a card changes size, and when the model is swapped (DualSense ↔
+ * DualShock 4), never per report. Without a 3D picture (no WebGL) there are
+ * no connectors; the cards still select and edit controls.
  */
 function useConnectors(
   stage: React.RefObject<HTMLDivElement | null>, visual: React.RefObject<HTMLDivElement | null>, anchors: Anchors | null,
@@ -153,25 +151,12 @@ function useConnectors(
     const area = canvas ? rel(canvas.getBoundingClientRect()) : null;
     const next: Connector[] = [];
     for (const [b, card] of cards) {
-      let anchor: Point | null = null;
-      let hidden = false;
-      if (anchors && area) {
-        const a = anchors[b];
-        if (!a) continue;
-        // Kept inside the picture if the view is zoomed so far that the control is off-screen.
-        const x = Math.min(area.width, Math.max(0, a.x)), y = Math.min(area.height, Math.max(0, a.y));
-        anchor = { x: area.left + x, y: area.top + y };
-        hidden = !a.visible || x !== a.x || y !== a.y;
-      } else {
-        const part = root.querySelector(`.map-visual [data-button="${b}"]`);
-        // The first drawn shape is the part at rest (stick well, trigger body…), so the
-        // anchor does not follow a deflected stick.
-        const shape = part ? Array.from(part.children).find((c) => !NOT_DRAWN.has(c.tagName.toLowerCase())) ?? part : null;
-        if (!shape) continue;
-        const box = rel(shape.getBoundingClientRect());
-        if (box.width === 0 && box.height === 0) continue;
-        anchor = { x: box.left + box.width / 2, y: box.top + box.height / 2 };
-      }
+      const a = anchors?.[b];
+      if (!a || !area) continue;
+      // Kept inside the picture if the view is zoomed so far that the control is off-screen.
+      const x = Math.min(area.width, Math.max(0, a.x)), y = Math.min(area.height, Math.max(0, a.y));
+      const anchor: Point = { x: area.left + x, y: area.top + y };
+      const hidden = !a.visible || x !== a.x || y !== a.y;
       const others = [...cards].filter(([o]) => o !== b).map(([, box]) => box);
       next.push({ button: b, points: chooseRoute(SIDE_OF[b], card, anchor, others), hidden });
     }
@@ -186,7 +171,7 @@ function useConnectors(
       stage.current.querySelectorAll("[data-card]").forEach((el) => ro.observe(el));
     }
     if (visual.current) ro.observe(visual.current);
-    // Drawing ↔ photo ↔ 3D swaps the picture element without necessarily resizing it.
+    // The 3D canvas appears after the model loads, without necessarily resizing anything.
     const mo = new MutationObserver(() => requestAnimationFrame(measure));
     if (visual.current) mo.observe(visual.current, { childList: true, subtree: true });
     if (stage.current) mo.observe(stage.current, { childList: true });

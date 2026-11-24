@@ -36,8 +36,6 @@ export interface Controller3DProps {
   accentSelection?: boolean;
   /** Show the view buttons in this element (outside the picture) instead of over the picture. */
   toolbarHost?: HTMLElement | null;
-  /** Switch back to the 2D picture. */
-  onFlat?: () => void;
   /** Badge text while there is no live input. */
   offlineLabel?: string;
 }
@@ -68,7 +66,7 @@ const MARK_COLOURS = { disabled: "#e26a6a", remapped: "#4fa8b8", macro: "#d6a54b
  * the input changes, while the camera moves, or when the size changes —
  * nothing runs while everything is still.
  */
-export default function Controller3D({ state, live, selected = null, onSelect, marks, onAnchors, onFlat, offlineLabel, accentSelection = false, toolbarHost = null }: Controller3DProps) {
+export default function Controller3D({ state, live, selected = null, onSelect, marks, onAnchors, offlineLabel, accentSelection = false, toolbarHost = null }: Controller3DProps) {
   const vis = visualFrom(state, live);
   const visKey = visualKey(vis);
   // Follows the controller: the DualShock 4 model for a DualShock 4, the
@@ -116,11 +114,12 @@ export default function Controller3D({ state, live, selected = null, onSelect, m
     <button type="button" aria-label="Zoom out" title="Zoom out" onClick={() => zoom(1.18)}>−</button>
     <button type="button" aria-label="Zoom in" title="Zoom in" onClick={() => zoom(1 / 1.18)}>+</button>
     <span className="c3d-sep" aria-hidden="true" />
-    {shown.spec.finishes && <button type="button" className={`c3d-finish ${finish}`} onClick={() => setFinish(finish === "black" ? "white" : "black")}
-      title={`Colour: ${finish === "black" ? "Midnight Black" : "White"} (click to change)`}
-      aria-label={`Controller colour: ${finish === "black" ? "Midnight Black" : "White"}. Change`}><i /></button>}
-    {onFlat && <button type="button" onClick={onFlat} title="Show the flat picture">2D</button>}
-    <span className="c3d-sep" aria-hidden="true" />
+    {shown.spec.finishes && <>
+      <button type="button" className={`c3d-finish ${finish}`} onClick={() => setFinish(finish === "black" ? "white" : "black")}
+        title={`Colour: ${finish === "black" ? "Midnight Black" : "White"} (click to change)`}
+        aria-label={`Controller colour: ${finish === "black" ? "Midnight Black" : "White"}. Change`}><i /></button>
+      <span className="c3d-sep" aria-hidden="true" />
+    </>}
     <button type="button" aria-label="3D model credit" aria-expanded={credit} title="3D model credit" onClick={() => setCredit((c) => !c)}>ⓘ</button>
   </div>
   );

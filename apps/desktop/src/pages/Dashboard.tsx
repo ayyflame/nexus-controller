@@ -120,7 +120,6 @@ export function Dashboard() {
           </div>
           <div className="visual-wrap">
             <ControllerVisual state={live ? input : null} live={live} offlineLabel={phase.key === "stale" ? "Input stopped" : "No live input"} />
-            {!live && <div className="visual-overlay">{phase.key === "stale" ? "Input stopped" : "No live input"}</div>}
           </div>
           {live && input ? <LiveReadout s={input} /> : (
             <p className="muted small center">Live values appear here only when a real controller is sending input.</p>

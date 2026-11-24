@@ -2,7 +2,7 @@
 
 Macro Studio lets anyone record or build a button sequence and start it with a single controller button.
 
-> Games receive macros through NEXUS's virtual Xbox 360 controller, which needs the free ViGEmBus driver (Controller › Virtual Output). Without it, macros still run inside NEXUS and can be tried under **Test with your controller**, but games don't see them.
+> Games receive macros through NEXUS's virtual Xbox 360 controller, which needs the free ViGEmBus driver (Virtual Controller). Without it, macros still run inside NEXUS and can be tried under **Test with your controller**, but games don't see them.
 
 ## For users
 

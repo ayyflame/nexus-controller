@@ -146,7 +146,7 @@ These are outside NEXUS's timing path, and none is proven to be the cause:
    - **Check:** Windows *Game Controllers* (`joy.cpl`) should list only *Controller (XBOX 360 For Windows)* while playing.
    - **Fix:** turn off PlayStation controller support in Warzone and Steam, or hide the controller with HidHide (`docs/hidhide-setup.md`).
 2. **Two deadzones and curves on top of each other.** NEXUS's default left and right stick deadzone is 5 % (radial, rescaled). Warzone then applies its own deadzone and response curve to the Xbox controller. Small aim movements need more travel than with the controller used directly.
-   - **Check:** set NEXUS's stick deadzone to 0 (*Controller › Sticks*) or Warzone's to its minimum, and compare.
+   - **Check:** set NEXUS's stick deadzone to 0 (*Sticks*) or Warzone's to its minimum, and compare.
 3. **Uneven reports from the controller.** Caused by the cable, a hub, USB power saving or other USB devices. It appears as uneven *Time between reports* on the Performance page, before NEXUS.
 4. **The game's frame rate.** The game reads the controller once per frame.
 

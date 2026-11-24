@@ -6,7 +6,7 @@ Sidebar › **Live Viewer**. Read-only: it shows what NEXUS receives from the Du
 
 | Tab | What it shows | Source |
 |---|---|---|
-| **Live** | The controller picture with pressed buttons, stick and trigger movement and touches (your photo, if set; otherwise the drawn controller), plus what is sent to the game. Marks for remapped, macro, disabled and layer/gyro buttons; click a button for its mapping. The **active shift layer**. Analog values (raw bytes, values, sent to game). **Detected this session**: every control lights while used and gets a tick once seen | Engine: physical input, processed output, active layer |
+| **Live** | The 3D controller with pressed buttons, stick and trigger movement and touches, plus what is sent to the game. Marks for remapped, macro, disabled and layer/gyro buttons; click a button for its mapping. The **active shift layer**. Analog values (raw bytes, values, sent to game). **Detected this session**: every control lights while used and gets a tick once seen | Engine: physical input, processed output, active layer |
 | **Sticks & Triggers** | Per stick: X/Y raw and normalised, distance from centre, the profile's deadzone on the plot, the value sent to the game, and a **full-range test** (four edges, eight directions, furthest reach). Per trigger: raw and %, the value sent to the game, the lowest and highest values seen, **fully released (≤ 2)** and **fully pressed (≥ 253)**, and a note when travel is incomplete | Engine |
 | **Motion** | Gyroscope X/Y/Z and accelerometer X/Y/Z, as raw counts and in °/s and g. **Tilt** (forward/back, left/right) from gravity, with a level, and the sensor timestamp. If a report carries no motion data, it says why | DualSense report |
 | **Health** | Name, model, connection, vendor/product ID, report format, time connected, last report, last unreadable report. Input freshness (stale input is flagged after 250 ms without a report), report rate, reports received, unreadable reports, dropped reports, time between reports, late reports, NEXUS processing time, battery. **Connection events** | Each value is labelled *measured*, *from controller* or *estimate* |
@@ -51,4 +51,3 @@ Sidebar › **Live Viewer**. Read-only: it shows what NEXUS receives from the Du
 | LV12 | Controller Test while the virtual Xbox controller is on (`joy.cpl` open) | Presses still reach `joy.cpl`; nothing in your profile changes |
 | LV13 | Drift Test, 10 s per stick, not touching the controller | Valid result (about 600 samples); values in % recorded; repeat once and compare |
 | LV14 | Close the Live Viewer during a Repeat While Held macro | The macro and the virtual controller keep working |
-| LV15 | Photo mode (your photo set) | Overlays still align on the Live tab |

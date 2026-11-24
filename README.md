@@ -26,20 +26,20 @@ Built with Tauri 2, React and TypeScript for the UI, and Rust for the engine, wi
 ### Controller
 - **Automatic USB detection.** Finds a USB DualSense or DualShock 4, shows which one it is, reconnects within about a second, ignores duplicate and virtual devices. No Bluetooth.
 - **Same features for both controllers.** Everything below works the same with a DualSense or a DualShock 4: each has its own report reader, and both feed the same mapping, macro and profile engine.
-- **Sticks** (*Controller › Sticks*): deadzones (radial or axial, outer, anti-deadzone), sensitivity, response curves (presets or custom), invert, circular or square output.
-- **Stick swap and stick to buttons** (*Controller › Sticks*): swap the left and right sticks (or send one stick to both, or neither), and press buttons by pushing a stick, e.g. the d-pad. Separate left/right and up/down thresholds, a release margin against flicker, 8 or 4 directions, and the stick's movement kept for the game or not. Per profile.
-- **Triggers** (*Controller › Triggers*): deadzone, range, curve and the point where the trigger counts as pressed.
+- **Sticks** (*Sticks*): deadzones (radial or axial, outer, anti-deadzone), sensitivity, response curves (presets or custom), invert, circular or square output.
+- **Stick swap and stick to buttons** (*Sticks*): swap the left and right sticks (or send one stick to both, or neither), and press buttons by pushing a stick, e.g. the d-pad. Separate left/right and up/down thresholds, a release margin against flicker, 8 or 4 directions, and the stick's movement kept for the game or not. Per profile.
+- **Triggers** (*Triggers*): deadzone, range, curve and the point where the trigger counts as pressed.
 - **Calibration** (*Live Viewer › Calibration*): a guided wizard for both sticks (resting centre, jitter, full range, a recommended deadzone) and both triggers. Nothing is saved until you apply it, and you can go back to the previous calibration.
-- **Button remapping** (*Controller › Mapping*): click any button on the controller, or its card, and choose what it sends: another button, nothing, or two buttons at once. Each card shows what the game receives (e.g. Triangle → Y). Undo/redo and a list view included.
+- **Button remapping** (*Mapping*): click any button on the controller, or its card, and choose what it sends: another button, nothing, or two buttons at once. Each card shows what the game receives (e.g. Triangle → Y). Undo/redo and a list view included.
 - **Shift layers:** hold or toggle a button to switch to a second button layout.
 - **Button combinations:** hold 2–3 buttons together to press others (e.g. L1 + R1 → Triangle), optionally hiding the held buttons from the game.
 - **Gyro aiming and touchpad** (optional): gyro onto a stick, touchpad zones and swipes as buttons.
-- **Lighting and vibration** for the controller itself (*Controller › Lighting & Haptics*). A DualShock 4 has a light bar and vibration but no player lights.
+- **Lighting and vibration** for the controller itself (*Lighting & Haptics*). A DualShock 4 has a light bar and vibration but no player lights.
 
 ### Interactive 3D controller
 - Your controller as a 3D model that follows the real controller (a DualSense model or a DualShock 4 model, whichever is connected): buttons light up, sticks tilt, L2/R2 swing with their pressure, touches appear on the touchpad.
 - Drag to rotate, scroll to zoom, Front/Rear/Top views, Midnight Black or White.
-- Shown on the Dashboard, *Controller › Live*, *Controller › Mapping* and the Live Viewer. A flat 2D picture (or your own photo) is available instead. Both the 3D model and the 2D drawing show whichever controller is connected, DualSense or DualShock 4.
+- Shown on the Dashboard, *Mapping*, the Live Viewer and Macro Studio, always as the 3D model of whichever controller is connected, DualSense or DualShock 4.
 
 ### Macro Studio
 - **Record** a macro from the controller or **build it** on a controller layout.
@@ -90,7 +90,7 @@ Built with Tauri 2, React and TypeScript for the UI, and Rust for the engine, wi
 | **DualSense or DualShock 4, and a USB data cable** | USB-C for a DualSense, Micro-USB for a DualShock 4. Bluetooth isn't supported; charge-only cables don't carry data. See [Supported controllers](#supported-controllers). |
 | **[ViGEmBus](https://github.com/nefarius/ViGEmBus/releases) 1.22** (free, third-party) | **Needed for games to see NEXUS.** Without it NEXUS still reads and shows the controller, but games see no virtual controller. Retired by its developer in 2023 but works on Windows 11, so NEXUS labels virtual output *experimental*. |
 | **[HidHide](https://github.com/nefarius/HidHide/releases)** (free, third-party) | **Optional.** Stops presses counting twice in games with PlayStation support or Steam Input, by hiding the controller from everything but NEXUS. Without it, turn off PlayStation controller support in the game or Steam. Guide: [`docs/hidhide-setup.md`](docs/hidhide-setup.md). |
-| WebView2 Runtime, WebGL graphics | Part of Windows 11. Without WebGL, NEXUS shows the 2D picture instead of 3D. |
+| WebView2 Runtime, WebGL graphics | Part of Windows 11. Without WebGL, NEXUS can't show the 3D controller; a note says so and everything else works (on the Mapping page the cards still select and edit controls). |
 
 NEXUS **never installs, bundles or silently configures drivers** and needs no administrator rights. You install ViGEmBus (and HidHide if wanted) yourself from the official pages.
 
@@ -118,8 +118,8 @@ Each model has its own report reader (DualShock 4 format: [`docs/dualshock4-prot
 1. **Install NEXUS.** Use the **Download NEXUS** button above and run `NEXUS-latest-x64-setup.exe`.
    - Windows SmartScreen may say *"Windows protected your PC"* because development builds aren't code-signed: click **More info › Run anyway**. Releases from 0.2.0 on are signed (see the [code signing policy](CODE_SIGNING_POLICY.md)); each download can also be checked with `gh attestation verify <file> --repo ayyflame/nexus-controller`. Why, and what signing would take: [`docs/code-signing.md`](docs/code-signing.md).
    - It installs for your account only; no administrator password needed. Installing over an older version keeps your profiles, macros and settings.
-2. **Install ViGEmBus.** Download `ViGEmBus_1.22.0_x64_x86_arm64.exe` from the [official page](https://github.com/nefarius/ViGEmBus/releases) and run it (the administrator prompt is from ViGEmBus). In NEXUS, **Controller › Virtual Output › Check again** should show **Installed and ready**.
-3. **Connect and turn on output.** Plug in the DualSense or DualShock 4; the Dashboard shows **DualSense** or **DualShock 4** and the sidebar shows it as connected. In **Controller › Virtual Output**, turn on **Use the experimental virtual controller** and choose **Xbox 360**. It should show **Xbox 360 connected · Games see it as player 1**.
+2. **Install ViGEmBus.** Download `ViGEmBus_1.22.0_x64_x86_arm64.exe` from the [official page](https://github.com/nefarius/ViGEmBus/releases) and run it (the administrator prompt is from ViGEmBus). In NEXUS, **Virtual Controller › Check again** should show **Installed and ready**.
+3. **Connect and turn on output.** Plug in the DualSense or DualShock 4; the Dashboard shows **DualSense** or **DualShock 4** and the sidebar shows it as connected. In **Virtual Controller**, turn on **Use the experimental virtual controller** and choose **Xbox 360**. It should show **Xbox 360 connected · Games see it as player 1**.
 4. **Check in Windows.** Win + R → `joy.cpl` → **Controller (XBOX 360 For Windows)** → **Properties**. Pressing controller buttons lights the matching Xbox buttons, remaps and macros included.
 
 More detail: [`docs/install-windows.md`](docs/install-windows.md).
@@ -134,9 +134,9 @@ More detail: [`docs/install-windows.md`](docs/install-windows.md).
 
 ## Using NEXUS
 
-**Remap buttons:** *Controller › Mapping*. Click a button on the controller or its card, then choose what it **Sends** and, optionally, a second button under **Also press**. Pressing a button on the controller lights its card. Shift layers are set up below the mapping.
+**Remap buttons:** *Mapping*. Click a button on the controller or its card, then choose what it **Sends** and, optionally, a second button under **Also press**. Pressing a button on the controller lights its card. Shift layers are set up below the mapping.
 
-**Tune sticks and triggers:** *Controller › Sticks* and *› Triggers* apply live, with your input and the result plotted side by side. For drift or short travel, run **Live Viewer › Calibration**.
+**Tune sticks and triggers:** *Sticks* and *› Triggers* apply live, with your input and the result plotted side by side. For drift or short travel, run **Live Viewer › Calibration**.
 
 **Make a macro:** *Macro Studio › Create Macro*, then record it or build it, adjust the timing on the timeline, pick the trigger button and mode, and **Save Macro**. For **Repeat While Held**:
 - leave at least **20 ms** between two presses of the same button;
@@ -161,7 +161,6 @@ Full details: [`docs/game-output.md`](docs/game-output.md).
 - **USB only.** Bluetooth isn't supported, by design, for either controller. The Sony DualShock 4 USB Wireless Adaptor isn't supported either.
 - **DualShock 4:**
   - only Sony's two revisions (CUH-ZCT1, CUH-ZCT2) are recognised. Third-party "DS4-compatible" pads with other USB IDs aren't, and ones that use Sony's IDs are untested;
-  - the optional controller photo (2D) is of a DualSense, so with a DualShock 4 the drawn DualShock 4 is shown instead;
   - Share appears as *Create* in the button lists, since both sit in the same place.
 - **One controller type out:** games see a virtual **Xbox 360** controller. DualShock 4 output, adaptive triggers, the light bar, gyro and touchpad position aren't passed to games, and rumble from games doesn't reach the controller. Games show Xbox button icons.
 - **ViGEmBus is retired** by its developer (2023). It works on Windows 11 today, but if a future Windows update breaks it there are no fixes from upstream. NEXUS labels virtual output *experimental*; the replacement options are evaluated in [`docs/virtual-driver-evaluation.md`](docs/virtual-driver-evaluation.md#long-term-update-2026-11-20-what-could-replace-vigembus).
@@ -178,10 +177,10 @@ Full details: [`docs/game-output.md`](docs/game-output.md).
 | Problem | What to do |
 |---|---|
 | The controller never appears | Use a **data** cable (USB-C for a DualSense, Micro-USB for a DualShock 4) in a direct USB port. A DualShock 4 connected by Bluetooth isn't used: plug it in by cable. Close Steam, DS4Windows or similar tools, then **Settings › Scan now**. |
-| *Waiting for ViGEmBus* / driver not installed | Install ViGEmBus 1.22, then **Controller › Virtual Output › Check again**. If it says *installed but could not be opened*, restart Windows. |
+| *Waiting for ViGEmBus* / driver not installed | Install ViGEmBus 1.22, then **Virtual Controller › Check again**. If it says *installed but could not be opened*, restart Windows. |
 | Games don't react, but `joy.cpl` shows the Xbox controller | Check the **player** number under *Virtual controller now*. Many games only listen to player 1: unplug other Xbox-type controllers and turn the output off and on. |
 | A press counts twice | The game or Steam sees both controllers. Turn off PlayStation controller support there, or set up HidHide. |
-| Controller missing after setting up HidHide | NEXUS must be on HidHide's *Applications* list (copy its path from *Virtual Output*), or untick *Enable device hiding*. |
+| Controller missing after setting up HidHide | NEXUS must be on HidHide's *Applications* list (copy its path from *Virtual Controller*), or untick *Enable device hiding*. |
 | *Reconnecting…* on the virtual controller | NEXUS re-creates it by itself. If it keeps happening, restart Windows or reinstall ViGEmBus. |
 | A macro press isn't seen | Press time at least 40–50 ms; 20 ms between presses of the same button. |
 | Stick drift, or a stick/trigger not reaching full range | **Live Viewer › Calibration**; **Live Viewer › Drift Test** shows how much a stick drifts. |
@@ -195,7 +194,7 @@ Your data lives in `%APPDATA%\com.nexus.controllerengine` (profiles, macros, set
 
 ## Documentation
 
-- **Using NEXUS:** [Installing](docs/install-windows.md) · [Game output](docs/game-output.md) · [Macro Studio](docs/macro-studio.md) · [3D controller view](docs/3d-controller.md) · [Live Viewer](docs/live-viewer.md) · [Performance](docs/performance.md) · [Driver call stalls](docs/driver-performance.md) · [Calibration](docs/calibration.md) · [Controller photo mode](docs/controller-photo.md) · [HidHide setup](docs/hidhide-setup.md)
+- **Using NEXUS:** [Installing](docs/install-windows.md) · [Game output](docs/game-output.md) · [Macro Studio](docs/macro-studio.md) · [3D controller view](docs/3d-controller.md) · [Live Viewer](docs/live-viewer.md) · [Performance](docs/performance.md) · [Driver call stalls](docs/driver-performance.md) · [Calibration](docs/calibration.md) · [HidHide setup](docs/hidhide-setup.md)
 - **Testing:** [Hardware test plan](tests/m4.5-test-plan.md) · [Hardware verification checklist](tests/hardware-verification.md) · [Update verification](docs/update-verification.md)
 - **Updates and releases:** [Release setup checklist](docs/release-setup-checklist.md) · [Updater setup](docs/updater-setup.md) · [Releasing](docs/releasing.md) · [Code signing](docs/code-signing.md) · [Code signing policy](CODE_SIGNING_POLICY.md) · [SignPath application](docs/signpath-application.md)
 - **Internals:** [Architecture](docs/architecture.md) · [DualSense report format](docs/dualsense-protocol.md) · [DualShock 4 report format](docs/dualshock4-protocol.md) · [Virtual output and drivers](docs/virtual-output.md) · [Virtual driver evaluation](docs/virtual-driver-evaluation.md) · [Latency audit](docs/latency-audit.md)

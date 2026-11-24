@@ -226,7 +226,7 @@ export function SequenceEditor({ history, initialSource = "record", library = []
 
       {preview.playing && (
         <div className="preview-visual">
-          <ControllerVisual state={stateWithButtons(pressedNow)} live flat />
+          <ControllerVisual state={stateWithButtons(pressedNow)} live />
           <span className="badge dev">Preview only</span>
         </div>
       )}

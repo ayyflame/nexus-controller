@@ -9,7 +9,7 @@ DualSense (USB)  →  processing  →  remaps / layers  →  macros  →  virtua
 ```
 
 - NEXUS reads the DualSense about 250 times a second. Every report is processed and sent on; none is dropped or merged.
-- The virtual controller is created by **ViGEmBus**, an optional third-party driver you install yourself (Controller › Virtual Output). NEXUS never installs or bundles drivers.
+- The virtual controller is created by **ViGEmBus**, an optional third-party driver you install yourself (Virtual Controller). NEXUS never installs or bundles drivers.
 - Games see a standard **"Controller (XBOX 360 For Windows)"**. Nothing is injected into games and no game process is touched.
 
 ## What games receive
@@ -23,7 +23,7 @@ DualSense (USB)  →  processing  →  remaps / layers  →  macros  →  virtua
 | Left / right stick | Left / right stick, −32768…32767 | Up is positive, as XInput expects. After your deadzone, curve and sensitivity |
 | D-pad | D-pad | Diagonals are two directions together |
 | Create / Options | Back / Start | |
-| PS | Guide | Windows hides Guide from games; it opens the Xbox Game Bar. Disable it under Controller › Mapping if unwanted |
+| PS | Guide | Windows hides Guide from games; it opens the Xbox Game Bar. Disable it under Mapping if unwanted |
 | Touchpad click, Mute | not sent | An Xbox 360 controller has no such buttons. Remap them to an Xbox button to use them |
 | Touchpad position, gyro, adaptive triggers, lightbar | not sent | Not part of an Xbox 360 controller. Gyro and touchpad can drive sticks or buttons through NEXUS's own settings |
 | Remaps, shift layers, macros | Applied before the game sees anything | A macro's presses are added to what you physically hold |
@@ -52,7 +52,7 @@ That check runs on a throwaway GitHub virtual machine, the only place a driver i
 
 ## Status in NEXUS
 
-Controller › Virtual Output › *Virtual controller now* and the Dashboard show:
+Virtual Controller › *Virtual controller now* and the Dashboard show:
 
 - **Xbox 360 connected · Games see it as player 1.**
 - **Connected as player 2 (or later):** another Xbox-type controller holds the earlier slot. Many games only listen to player 1. Unplug the other controller, then turn the output off and on.

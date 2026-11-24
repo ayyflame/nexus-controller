@@ -1,4 +1,3 @@
-import { PhotoPicker } from "../components/controller/PhotoPicker";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CalibrationWizard } from "../components/CalibrationWizard";
 import { ControllerVisual } from "../components/ControllerVisual";
@@ -120,7 +119,6 @@ function LiveTab({ device, config, onCalibrate }: { device: DeviceSnapshot; conf
           <span><i className="l-remapped" />Remapped</span><span><i className="l-macro" />Starts a macro</span>
           <span><i className="l-disabled" />Disabled</span><span><i className="l-special" />Layer or gyro</span>
         </div>
-        <PhotoPicker />
         {mapping && (
           <div className="mapping-card" aria-live="polite">
             <h4>{BUTTONS[mapping.button].name}<span className="mapping-kind">{mapping.kind}</span></h4>
@@ -129,7 +127,7 @@ function LiveTab({ device, config, onCalibrate }: { device: DeviceSnapshot; conf
         )}
       </Panel>
       <Panel title="Sent to the game" aside={<span className="muted small">after settings, remapping and macros</span>}>
-        <ControllerVisual state={out} live flat />
+        <ControllerVisual state={out} live />
         <p className="muted small">Playing macros: {device.playingMacros.length ? device.playingMacros.length : "none"}</p>
       </Panel>
       <Panel title="Analog values">

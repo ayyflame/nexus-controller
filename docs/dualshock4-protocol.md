@@ -65,7 +65,7 @@ Longer reads are accepted, since Windows may pad them.
 
 ## Output report 0x05 (USB, 32 bytes)
 
-Sent only when you turn on the light bar or test vibration (*Controller › Lighting & Haptics*), and only when something changes.
+Sent only when you turn on the light bar or test vibration (*Lighting & Haptics*), and only when something changes.
 
 | Byte | Field |
 |---|---|

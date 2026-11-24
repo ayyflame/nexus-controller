@@ -1,6 +1,6 @@
 # 3D controller view
 
-NEXUS shows your controller (a DualSense or a DualShock 4) as an interactive 3D model on the Dashboard, Controller › Live, Controller › Mapping and the Live Viewer. It moves with your real controller. Everything it shows comes from the same live input the rest of NEXUS uses (`device.input` from the engine's status stream). It never reads the controller on its own and never changes mappings, macros, profiles or the virtual controller.
+NEXUS shows your controller (a DualSense or a DualShock 4) as an interactive 3D model on the Dashboard, Live Viewer › Live, Mapping and the Live Viewer. It moves with your real controller. Everything it shows comes from the same live input the rest of NEXUS uses (`device.input` from the engine's status stream). It never reads the controller on its own and never changes mappings, macros, profiles or the virtual controller.
 
 ## What it shows
 
@@ -42,8 +42,7 @@ It has no Mute button, so nothing lights for it, and the White / Midnight Black 
 - **Zoom:** scroll, or use − / +.
 - **Views:** Reset (the default slight tilt), Front, Rear, and Top (bumpers and triggers).
 - **Colour:** the round swatch switches between Midnight Black and White. The model's textures are painted for a white controller; Midnight Black repaints them (white plastic → black, grey printing → light grey), so the button symbols stay readable.
-- **2D:** switches to the flat picture (drawing or your own photo). The drawing matches the connected controller: a DualSense, or a DualShock 4 whose outline is traced from the DualShock 4 3D model and whose buttons sit where the model has them (`lib/dualshock4Art.ts`). The flat picture then has a **3D** button in its corner to switch back, on every page. Controller › Live › Controller picture also switches between 3D and 2D.
-- **Controller › Mapping:** click a control on the model to edit it. The leader lines follow the controls as you turn the model, and are hidden for controls facing away.
+- **Mapping:** click a control on the model (or its card) to edit it. Each connector ends on a visible point of its own control (`partAnchor` in `lib/dualsenseModel.ts`; `lib/mappingAnchors.test.ts` ray-casts the real models to check it). The connectors follow the controls as you turn the model; a control turned to the far side keeps its connector, drawn dashed. On this page the view buttons sit in the page's toolbar instead of over the picture.
 - **ⓘ:** shows the 3D model's credit.
 
 ## Performance
@@ -51,7 +50,7 @@ It has no Mute button, so nothing lights for it, and the White / Midnight Black 
 - **Rendering:** it draws a frame only when something visible changes (input, camera, size). With the controller still and the view untouched, it draws nothing.
 - **Loading:** the 3D code (~270 kB gzipped) and the model (~5.9 MB DualSense, ~7.1 MB DualShock 4, loaded from the app itself, no network) load only when a 3D view first needs them. The DualShock 4 file isn't loaded unless a DualShock 4 is used.
 - **In the background:** while another program (a game) has the focus, the model doesn't redraw for input; it catches up when NEXUS is focused again. Measured with the DualShock 4 model in headless Chromium: no 3D frames while unfocused with input streaming, a redraw within 1.5 s of focus.
-- **Fallback:** if the PC can't draw WebGL, NEXUS shows the flat picture with a note. The small previews (Sent to the game, macro previews) stay flat.
+- **No 2D picture:** the 3D model is the only controller picture, including the small previews (Sent to the game, Macro Studio). If the PC can't draw WebGL, a note says so and lists what is pressed in words; the rest of each page works (Mapping's cards still select and edit controls).
 
 ## The model
 
@@ -89,30 +88,22 @@ These need a real DualSense on Windows. Simulated input and CI don't count.
 | 3D5 | Touch with one, then two fingers; move them | Dots follow the fingers on the touchpad |
 | 3D6 | Unplug, then plug back in | "No controller connected" appears, the light bar goes off; everything resumes on reconnect |
 | 3D7 | Drag, scroll, Reset / Front / Rear / Top, resize the window | Smooth, no jumps; the controller stays in view |
-| 3D8 | Controller › Mapping: click a control on the model, remap it | The editor opens for that control; the remap works in `joy.cpl` |
+| 3D8 | Mapping: click a control on the model, remap it | The editor opens for that control; the remap works in `joy.cpl` |
 | 3D9 | Leave NEXUS on the Dashboard with the controller untouched | Task Manager shows little GPU/CPU use from NEXUS |
 | 3D10 | Macros, profile switching and game output while the 3D view is open | Unchanged behaviour |
 | 3D11 | With a DualShock 4: 3D1–3D7 (no Mute) | The DualShock 4 model shows and responds the same way |
 | 3D12 | Unplug the DualSense, plug in a DualShock 4 (and back) | The model changes to the controller that's connected, without restarting NEXUS |
 
-## 2D pictures with a DualShock 4
+## With a DualShock 4
 
-Every flat picture follows the controller shown, chosen the same way as the 3D model (`hooks/useShownModel.ts`):
+Every view follows the controller shown, chosen the same way as the 3D model (`hooks/useShownModel.ts`):
 - the controller the input came from;
 - otherwise the connected controller;
 - otherwise the last one shown.
 
 | Where | DualSense | DualShock 4 |
 |---|---|---|
-| Dashboard › Live Input, Controller › Live, Live Viewer › Live (2D mode) | DualSense drawing (or your photo) | DualShock 4 drawing |
-| *Sent to the game* previews (Controller › Live, Live Viewer), Macro Studio preview and live test | DualSense drawing (or your photo) | DualShock 4 drawing |
-| Controller › Mapping (2D and 3D): cards and leader lines | Cards for every control, *Create* | No *Mute* card; *Share* |
+| Every 3D view (Dashboard, Mapping, Live Viewer, Macro Studio) | DualSense model | DualShock 4 model |
+| Mapping: cards and connectors | Cards for every control, *Create* | No *Mute* card; *Share* |
 | Macro Studio button pads | With *Mute*, *Create* | No *Mute* key; *Share* |
-| Controller › Touchpad zone editor | 16:9 (1920 × 1080) | DualShock 4 shape (1920 × 942) |
-| Controller › Live › Controller picture | *Use my photo…* available | Drawing only (the photo is of a DualSense) |
-
-The DualShock 4 drawing:
-- **Size and style:** the same viewBox, size, colours, highlights, mark dots and clickable parts as the DualSense drawing.
-- **Shape:** body, touchpad and bumper outlines traced from the DualShock 4 3D model's front view. A test checks the body against the model's silhouette: same width, height and area within 1 %.
-- **Positions:** every button, the D-pad arms, sticks, Share, Options and PS sit at the model's own positions.
-- **Differences from the DualSense drawing:** the D-pad and face-button wells and the coloured face symbols are drawn; there are no light strips and no Mute button.
+| Touchpad zone editor | 16:9 (1920 × 1080) | DualShock 4 shape (1920 × 942) |

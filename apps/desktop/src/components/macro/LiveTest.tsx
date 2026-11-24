@@ -30,7 +30,7 @@ export function LiveTest({ macros, focus }: { macros: Macro[]; focus?: Macro }) 
               : "Press a macro's button on your controller. The picture shows what NEXUS would send to the game."}
           </p>
           <div className="live-test-visual">
-            <ControllerVisual state={device.processed} live flat />
+            <ControllerVisual state={device.processed} live />
           </div>
           <div className="live-test-status" aria-live="polite">
             {names.length > 0

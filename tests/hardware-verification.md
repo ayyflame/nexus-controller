@@ -70,7 +70,7 @@ Setup steps: `docs/windows-setup.md`. Useful tools: **Settings → HID Devices (
 
 | # | Step | Expected | Result |
 |---|---|---|---|
-| 28 | Controller › Live: move each stick and trigger | "Your controller" and "Sent to the game" both move; deadzone circle visible | |
+| 28 | Live Viewer › Live: move each stick and trigger | "Your controller" and "Sent to the game" both move; deadzone circle visible | |
 | 29 | Sticks: set deadzone 30%, move the stick slightly | Gold dot stays centred until past the circle | |
 | 30 | Sticks: Precise curve, then Custom (drag a point) | Output follows the curve shown | |
 | 31 | Triggers: deadzone 20%, Full press at 60% | Output 0 below 20%, 100% from 60% | |
@@ -85,7 +85,7 @@ Setup steps: `docs/windows-setup.md`. Useful tools: **Settings → HID Devices (
 
 | # | Step | Expected | Result |
 |---|---|---|---|
-| 38 | Controller › Sticks › Calibrate (both sticks) | Rest reads 0,0 afterwards; full circle reaches the edge | |
+| 38 | Sticks › Calibrate (both sticks) | Rest reads 0,0 afterwards; full circle reaches the edge | |
 | 39 | Triggers › Calibrate; set Click point 20% | L2 counts as pressed at a light pull (Buttons tab lights) | |
 | 40 | Gyro › Live motion: turn, tilt, roll | Correct bars move; record the sign of each | |
 | 41 | Gyro on, While holding L2; turn right | Right stick moves right (else note: inverted) | |
@@ -143,7 +143,7 @@ Prerequisites:
 
 - ViGEmBus 1.22 installed by you (`docs/virtual-output.md`);
 - DualSense connected by USB;
-- Controller › Virtual Output → **Use the experimental virtual controller** on, then **Xbox 360**.
+- Virtual Controller → **Use the experimental virtual controller** on, then **Xbox 360**.
 
 Use Windows tools and offline or single-player games only.
 
@@ -151,7 +151,7 @@ Re-test V6–V12 on each new build that changes macro or output code. M4.5 chang
 
 | # | Step | Expected | Result |
 |---|---|---|---|
-| V1 | *(Optional: only after reinstalling ViGEmBus)* Virtual Output tab before installing ViGEmBus | "Not installed" with install steps; Xbox 360 cannot be selected while the switch is off | |
+| V1 | *(Optional: only after reinstalling ViGEmBus)* Virtual Controller page before installing ViGEmBus | "Not installed" with install steps; Xbox 360 cannot be selected while the switch is off | |
 | V2 | *(Optional)* Install ViGEmBus, click **Check again** | "Installed and ready" | |
 | V3 | Switch on, choose Xbox 360 | "Xbox 360 connected" | **Pass** (owner, 2026-11-16, build 711f0d4, CI run 43817242201) |
 | V4 | `joy.cpl` (Win+R) | **Controller (XBOX 360 For Windows)** listed. Properties: buttons, sticks and triggers follow the DualSense (Cross = button 1 / A) | **Pass**: Windows recognises the virtual Xbox 360 controller (owner, 2026-11-16, build 711f0d4, CI run 43817242201) |
@@ -167,7 +167,7 @@ Re-test V6–V12 on each new build that changes macro or output code. M4.5 chang
 | V14 | One offline or single-player game you choose | Record the title, whether the game uses the Xbox controller, macro behaviour, and any double input | **Pass**: macro output works in an offline/single-player game; title to be recorded (owner, 2026-11-16, build 711f0d4, CI run 43817242201) |
 | V15 | Two profiles with the same Repeat While Held macro. Hold the trigger, switch profile (Profiles page or game auto-switch) | Macro stops and does **not** restart while still held; releasing and pressing again starts it | |
 | V16 | Two macros on different triggers (e.g. R3 and L3), hold both, then release one | Both repeat; releasing one stops only that one; nothing stays lit | |
-| V17 | NEXUS running, output on: Device Manager › System devices › **Nefarius Virtual Gamepad Emulation Bus** › Disable device; watch Virtual Output; then Enable device and click **Check again** | While disabled: virtual controller shown as not connected, with a message (no crash or freeze). After Enable + **Check again**: **Xbox 360 connected** again, without re-plugging or restarting NEXUS | |
+| V17 | NEXUS running, output on: Device Manager › System devices › **Nefarius Virtual Gamepad Emulation Bus** › Disable device; watch the Virtual Controller page; then Enable device and click **Check again** | While disabled: virtual controller shown as not connected, with a message (no crash or freeze). After Enable + **Check again**: **Xbox 360 connected** again, without re-plugging or restarting NEXUS | |
 | V18 | Record a macro, then edit one action's press time and wait (Exact timing), save; hold its trigger with `joy.cpl` Properties open | Timing visibly follows the edit (e.g. 2× slower is clearly slower); no re-recording needed | |
 | V19 | Select all actions, **2× faster**, save, test again; then Ctrl+Z | Faster playback; undo restores the recorded timing | |
 | V20 | Record: tap Square, then Triangle quickly (Square released before Triangle) | Two separate actions, not one "Square + Triangle" action | |
@@ -182,8 +182,8 @@ Virtual output must be on (Xbox 360). Run D1–D3 **before** installing HidHide.
 | D1 | No HidHide. `joy.cpl` | Record which controllers are listed (expected: DualSense **and** Xbox 360) | |
 | D2 | No HidHide. Browser gamepad tester; press Cross once | Record whether both controllers register the press (double input) | |
 | D3 | No HidHide. Steam running (Settings › Controller) | Record which controllers Steam lists and whether a press counts twice | |
-| D4 | Install HidHide from the official release page; click **Check again** | Virtual Output shows HidHide **Installed**; NEXUS still works | |
-| D5 | Configuration Client: add NEXUS (path copied from the Virtual Output tab) to Applications; tick the DualSense in Devices; enable hiding | NEXUS keeps showing the DualSense connected; macros still work | |
+| D4 | Install HidHide from the official release page; click **Check again** | The Virtual Controller page shows HidHide **Installed**; NEXUS still works | |
+| D5 | Configuration Client: add NEXUS (path copied from the Virtual Controller page) to Applications; tick the DualSense in Devices; enable hiding | NEXUS keeps showing the DualSense connected; macros still work | |
 | D6 | Repeat D1–D3 | Only the Xbox 360 controller is visible; one press counts once | |
 | D7 | Close NEXUS with hiding on; open `joy.cpl` | No controller listed (expected, documented) | |
 | D8 | Remove NEXUS from Applications (hiding still on), restart NEXUS | NEXUS shows no controller **and** the hint "HidHide may be hiding it from NEXUS too"; adding NEXUS back restores it | |
@@ -213,7 +213,7 @@ Virtual output must be on (Xbox 360). Run D1–D3 **before** installing HidHide.
 | Duplicate input | Without HidHide, the physical DualSense stays visible to games and Steam, and some may react to both controllers. Optional: HidHide set up by the user (`docs/hidhide-setup.md`), or turn off PlayStation controller support in the game or Steam. Rows D1–D10 not yet run. |
 | Multiple controllers | Each physical controller gets its own virtual controller, but all share one profile, settings and macro set (per-controller settings are planned for M5). |
 | MZ Titan paddles | Mapped mode works as the mapped button. Independent paddles are **not** supported; no capture evidence exists yet (T1–T10). |
-| Driver installed while NEXUS runs | Click **Check again** on the Virtual Output tab. |
+| Driver installed while NEXUS runs | Click **Check again** on the Virtual Controller page. |
 | Online games | Not tested and not targeted. Many online games prohibit macros. NEXUS does not try to avoid anti-cheat detection. |
 | Installer | Not code-signed (personal use); SmartScreen shows a warning on first install. |
 
@@ -226,7 +226,7 @@ Simulated and CI tests cover the logic; these confirm it on hardware.
 | CF1 | Virtual output on (Xbox 360), **Live Viewer › Output Check**, press every button, pull both triggers, move both sticks | Every row stays green; "Windows receives exactly what NEXUS sends" |
 | CF2 | Same, with a game (e.g. Warzone) running in the background | Still green; no differences that stay while input is held still |
 | CF3 | **Performance**, play for 30+ minutes | *Virtual controller driver call* p99 stays well under 1 ms; *Slow driver calls* shows 0 over 50 ms and almost none over 4 ms; report rate ~250 Hz; late reports over 50 ms stay at or near 0. Note any spikes: any call over 50 ms means the latest-frame handoff in `docs/driver-performance.md` should be built |
-| CF4 | **Controller › Mapping › Button combinations**: L1 + R1 → Triangle, hide on | Holding L1+R1 gives Y in `joy.cpl`/Output Check, not LB/RB; releasing one doesn't flash LB/RB; L1 alone still gives LB |
+| CF4 | **Mapping › Button combinations**: L1 + R1 → Triangle, hide on | Holding L1+R1 gives Y in `joy.cpl`/Output Check, not LB/RB; releasing one doesn't flash LB/RB; L1 alone still gives LB |
 | CF5 | Macro with **Hold to activate** 300 ms, each mode | A quick tap does nothing; holding fires it; releasing stops Repeat While Held at once |
 | CF6 | Profiles › **Make default**, switch to another profile, restart NEXUS | NEXUS starts on the default profile |
 | CF7 | Unplug the controller while a macro is running and a button is held | The virtual controller is removed; Output Check / `joy.cpl` show nothing stuck; reconnect resumes |
@@ -248,7 +248,7 @@ The rules are unit-tested and the installer check runs in CI on a GitHub Windows
 | WI9 | Resize/move the window, go to Performance, quit and start again | Same size, position and page |
 | WI10 | Uninstall from Windows Settings › Apps with Start with Windows on | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` has no `NEXUS` value; `%APPDATA%\com.nexus.controllerengine` is still there |
 | WI11 | Update to a newer build with Start with Windows on | Still starts with Windows afterwards; profiles kept |
-| SM1 | *Controller › Sticks › Stick swap › Swap sticks*, move each stick in `joy.cpl` / Output Check | Left stick moves the right axes and the other way round, with the full range; L3/R3 unchanged |
+| SM1 | *Sticks › Stick swap › Swap sticks*, move each stick in `joy.cpl` / Output Check | Left stick moves the right axes and the other way round, with the full range; L3/R3 unchanged |
 | SM2 | Left stick deadzone 30 %, right 5 %, swapped | The left stick's drift is still hidden (its deadzone travels with it) |
 | SM3 | Gyro on, sticks swapped | Gyro still aims with the game's right stick |
 | SM4 | *Stick to buttons* on the left stick, *Use as d-pad*, analog off | Pushing the stick presses the d-pad in the game; the game's left stick stays centred |
@@ -272,7 +272,7 @@ The rules are unit-tested and the installer check runs in CI on a GitHub Windows
 
 | # | Check | Expected |
 |---|---|---|
-| EU1 | Toggle a shift layer on (or toggle gyro on), then change a slider in *Controller › Sticks* | The layer (or gyro) stays on |
+| EU1 | Toggle a shift layer on (or toggle gyro on), then change a slider in *Sticks* | The layer (or gyro) stays on |
 | EU2 | Hold a toggle-layer button while a game gains focus and switches the profile | The layer doesn't toggle by itself |
 | EU3 | Use a combination with *hide*, release one button, change a setting while still holding the other | No stray LB/RB reaches the game |
 | EU4 | Sidebar › *Active profile*: switch profiles from any page | Mappings change at once; the sidebar, Dashboard and Profiles agree on the active profile |
