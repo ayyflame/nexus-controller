@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useEngine, usePrimaryDevice } from "../../hooks/useEngine";
 import { engineApi } from "../../lib/engine";
-import { buttonNames, formatMs } from "../../lib/macros";
+import { buttonNames } from "../../lib/macros";
 import { describeStep, runView } from "../../lib/macroStudio";
 import type { Macro } from "../../types/engine";
 import { ControllerVisual } from "../ControllerVisual";
@@ -65,7 +65,7 @@ export function MacroTestPanel({ macro, savedEnabled }: { macro: Macro; savedEna
           data-tip="Stops every running macro at once; nothing stays pressed">■ Stop all macros</button>
         <span className="muted small">{games
           ? "The virtual controller is on, so a game in front receives what the macro presses."
-          : "Turn on the virtual controller for games to receive it."} Timing follows controller reports (about every 4 ms over USB); {formatMs(4)} is the finest step.</span>
+          : "Turn on the virtual controller for games to receive it."} Timing follows controller reports (about every 4 ms over USB) plus Windows scheduling delay, so it isn't millisecond-exact.</span>
       </div>
     </div>
   );
