@@ -1,4 +1,6 @@
-use crate::model::{MacroStep, MAX_DELAY_MS, MAX_HOLD_MS, MIN_HOLD_MS, MIN_RELEASE_GAP_MS};
+use crate::model::{
+    MacroStep, StepKind, MAX_DELAY_MS, MAX_HOLD_MS, MIN_HOLD_MS, MIN_RELEASE_GAP_MS,
+};
 use crate::MacroButton;
 use nexus_controller_core::ControllerState;
 use serde::Serialize;
@@ -124,8 +126,11 @@ impl MacroRecorder {
     /// * Presses that start within 50 ms of each other become one combined
     ///   action (e.g. L1 + R1).
     /// * Buttons still held when recording stops are released at `now`.
-    /// * Overlapping presses are made sequential: an action is released when
-    ///   the next one starts.
+    /// * A press with nothing else happening while it is held becomes a tap
+    ///   (press, hold, release). Overlapping presses keep their overlap: each
+    ///   becomes a hold action and a release action at the moment it was
+    ///   let go, so e.g. "hold L2, tap R2 twice, let go of L2" plays back as
+    ///   it was performed.
     /// * Times are clamped to the editor's limits.
     pub fn finish(self, now: Instant) -> RecordingResult {
         let end_ms = self.ms(now).min(MAX_RECORDING_MS);
@@ -158,28 +163,70 @@ impl MacroRecorder {
             }
         }
 
+        // A group is a tap unless another press (or the release of a held
+        // group) happens while it is down; then it becomes hold + release.
+        let mut held = vec![false; groups.len()];
+        loop {
+            let mut changed = false;
+            for i in 0..groups.len() {
+                if held[i] {
+                    continue;
+                }
+                let (s, e) = (groups[i].0, groups[i].1);
+                let inside = |t: u64| t > s && t < e;
+                if groups
+                    .iter()
+                    .enumerate()
+                    .any(|(j, g)| j != i && (inside(g.0) || (held[j] && inside(g.1))))
+                {
+                    held[i] = true;
+                    changed = true;
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+
+        // Timeline events: (time, order at equal times, step without timing).
+        let mut events: Vec<(u64, u8, MacroStep, u32)> = Vec::new();
+        for (i, (start, end, buttons)) in groups.iter().enumerate() {
+            let step = |kind| MacroStep {
+                id: String::new(),
+                buttons: buttons.clone(),
+                hold_ms: 0,
+                delay_after_ms: 0,
+                kind,
+            };
+            if held[i] {
+                events.push((*start, 1, step(StepKind::Hold), 0));
+                events.push((*end, 0, step(StepKind::Release), 0));
+            } else {
+                let hold = ((end - start) as u32).clamp(MIN_HOLD_MS, MAX_HOLD_MS);
+                events.push((*start, 1, step(StepKind::Tap), hold));
+            }
+        }
+        // Releases first at equal times, so a button can be pressed again.
+        events.sort_by_key(|e| (e.0, e.1));
+
         let first = groups.first().map_or(0, |g| g.0);
         let last_end = groups.iter().map(|g| g.1).max().unwrap_or(first);
-        let mut steps = Vec::with_capacity(groups.len());
-        for (i, (start, end, buttons)) in groups.iter().enumerate() {
-            let next_start = groups.get(i + 1).map(|g| g.0);
-            let mut hold = end - start;
-            if let Some(next) = next_start {
-                hold = hold.min(next - start);
-            }
-            let hold = (hold as u32).clamp(MIN_HOLD_MS, MAX_HOLD_MS);
-            let delay = next_start
-                .map(|next| next.saturating_sub(start + hold as u64))
+        let mut steps = Vec::with_capacity(events.len());
+        for (i, (at, _, step, hold)) in events.iter().enumerate() {
+            let next = events.get(i + 1).map(|e| e.0);
+            let delay = next
+                .map(|n| n.saturating_sub(at + *hold as u64))
                 .unwrap_or(0)
                 .min(MAX_DELAY_MS as u64) as u32;
             steps.push(MacroStep {
                 id: format!("rec-{i}"),
-                buttons: buttons.clone(),
-                hold_ms: hold,
+                hold_ms: *hold,
                 delay_after_ms: delay,
+                ..step.clone()
             });
         }
 
+        keep_min_holds(&mut steps);
         keep_release_gaps(&mut steps);
 
         RecordingResult {
@@ -188,6 +235,36 @@ impl MacroRecorder {
             presses: self.presses,
             limit_reached: self.limit_reached,
         }
+    }
+}
+
+/// A held button must stay down at least the minimum press time before its
+/// release (the editor's rule): lengthens the wait just before a release
+/// that comes too soon.
+fn keep_min_holds(steps: &mut [MacroStep]) {
+    let mut since: Vec<(MacroButton, u64)> = Vec::new();
+    let mut t = 0u64;
+    for i in 0..steps.len() {
+        match steps[i].kind {
+            StepKind::Hold => since.extend(steps[i].buttons.iter().map(|b| (*b, t))),
+            StepKind::Release => {
+                let pressed_at = steps[i]
+                    .buttons
+                    .iter()
+                    .filter_map(|b| since.iter().find(|(h, _)| h == b).map(|(_, at)| *at))
+                    .max();
+                if let (Some(at), true) = (pressed_at, i > 0) {
+                    let short = (MIN_HOLD_MS as u64).saturating_sub(t - at);
+                    if short > 0 {
+                        steps[i - 1].delay_after_ms += short as u32;
+                        t += short;
+                    }
+                }
+                since.retain(|(h, _)| !steps[i].buttons.contains(h));
+            }
+            StepKind::Tap => {}
+        }
+        t += steps[i].length_ms();
     }
 }
 
@@ -200,8 +277,17 @@ fn keep_release_gaps(steps: &mut [MacroStep]) {
             .buttons
             .iter()
             .any(|b| steps[i - 1].buttons.contains(b));
+        let presses = steps[i].kind != StepKind::Release;
         let prev = &mut steps[i - 1];
-        if !shares || prev.delay_after_ms >= MIN_RELEASE_GAP_MS {
+        if !shares
+            || !presses
+            || prev.kind == StepKind::Hold
+            || prev.delay_after_ms >= MIN_RELEASE_GAP_MS
+        {
+            continue;
+        }
+        if prev.kind == StepKind::Release {
+            prev.delay_after_ms = MIN_RELEASE_GAP_MS;
             continue;
         }
         let needed = MIN_RELEASE_GAP_MS - prev.delay_after_ms;
@@ -285,20 +371,61 @@ mod tests {
         );
     }
 
+    fn kinds(r: &RecordingResult) -> Vec<(StepKind, Vec<MacroButton>, u32, u32)> {
+        r.steps
+            .iter()
+            .map(|s| (s.kind, s.buttons.clone(), s.hold_ms, s.delay_after_ms))
+            .collect()
+    }
+
     #[test]
-    fn overlapping_presses_are_made_sequential() {
+    fn overlapping_presses_keep_their_overlap_as_hold_and_release() {
         let mut s = Script::new();
         s.set(0, MacroButton::South, true)
             .set(200, MacroButton::East, true) // Cross still held
             .set(300, MacroButton::South, false)
             .set(400, MacroButton::East, false);
         let r = s.finish(500);
+        use StepKind::{Hold, Release};
         assert_eq!(
-            summary(&r),
+            kinds(&r),
             vec![
-                (vec![MacroButton::South], 200, 0),
-                (vec![MacroButton::East], 200, 0)
+                (Hold, vec![MacroButton::South], 0, 200),
+                (Hold, vec![MacroButton::East], 0, 100),
+                (Release, vec![MacroButton::South], 0, 100),
+                (Release, vec![MacroButton::East], 0, 0),
             ]
+        );
+    }
+
+    #[test]
+    fn holding_one_button_while_tapping_another_is_recorded_as_performed() {
+        let mut s = Script::new();
+        s.set(0, MacroButton::LeftTrigger, true)
+            .set(100, MacroButton::RightTrigger, true)
+            .set(160, MacroButton::RightTrigger, false)
+            .set(250, MacroButton::RightTrigger, true)
+            .set(300, MacroButton::RightTrigger, false)
+            .set(400, MacroButton::LeftTrigger, false);
+        let r = s.finish(500);
+        use StepKind::{Hold, Release, Tap};
+        assert_eq!(
+            kinds(&r),
+            vec![
+                (Hold, vec![MacroButton::LeftTrigger], 0, 100),
+                (Tap, vec![MacroButton::RightTrigger], 60, 90),
+                (Tap, vec![MacroButton::RightTrigger], 50, 100),
+                (Release, vec![MacroButton::LeftTrigger], 0, 0),
+            ]
+        );
+        // The result is a valid macro that plays back the same overlap.
+        let mut m = crate::model::tests::sample("r", Some(MacroButton::RightStick));
+        m.steps = r.steps.clone();
+        assert!(crate::validate_macro(&m, &[]).is_empty());
+        let (_, mask) = crate::sequence_state_at(&m.steps, 120);
+        assert_eq!(
+            mask,
+            MacroButton::LeftTrigger.bit() | MacroButton::RightTrigger.bit()
         );
     }
 

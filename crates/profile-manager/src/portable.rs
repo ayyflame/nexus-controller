@@ -13,7 +13,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 pub const BUNDLE_FORMAT: &str = "nexus-config";
-pub const BUNDLE_VERSION: u32 = 1;
+/// Newest file version this build reads. Files are written as version 1
+/// unless a macro uses hold/release actions or a repeat count (version 2),
+/// so older builds can still read everything that doesn't need those.
+pub const BUNDLE_VERSION: u32 = 2;
 const MAX_BUNDLE_BYTES: usize = 5 * 1024 * 1024;
 const MAX_PROFILES: usize = 100;
 const MAX_MACROS: usize = 500;
@@ -129,6 +132,21 @@ pub fn parse_bundle(json: &str) -> Result<ConfigBundle, ProfileError> {
     Ok(b)
 }
 
+fn bundle(profiles: Vec<PortableProfile>, macros: Vec<Macro>, app_version: &str) -> ConfigBundle {
+    ConfigBundle {
+        format: BUNDLE_FORMAT.into(),
+        version: if macros.iter().any(Macro::uses_newer_features) {
+            2
+        } else {
+            1
+        },
+        exported_at_ms: now_ms(),
+        app_version: app_version.into(),
+        profiles,
+        macros,
+    }
+}
+
 fn unique_name(base: &str, taken: &mut Vec<String>, max: usize) -> String {
     let base: String = base.trim().chars().take(max - 12).collect();
     let name = (1..)
@@ -190,14 +208,28 @@ impl ProfileStore {
                 m
             })
             .collect();
-        Ok(ConfigBundle {
-            format: BUNDLE_FORMAT.into(),
-            version: BUNDLE_VERSION,
-            exported_at_ms: now_ms(),
-            app_version: app_version.into(),
-            profiles: portable,
-            macros,
-        })
+        Ok(bundle(portable, macros, app_version))
+    }
+
+    /// Exports the chosen macros only (no profiles), switched off as in any
+    /// export. Unknown ids are refused.
+    pub fn export_macros_bundle(
+        &self,
+        ids: &[String],
+        app_version: &str,
+    ) -> Result<ConfigBundle, ProfileError> {
+        let library = self.list_macros()?;
+        let mut chosen = Vec::new();
+        for id in ids {
+            let mut m = library
+                .iter()
+                .find(|m| &m.id == id)
+                .cloned()
+                .ok_or_else(|| ProfileError::MacroNotFound(id.clone()))?;
+            m.enabled = false;
+            chosen.push(m);
+        }
+        Ok(bundle(Vec::new(), chosen, app_version))
     }
 
     /// Validates a file and describes what importing it would do.

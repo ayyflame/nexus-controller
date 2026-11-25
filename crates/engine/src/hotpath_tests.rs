@@ -83,12 +83,14 @@ fn macro_r3() -> Macro {
                 buttons: vec![MacroButton::North],
                 hold_ms: 40,
                 delay_after_ms: 40,
+                kind: nexus_macro_engine::StepKind::Tap,
             },
             MacroStep {
                 id: "b".into(),
                 buttons: vec![MacroButton::North],
                 hold_ms: 40,
                 delay_after_ms: 40,
+                kind: nexus_macro_engine::StepKind::Tap,
             },
         ],
         trigger: Some(MacroButton::RightStick),
@@ -96,6 +98,7 @@ fn macro_r3() -> Macro {
         repeat_delay_ms: 40,
         block_trigger: true,
         activation_ms: 0,
+        repeat_count: 1,
         created_at_ms: 0,
         updated_at_ms: 0,
     }

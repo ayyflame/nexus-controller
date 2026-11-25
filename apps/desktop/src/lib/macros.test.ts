@@ -72,7 +72,7 @@ test("macro templates produce valid, editable sequences", () => {
     assert.ok(steps.length > 0, t.id);
     assert.equal(new Set(steps.map((s) => s.id)).size, steps.length, "unique ids");
     assert.equal(validateMacro({ ...newMacro(), name: t.name, steps }, []).length, 0, t.id);
-    assert.ok(steps.every((s) => s.buttons[0] === "north"));
+    assert.ok(steps.some((s) => s.buttons.includes("north")), `${t.id} uses the chosen button`);
   }
 });
 

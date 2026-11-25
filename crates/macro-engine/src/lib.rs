@@ -1,8 +1,10 @@
 //! NEXUS macro engine: data model, validation, playback and recording.
 //!
-//! A macro is a sequence of **steps**. Each step presses one or more buttons
+//! A macro is a sequence of **steps**. A tap presses one or more buttons
 //! together, holds them for `hold_ms`, releases them, then waits
-//! `delay_after_ms` before the next step. A macro is started by its
+//! `delay_after_ms` before the next step; a hold presses buttons that stay
+//! down while later steps run, until a release step (or the end of the
+//! sequence). A macro is started by its
 //! **trigger** button on the physical controller, in one of three modes
 //! (play once, repeat while held, toggle).
 //!
@@ -25,11 +27,13 @@ mod playback;
 mod recorder;
 
 pub use model::{
-    validate_library, validate_macro, Macro, MacroStep, PlaybackMode, ValidationIssue,
+    validate_library, validate_macro, Macro, MacroStep, PlaybackMode, StepKind, ValidationIssue,
     DEFAULT_DELAY_MS, DEFAULT_HOLD_MS, DEFAULT_REPEAT_DELAY_MS, MAX_DELAY_MS, MAX_HOLD_MS,
-    MAX_NAME_LEN, MAX_STEPS, MIN_HOLD_MS,
+    MAX_NAME_LEN, MAX_REPEAT_COUNT, MAX_STEPS, MIN_HOLD_MS,
 };
 /// Buttons are defined in `controller-core`; macros use the same identity.
 pub use nexus_controller_core::Button as MacroButton;
-pub use playback::{sequence_at, MacroLibrary, MacroRunner, SequencePoint};
+pub use playback::{
+    sequence_at, sequence_state_at, MacroLibrary, MacroRun, MacroRunner, RunState, SequencePoint,
+};
 pub use recorder::{MacroRecorder, RecordingResult, MAX_RECORDED_PRESSES, MAX_RECORDING_MS};

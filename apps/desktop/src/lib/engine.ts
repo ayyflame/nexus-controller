@@ -5,7 +5,7 @@ import type {
   OutputCheck, RestorePoint, WindowBehaviour, WindowsIntegration,
   AppInfo, CommandError, EngineEvent, HidDiagnostic, EngineStatus, LogEntry, Macro, Profile, RawReport,
   ConfigConflict, DriverStatus, ExportResult, GyroCalibration, ImportMode, ImportPreview, ImportReport, ProcessingConfig,
-  ProfileTemplate, RecordingResult, ValidationIssue, VirtualOutputKind,
+  MacroMeta, ProfileTemplate, RecordingResult, ValidationIssue, VirtualOutputKind,
 } from "../types/engine";
 import type { UpdateStatus } from "./updates";
 
@@ -80,6 +80,9 @@ export const engineApi = {
   createProfileFromTemplate: (name: string, template: string) => invoke<Profile>("create_profile_from_template", { name, template }),
   exportConfig: (profileIds: number[], includeAllMacros: boolean) => invoke<ExportResult>("export_config", { profileIds, includeAllMacros }),
   exportMacros: () => invoke<ExportResult>("export_macros"),
+  exportMacro: (ids: string[]) => invoke<ExportResult>("export_macro", { ids }),
+  getMacroMeta: () => invoke<MacroMeta>("get_macro_meta"),
+  setMacroPinned: (id: string, pinned: boolean) => invoke<MacroMeta>("set_macro_pinned", { id, pinned }),
   previewImport: (json: string, mode: ImportMode) => invoke<ImportPreview>("preview_import", { json, mode }),
   importConfig: (json: string, mode: ImportMode) => invoke<ImportReport>("import_config", { json, mode }),
   createBackup: () => invoke<ExportResult>("create_backup"),

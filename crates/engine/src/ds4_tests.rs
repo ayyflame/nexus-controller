@@ -749,12 +749,14 @@ fn a_profile_switch_with_macros_applies_to_a_dualshock4() {
             buttons: vec![MacroButton::West],
             hold_ms: 3000,
             delay_after_ms: 0,
+            kind: nexus_macro_engine::StepKind::Tap,
         }],
         trigger: Some(MacroButton::Start),
         mode: PlaybackMode::Once,
         repeat_delay_ms: 0,
         block_trigger: true,
         activation_ms: 0,
+        repeat_count: 1,
         created_at_ms: 0,
         updated_at_ms: 0,
     };
@@ -791,4 +793,151 @@ fn a_profile_switch_with_macros_applies_to_a_dualshock4() {
         "profile B: Cross → A",
     );
     expect_ds4(&backend, &log, &Ds4::neutral(), pad(0), "release");
+}
+
+/// Macro: hold L2 for the whole sequence while tapping R2 (hold + release actions).
+fn aim_and_fire() -> nexus_macro_engine::Macro {
+    use nexus_macro_engine::{Macro, MacroStep, PlaybackMode, StepKind};
+    let s = |kind, buttons: Vec<MacroButton>, hold_ms, delay_after_ms| MacroStep {
+        id: String::new(),
+        buttons,
+        hold_ms,
+        delay_after_ms,
+        kind,
+    };
+    Macro {
+        id: "aim".into(),
+        name: "Aim and fire".into(),
+        description: String::new(),
+        enabled: true,
+        steps: vec![
+            s(StepKind::Hold, vec![MacroButton::LeftTrigger], 0, 100),
+            s(StepKind::Tap, vec![MacroButton::RightTrigger], 60, 2000),
+            s(StepKind::Release, vec![MacroButton::LeftTrigger], 0, 0),
+        ],
+        trigger: Some(MacroButton::Start),
+        mode: PlaybackMode::Once,
+        repeat_delay_ms: 0,
+        block_trigger: true,
+        activation_ms: 0,
+        repeat_count: 1,
+        created_at_ms: 0,
+        updated_at_ms: 0,
+    }
+}
+
+fn l2_held(r: &XusbReport) -> bool {
+    r.left_trigger == 255
+}
+
+#[test]
+fn a_held_macro_button_is_released_when_the_macro_is_turned_off() {
+    let (backend, e, log) = one_ds4();
+    e.set_macros(vec![aim_and_fire()]);
+    pump_ds4(&backend, &Ds4::neutral(), 2);
+    pump_ds4(&backend, &pressed(button::OPTIONS), 2);
+    log.wait("L2 held by the macro", |p| {
+        p.iter()
+            .any(|x| matches!(x, Pad::Report(_, r) if l2_held(r)))
+    });
+    let s = wait_status(&e, "running", |s| !s.devices[0].macro_runs.is_empty());
+    assert_eq!(s.devices[0].macro_runs[0].id, "aim");
+    assert_eq!(
+        s.devices[0].macro_runs[0].state,
+        nexus_macro_engine::RunState::Running
+    );
+    // Turned off (its profile no longer runs it) while L2 is held.
+    e.set_macros(vec![]);
+    pump_ds4(&backend, &Ds4::neutral(), 3);
+    log.wait(
+        "L2 released",
+        |p| matches!(p.last(), Some(Pad::Report(_, r)) if *r == XusbReport::default()),
+    );
+    let s = wait_status(&e, "stopped", |s| s.devices[0].macro_runs.is_empty());
+    assert!(s.devices[0].playing_macros.is_empty());
+}
+
+#[test]
+fn unplugging_mid_hold_or_quitting_never_leaves_a_macro_button_pressed() {
+    // Unplug while the macro holds L2: neutral, then the virtual pad is removed.
+    let (backend, e, log) = one_ds4();
+    e.set_macros(vec![aim_and_fire()]);
+    pump_ds4(&backend, &Ds4::neutral(), 2);
+    pump_ds4(&backend, &pressed(button::OPTIONS), 2);
+    log.wait("L2 held", |p| {
+        p.iter()
+            .any(|x| matches!(x, Pad::Report(_, r) if l2_held(r)))
+    });
+    backend.unplug(DS4_PATH);
+    log.wait("removed", |p| p.contains(&Pad::Disconnect(1)));
+    let all = log.all();
+    assert_eq!(
+        all[all.len() - 2..],
+        [Pad::Report(1, XusbReport::default()), Pad::Disconnect(1)]
+    );
+    e.shutdown();
+
+    // Quit while the macro holds L2: same.
+    let (backend, e, log) = one_ds4();
+    e.set_macros(vec![aim_and_fire()]);
+    pump_ds4(&backend, &Ds4::neutral(), 2);
+    pump_ds4(&backend, &pressed(button::OPTIONS), 2);
+    log.wait("L2 held", |p| {
+        p.iter()
+            .any(|x| matches!(x, Pad::Report(_, r) if l2_held(r)))
+    });
+    e.shutdown();
+    let all = log.all();
+    assert!(
+        all.contains(&Pad::Disconnect(1)),
+        "the virtual pad is removed on quit"
+    );
+    let last_report = all.iter().rev().find_map(|x| match x {
+        Pad::Report(_, r) => Some(*r),
+        _ => None,
+    });
+    assert_eq!(
+        last_report,
+        Some(XusbReport::default()),
+        "and its last state is neutral"
+    );
+}
+
+#[test]
+fn stop_all_or_a_profile_switch_releases_a_button_a_macro_holds() {
+    // Stop all macros while the macro holds L2, with the trigger still held.
+    let (backend, e, log) = one_ds4();
+    e.set_macros(vec![aim_and_fire()]);
+    pump_ds4(&backend, &Ds4::neutral(), 2);
+    pump_ds4(&backend, &pressed(button::OPTIONS), 2);
+    log.wait("L2 held", |p| {
+        p.iter()
+            .any(|x| matches!(x, Pad::Report(_, r) if l2_held(r)))
+    });
+    e.stop_all_macros();
+    pump_ds4(&backend, &pressed(button::OPTIONS), 3);
+    log.wait(
+        "L2 released after Stop all",
+        |p| matches!(p.last(), Some(Pad::Report(_, r)) if !l2_held(r)),
+    );
+    wait_status(&e, "stopped", |s| s.devices[0].macro_runs.is_empty());
+    e.shutdown();
+
+    // Switch to a profile without the macro while it holds L2.
+    let (backend, e, log) = one_ds4();
+    e.set_macros(vec![aim_and_fire()]);
+    pump_ds4(&backend, &Ds4::neutral(), 2);
+    pump_ds4(&backend, &pressed(button::OPTIONS), 2);
+    log.wait("L2 held", |p| {
+        p.iter()
+            .any(|x| matches!(x, Pad::Report(_, r) if l2_held(r)))
+    });
+    e.switch_profile(ProcessingConfig::passthrough(), vec![]);
+    pump_ds4(&backend, &pressed(button::OPTIONS), 3);
+    log.wait(
+        "L2 released after the switch",
+        |p| matches!(p.last(), Some(Pad::Report(_, r)) if !l2_held(r)),
+    );
+    wait_status(&e, "stopped", |s| s.devices[0].macro_runs.is_empty());
+    e.shutdown();
 }

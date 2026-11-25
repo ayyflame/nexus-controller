@@ -73,6 +73,18 @@ export function AssignPanel({ draft, others, onChange, issues }: {
             </button>
           ))}
         </div>
+        {draft.mode === "once" && (
+          <label className="repeat-count">
+            <span className="field-label" data-tip="How many times the sequence plays per press, with the pause between repeats in between">Play</span>
+            <input className="text-input" type="number" min={1} max={LIMITS.maxRepeatCount} value={draft.repeatCount ?? 1}
+              aria-label="Times to play per press"
+              onChange={(e) => {
+                const n = Math.round(Number(e.target.value));
+                if (Number.isFinite(n)) onChange({ repeatCount: Math.max(1, Math.min(LIMITS.maxRepeatCount, n)) });
+              }} />
+            <span className="muted small">time{(draft.repeatCount ?? 1) === 1 ? "" : "s"} per press (1–{LIMITS.maxRepeatCount})</span>
+          </label>
+        )}
       </section>
 
       <Advanced>
@@ -87,7 +99,7 @@ export function AssignPanel({ draft, others, onChange, issues }: {
                 ? `Repeats once the trigger has been held ${draft.activationMs} ms, until you let go.`
                 : `Plays once the trigger has been held ${draft.activationMs} ms; a quick tap does nothing.`}
         </p>
-        {draft.mode !== "once" && (
+        {(draft.mode !== "once" || (draft.repeatCount ?? 1) > 1) && (
           <MsInput label="Pause between repeats" value={draft.repeatDelayMs} min={0} max={LIMITS.maxDelayMs}
             onChange={(repeatDelayMs) => onChange({ repeatDelayMs })} />
         )}

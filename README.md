@@ -42,8 +42,11 @@ Built with Tauri 2, React and TypeScript for the UI, and Rust for the engine, wi
 - Shown on the Dashboard, *Mapping*, the Live Viewer and Macro Studio, always as the 3D model of whichever controller is connected, DualSense or DualShock 4.
 
 ### Macro Studio
-- **Record** a macro from the controller or **build it** on a controller layout.
-- **Play Once**, **Repeat While Held** or **Toggle On/Off**, optionally **hold to activate** (the trigger must be held for a set time first; a quick tap does nothing).
+- A workspace of its own: search, sort and pin macros; see each one's button and the profiles it is on in; duplicate, export one macro, delete with confirmation.
+- **Record** a macro from the controller or **build it** on a controller layout. Actions can **press**, **press and keep held** (while later actions run) or **release**, so "hold L2 while tapping R2" is one macro.
+- **Play Once** (1–100 times per press), **Repeat While Held** or **Toggle On/Off**, optionally **hold to activate** (the trigger must be held for a set time first; a quick tap does nothing).
+- A **Test** panel shows what the engine is doing: waiting, arming, running action N, stopped.
+- Linked with *Mapping*: show a macro's button there, start a new macro for a button, or remove a button's macro without deleting it.
 - Type each action's **press time** and **wait** in milliseconds, edit several at once, scale a recorded rhythm, with a live preview and undo/redo.
 - Warnings when a press is too short or too close to the next for a game to see it; conflicting triggers are blocked; the trigger button can be hidden from games.
 - Macros start from the physical button, so remapping never breaks them.
@@ -142,7 +145,7 @@ More detail: [`docs/install-windows.md`](docs/install-windows.md).
 
 **Tune sticks and triggers:** *Sticks* and *› Triggers* apply live, with your input and the result plotted side by side. For drift or short travel, run **Live Viewer › Calibration**.
 
-**Make a macro:** *Macro Studio › Create Macro*, then record it or build it, adjust the timing on the timeline, pick the trigger button and mode, and **Save Macro**. For **Repeat While Held**:
+**Make a macro:** *Macro Studio › ＋ New macro*, then record it or build it, adjust the timing on the timeline, and pick the trigger button and mode; it saves automatically. Timing follows controller reports (about every 4 ms over USB). For **Repeat While Held**:
 - leave at least **20 ms** between two presses of the same button;
 - make presses at least **40–50 ms** long, because games read the controller once per frame.
 

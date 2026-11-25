@@ -78,9 +78,13 @@ test("same-button presses that would merge are flagged", () => {
 
 test("preview loops exactly like the engine", () => {
   const s = yy(40, 0); // cycle = 50+40+50+0 = 140 ms, + pause 60 = 200 ms
-  assert.deepEqual(previewAt(s, 150, null), { cycleMs: 150, done: true }, "Play Once ends after one pass");
-  assert.deepEqual(previewAt(s, 139, null), { cycleMs: 139, done: false });
-  assert.deepEqual(previewAt(s, 210, 60), { cycleMs: 10, done: false }, "loops after 200 ms");
+  assert.deepEqual(previewAt(s, 150, null), { cycleMs: 150, done: true, pass: 0 }, "Play Once ends after one pass");
+  assert.deepEqual(previewAt(s, 139, null), { cycleMs: 139, done: false, pass: 0 });
+  assert.deepEqual(previewAt(s, 210, 60), { cycleMs: 10, done: false, pass: 1 }, "loops after 200 ms");
+  // Play Once three times with a 60 ms pause: 140 + 60 per pass, ends 140 ms into the third.
+  assert.deepEqual(previewAt(s, 210, null, 3, 60), { cycleMs: 10, done: false, pass: 1 });
+  assert.equal(previewAt(s, 539, null, 3, 60).done, false);
+  assert.equal(previewAt(s, 540, null, 3, 60).done, true);
   assert.equal(sequenceAt(s, previewAt(s, 210, 60).cycleMs).pressed, true);
   assert.equal(sequenceAt(s, previewAt(s, 160, 60).cycleMs).finished, true, "repeat pause shows nothing pressed");
 });

@@ -6,7 +6,7 @@ use nexus_controller_core::VirtualOutputKind;
 use nexus_engine::{EngineStatus, HidDiagnostic};
 use nexus_input_processing::ProcessingConfig;
 use nexus_macro_engine::{Macro, RecordingResult, ValidationIssue};
-use nexus_profile_manager::{Profile, ProfileError, ProfileMeta, ProfileStore};
+use nexus_profile_manager::{MacroMeta, Profile, ProfileError, ProfileMeta, ProfileStore};
 use nexus_telemetry::{LogEntry, RawReport};
 use serde::Serialize;
 use tauri::State;
@@ -757,6 +757,51 @@ pub fn read_restore_point(
         &id,
         env!("CARGO_PKG_VERSION"),
     )?)
+}
+
+/// Exports the chosen macros (no profiles) to Documents\\NEXUS\\Exports.
+#[tauri::command]
+pub fn export_macro(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    ids: Vec<String>,
+) -> CmdResult<ExportResult> {
+    let store = state.store.lock().map_err(|_| "profile store poisoned")?;
+    let bundle = store
+        .export_macros_bundle(&ids, env!("CARGO_PKG_VERSION"))
+        .map_err(profile_error)?;
+    let json = serde_json::to_string_pretty(&bundle)?;
+    let label = match bundle.macros.as_slice() {
+        [one] => one
+            .name
+            .chars()
+            .filter(|c| c.is_alphanumeric() || *c == ' ')
+            .collect::<String>(),
+        _ => "macros".into(),
+    };
+    let path = write_file(
+        exports_dir(&app, "Exports"),
+        &format!("{} {}.nexus.json", label.trim(), stamp()),
+        &json,
+    );
+    Ok(ExportResult { path, json })
+}
+
+/// Pinned macros and the profiles each macro is on in.
+#[tauri::command]
+pub fn get_macro_meta(state: State<'_, AppState>) -> CmdResult<MacroMeta> {
+    let store = state.store.lock().map_err(|_| "profile store poisoned")?;
+    store.macro_meta().map_err(profile_error)
+}
+
+#[tauri::command]
+pub fn set_macro_pinned(
+    state: State<'_, AppState>,
+    id: String,
+    pinned: bool,
+) -> CmdResult<MacroMeta> {
+    let mut store = state.store.lock().map_err(|_| "profile store poisoned")?;
+    store.set_macro_pinned(&id, pinned).map_err(profile_error)
 }
 
 /// Exports the whole macro library (no profiles) to Documents\\NEXUS\\Exports.

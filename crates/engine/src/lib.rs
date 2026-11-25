@@ -24,7 +24,7 @@ use nexus_dualsense::DualSenseDriver;
 use nexus_dualshock4::DualShock4Driver;
 use nexus_input_processing::{ConfiguredProcessor, ProcessingConfig, ProcessingPipeline};
 use nexus_macro_engine::{
-    Macro, MacroButton, MacroLibrary, MacroRecorder, MacroRunner, RecordingResult,
+    Macro, MacroButton, MacroLibrary, MacroRecorder, MacroRun, MacroRunner, RecordingResult,
 };
 use nexus_telemetry::{
     unix_millis, FlowStats, FlowSummary, IntervalStats, IntervalSummary, LatencySummary,
@@ -91,6 +91,9 @@ pub struct DeviceSnapshot {
     pub processed: Option<ControllerState>,
     /// IDs of macros currently playing on this controller.
     pub playing_macros: Vec<String>,
+    /// What each active macro is doing (arming or running, and since when),
+    /// for Macro Studio's test panel. Updated when it changes.
+    pub macro_runs: Vec<MacroRun>,
     /// Index (in the profile's `layers`) of the shift layer active on this
     /// controller, if any.
     pub active_layer: Option<usize>,
@@ -1267,6 +1270,7 @@ fn new_session_handler(
             input: None,
             processed: None,
             playing_macros: Vec::new(),
+            macro_runs: Vec::new(),
             active_layer: None,
             pipeline_latency: LatencySummary::default(),
             stage_latency: StageLatency::default(),
@@ -1328,6 +1332,9 @@ fn build_pipeline(config: &ProcessingConfig) -> ProcessingPipeline {
     p
 }
 
+/// Which macros are playing and their run states, when either changed this report.
+type MacroChange = Option<(Vec<String>, Vec<MacroRun>)>;
+
 impl EngineSessionHandler {
     /// physical → processing (sticks, triggers, remap) → macros → virtual output.
     ///
@@ -1339,7 +1346,7 @@ impl EngineSessionHandler {
         &mut self,
         physical: &ControllerState,
         received: Option<Instant>,
-    ) -> (ControllerState, Option<Vec<String>>) {
+    ) -> (ControllerState, MacroChange) {
         self.sync_settings(Some(*physical));
         // Four clock reads per report split the time by stage; macros reuse
         // one of them as their "now".
@@ -1366,11 +1373,13 @@ impl EngineSessionHandler {
         if let Some(event) = self.output.take_event() {
             self.on_output_event(event);
         }
-        // The list (which allocates) is built only when it changed.
-        let playing = self
-            .macros
-            .take_playing_changed()
-            .then(|| self.macros.playing());
+        // The lists (which allocate) are built only when they changed.
+        let playing = self.macros.take_playing_changed().then(|| {
+            (
+                self.macros.playing(),
+                self.macros.runs(Instant::now(), unix_millis() as i64),
+            )
+        });
         (out, playing)
     }
 
@@ -1625,8 +1634,9 @@ impl SessionHandler for EngineSessionHandler {
                 (Some(input), Some((out, playing))) => {
                     s.input = Some(input);
                     s.processed = Some(out);
-                    if let Some(p) = playing {
+                    if let Some((p, runs)) = playing {
                         s.playing_macros = p;
+                        s.macro_runs = runs;
                     }
                 }
                 // Keep the last valid state; record why this report failed.
@@ -1635,6 +1645,7 @@ impl SessionHandler for EngineSessionHandler {
                     if failsafe_started {
                         s.processed = Some(ControllerState::default());
                         s.playing_macros.clear();
+                        s.macro_runs.clear();
                     }
                 }
             }
@@ -1661,17 +1672,20 @@ impl SessionHandler for EngineSessionHandler {
                 // Publish it too, otherwise the UI would keep showing the
                 // macro as playing.
                 let playing = self.macros.playing();
+                let runs = self.macros.runs(Instant::now(), unix_millis() as i64);
                 self.shared.update_device(&self.id, |s| {
                     s.processed = Some(ControllerState::default());
                     s.playing_macros = playing;
+                    s.macro_runs = runs;
                 });
             }
             if !self.macros.playing().is_empty() {
                 let (out, playing) = self.run_pipeline(&physical, None);
                 self.shared.update_device(&self.id, |s| {
                     s.processed = Some(out);
-                    if let Some(p) = playing {
+                    if let Some((p, runs)) = playing {
                         s.playing_macros = p;
+                        s.macro_runs = runs;
                     }
                 });
             }

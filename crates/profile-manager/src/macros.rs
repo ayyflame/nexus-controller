@@ -6,9 +6,24 @@
 use crate::{now_ms, ProfileError, ProfileStore};
 use nexus_macro_engine::{validate_macro, Macro, MAX_NAME_LEN};
 use rusqlite::{params, OptionalExtension};
+use serde::Serialize;
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 static ID_COUNTER: AtomicU32 = AtomicU32::new(0);
+
+/// App setting holding the pinned macros (no schema change).
+const KEY_PINNED_MACROS: &str = "pinned_macros";
+
+/// Organisation data for Macro Studio.
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacroMeta {
+    /// Pinned macros, in the order they were pinned.
+    pub pinned: Vec<String>,
+    /// For each macro, the profiles it is switched on in (in profile order).
+    pub profiles: BTreeMap<String, Vec<i64>>,
+}
 
 fn new_id(prefix: &str) -> String {
     let n = ID_COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -148,14 +163,68 @@ impl ProfileStore {
         Ok(m)
     }
 
+    /// Deletes a macro: from the library, every profile and the pinned list.
     pub fn delete_macro(&mut self, id: &str) -> Result<(), ProfileError> {
         match self
             .conn
             .execute("DELETE FROM macros WHERE id = ?1", [id])?
         {
             0 => Err(ProfileError::MacroNotFound(id.to_owned())),
-            _ => Ok(()),
+            _ => {
+                let mut pinned = self.pinned_macros()?;
+                if pinned.contains(&id.to_owned()) {
+                    pinned.retain(|p| p != id);
+                    self.set_setting(
+                        KEY_PINNED_MACROS,
+                        &serde_json::to_string(&pinned).expect("serialises"),
+                    )?;
+                }
+                Ok(())
+            }
         }
+    }
+
+    fn pinned_macros(&self) -> Result<Vec<String>, ProfileError> {
+        Ok(self
+            .get_setting(KEY_PINNED_MACROS)?
+            .and_then(|v| serde_json::from_str(&v).ok())
+            .unwrap_or_default())
+    }
+
+    /// Pinned macros and where each macro is switched on.
+    pub fn macro_meta(&self) -> Result<MacroMeta, ProfileError> {
+        let ids: Vec<String> = {
+            let mut stmt = self.conn.prepare("SELECT id FROM macros")?;
+            let rows = stmt.query_map([], |r| r.get(0))?;
+            rows.collect::<Result<_, _>>()?
+        };
+        let mut pinned = self.pinned_macros()?;
+        pinned.retain(|p| ids.contains(p));
+        let mut profiles: BTreeMap<String, Vec<i64>> = BTreeMap::new();
+        let mut stmt = self
+            .conn
+            .prepare("SELECT macro_id, profile_id FROM profile_macros ORDER BY profile_id")?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+        for row in rows {
+            let (m, p) = row?;
+            profiles.entry(m).or_default().push(p);
+        }
+        Ok(MacroMeta { pinned, profiles })
+    }
+
+    /// Pins or unpins a macro (shown first in Macro Studio).
+    pub fn set_macro_pinned(&mut self, id: &str, pinned: bool) -> Result<MacroMeta, ProfileError> {
+        self.get_macro(id)?;
+        let mut list = self.pinned_macros()?;
+        list.retain(|p| p != id);
+        if pinned {
+            list.push(id.to_owned());
+        }
+        self.set_setting(
+            KEY_PINNED_MACROS,
+            &serde_json::to_string(&list).expect("serialises"),
+        )?;
+        self.macro_meta()
     }
 
     /// Copies a macro under a new name. The copy has no trigger, so it can
@@ -208,12 +277,14 @@ mod tests {
                 buttons: vec![MacroButton::South],
                 hold_ms: 100,
                 delay_after_ms: 150,
+                kind: nexus_macro_engine::StepKind::Tap,
             }],
             trigger,
             mode: PlaybackMode::Once,
             repeat_delay_ms: 50,
             block_trigger: true,
             activation_ms: 0,
+            repeat_count: 1,
             created_at_ms: 0,
             updated_at_ms: 0,
         }
@@ -410,5 +481,142 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM macros", [], |r| r.get(0))
             .unwrap();
         assert_eq!(rows, 2);
+    }
+
+    #[test]
+    fn macro_studio_meta_pins_and_profile_use() {
+        let mut s = ProfileStore::open_in_memory().unwrap();
+        let first = s.active_profile().unwrap().id;
+        let a = s
+            .save_macro(draft("A", Some(MacroButton::RightStick)))
+            .unwrap();
+        let mut off = draft("B", None);
+        off.enabled = false;
+        let b = s.save_macro(off).unwrap();
+        let second = s.create_profile("Second").unwrap().id;
+        s.set_active_profile(second).unwrap();
+        s.set_macro_enabled(&a.id, true).unwrap();
+        let meta = s.macro_meta().unwrap();
+        assert_eq!(
+            meta.profiles.get(&a.id),
+            Some(&vec![first, second]),
+            "on in both profiles"
+        );
+        assert_eq!(meta.profiles.get(&b.id), None, "on nowhere");
+        assert!(meta.pinned.is_empty());
+        s.set_macro_pinned(&b.id, true).unwrap();
+        assert_eq!(
+            s.set_macro_pinned(&a.id, true).unwrap().pinned,
+            vec![b.id.clone(), a.id.clone()]
+        );
+        assert_eq!(
+            s.set_macro_pinned(&b.id, false).unwrap().pinned,
+            vec![a.id.clone()]
+        );
+        assert!(s.set_macro_pinned("nope", true).is_err());
+        // Deleting a macro unpins it and removes it from every profile.
+        s.delete_macro(&a.id).unwrap();
+        let meta = s.macro_meta().unwrap();
+        assert!(meta.pinned.is_empty() && !meta.profiles.contains_key(&a.id));
+    }
+
+    #[test]
+    fn renaming_or_editing_keeps_the_assignment() {
+        let mut s = ProfileStore::open_in_memory().unwrap();
+        let m = s
+            .save_macro(draft("Rapid", Some(MacroButton::RightShoulder)))
+            .unwrap();
+        let mut edited = m.clone();
+        edited.name = "Rapid fire".into();
+        edited.steps[0].hold_ms = 40;
+        let saved = s.save_macro(edited).unwrap();
+        assert_eq!(saved.id, m.id);
+        assert_eq!(
+            saved.trigger,
+            Some(MacroButton::RightShoulder),
+            "still on R1"
+        );
+        assert!(saved.enabled, "still on in the profile");
+        assert!(saved.updated_at_ms >= m.updated_at_ms);
+        assert_eq!(
+            s.macro_meta().unwrap().profiles[&m.id],
+            vec![s.active_profile().unwrap().id]
+        );
+        // Removing the assignment keeps the macro.
+        let mut unassigned = saved.clone();
+        unassigned.trigger = None;
+        s.save_macro(unassigned).unwrap();
+        assert!(s.get_macro(&m.id).is_ok());
+    }
+
+    #[test]
+    fn exporting_chosen_macros_marks_files_that_need_a_newer_build() {
+        use nexus_macro_engine::StepKind;
+        let mut s = ProfileStore::open_in_memory().unwrap();
+        let plain = s.save_macro(draft("Plain", None)).unwrap();
+        let mut aim = draft("Aim", None);
+        aim.steps = vec![
+            MacroStep {
+                kind: StepKind::Hold,
+                hold_ms: 0,
+                delay_after_ms: 100,
+                ..aim.steps[0].clone()
+            },
+            MacroStep {
+                kind: StepKind::Release,
+                hold_ms: 0,
+                delay_after_ms: 0,
+                ..aim.steps[0].clone()
+            },
+        ];
+        aim.repeat_count = 3;
+        let aim = s.save_macro(aim).unwrap();
+        let b = s
+            .export_macros_bundle(std::slice::from_ref(&plain.id), "x")
+            .unwrap();
+        assert_eq!(
+            (b.version, b.profiles.len(), b.macros.len()),
+            (1, 0, 1),
+            "plain macros stay version 1"
+        );
+        assert!(!b.macros[0].enabled, "exported switched off");
+        let b = s
+            .export_macros_bundle(&[plain.id.clone(), aim.id.clone()], "x")
+            .unwrap();
+        assert_eq!(b.version, 2);
+        assert!(s.export_macros_bundle(&["missing".into()], "x").is_err());
+        // A version-2 file imports here with its hold/release actions and repeat count.
+        let json = serde_json::to_string(&b).unwrap();
+        let mut other = ProfileStore::open_in_memory().unwrap();
+        other.import_bundle(&json, crate::ImportMode::Add).unwrap();
+        let imported = other
+            .list_macros()
+            .unwrap()
+            .into_iter()
+            .find(|m| m.name == "Aim")
+            .unwrap();
+        assert_eq!(imported.repeat_count, 3);
+        assert_eq!(imported.steps[0].kind, StepKind::Hold);
+        // A file from an even newer build is refused.
+        let newer = json.replace("\"version\":2", "\"version\":3");
+        assert!(matches!(
+            crate::portable::parse_bundle(&newer),
+            Err(ProfileError::InvalidImport(_))
+        ));
+    }
+
+    #[test]
+    fn macros_saved_before_hold_and_release_existed_still_load_as_taps() {
+        let s = ProfileStore::open_in_memory().unwrap();
+        s.conn
+            .execute(
+                "INSERT INTO macros (id, position, data_json, created_at_ms, updated_at_ms) VALUES ('old', 0, ?1, 1, 1)",
+                [r#"{"id":"old","name":"Old","enabled":false,"steps":[{"id":"s","buttons":["south"],"holdMs":80,"delayAfterMs":20}],"trigger":"rightStick","mode":"toggle","repeatDelayMs":50,"blockTrigger":true,"activationMs":0,"createdAtMs":1,"updatedAtMs":1}"#],
+            )
+            .unwrap();
+        let m = s.get_macro("old").unwrap();
+        assert_eq!(m.steps[0].kind, nexus_macro_engine::StepKind::Tap);
+        assert_eq!(m.repeat_count, 1);
+        assert_eq!(m.mode, PlaybackMode::Toggle);
     }
 }

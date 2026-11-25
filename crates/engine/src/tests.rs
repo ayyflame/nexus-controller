@@ -305,12 +305,14 @@ fn jump_macro(mode: PlaybackMode) -> Macro {
             buttons: vec![MacroButton::South],
             hold_ms: 2000,
             delay_after_ms: 0,
+            kind: nexus_macro_engine::StepKind::Tap,
         }],
         trigger: Some(MacroButton::RightStick),
         mode,
         repeat_delay_ms: 50,
         block_trigger: true,
         activation_ms: 0,
+        repeat_count: 1,
         created_at_ms: 0,
         updated_at_ms: 0,
     }
@@ -1380,6 +1382,7 @@ fn rapid_macro() -> Macro {
             buttons: vec![MacroButton::South],
             hold_ms: 30,
             delay_after_ms: 30,
+            kind: nexus_macro_engine::StepKind::Tap,
         }],
         repeat_delay_ms: 0,
         ..jump_macro(PlaybackMode::RepeatWhileHeld)

@@ -15,13 +15,15 @@ import {
 } from "../lib/mappingView";
 import type { ControllerState, Macro, MacroButton, ProcessingConfig, RemapRule, VirtualOutputKind } from "../types/engine";
 
-export function MappingPage() {
+/** `initialControl`: a button to select when the page opens (from Macro Studio's "Show in Mapping"). */
+export function MappingPage({ initialControl }: { initialControl?: string }) {
   const { profile } = useEngine();
+  const control = initialControl && initialControl in BUTTONS ? (initialControl as MacroButton) : null;
   return (
     <ProcessingPage title="Mapping" className="mapping-page"
       description="Click any control on the controller, or its card, to change what it does.">
       {(config, onChange) => <>
-        <ButtonsTab key={profile?.id ?? 0} config={config} onChange={onChange} output={profile?.virtualOutput ?? "xbox360"} />
+        <ButtonsTab key={profile?.id ?? 0} config={config} onChange={onChange} output={profile?.virtualOutput ?? "xbox360"} initialControl={control} />
         <LayersPanel config={config} onChange={onChange} />
         <CombosPanel config={config} onChange={onChange} />
       </>}
@@ -38,12 +40,13 @@ const BUTTON_ORDER: MacroButton[] = [
   "leftStick", "rightStick", "dpadUp", "dpadDown", "dpadLeft", "dpadRight", "select", "start", "touchpad", "home", "mute",
 ];
 
-function ButtonsTab({ config, onChange, output }: {
-  config: ProcessingConfig; onChange: (c: ProcessingConfig) => void; output: VirtualOutputKind;
+function ButtonsTab({ config, onChange, output, initialControl }: {
+  config: ProcessingConfig; onChange: (c: ProcessingConfig) => void; output: VirtualOutputKind; initialControl: MacroButton | null;
 }) {
   const device = usePrimaryDevice();
   const { connection, profile } = useEngine();
   const [view, setView] = useState<"picture" | "list">(() => {
+    if (initialControl) return "picture"; // the selected control is shown in the picture
     try { return localStorage.getItem(MAPPING_VIEW_KEY) === "list" ? "list" : "picture"; } catch { return "picture"; }
   });
   const [history, setHistory] = useState<RemapHistory>(EMPTY_HISTORY);
@@ -104,7 +107,7 @@ function ButtonsTab({ config, onChange, output }: {
         </div>
       </div>
       {view === "picture"
-        ? <MappingView config={config} onEdit={edit} input={input} output={output} macros={macros} onMacrosChanged={setMacros} onOpenOutput={openOutput} toolbarHost={viewTools} />
+        ? <MappingView config={config} onEdit={edit} input={input} output={output} macros={macros} onMacrosChanged={setMacros} onOpenOutput={openOutput} toolbarHost={viewTools} initialSelected={initialControl} />
         : <ButtonList config={config} onEdit={edit} input={input} />}
       {device?.device.model === "dualSenseEdge" && (
         <p className="muted small map-info">

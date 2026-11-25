@@ -79,6 +79,8 @@ export interface DeviceSnapshot {
   processed: ControllerState | null;
   /** IDs of macros playing on this controller right now. */
   playingMacros: string[];
+  /** What each active macro is doing on this controller (updated on change). */
+  macroRuns?: MacroRun[];
   /** Index in the profile's layers of the active shift layer, if any. */
   activeLayer: number | null;
   /** Time NEXUS spends per report (processing, macros, output). */
@@ -226,11 +228,18 @@ export type MacroButton =
 
 export type PlaybackMode = "once" | "repeatWhileHeld" | "toggle";
 
+/** tap: press, hold `holdMs`, release, wait. hold: press and keep held
+ *  (until a release action or the end). release: let go of held buttons. */
+export type StepKind = "tap" | "hold" | "release";
+
 export interface MacroStep {
   id: string;
   buttons: MacroButton[];
+  /** Press time of a tap (0 for hold and release actions). */
   holdMs: number;
   delayAfterMs: number;
+  /** Absent means "tap" (files from before hold/release existed). */
+  kind?: StepKind;
 }
 
 export interface Macro {
@@ -245,6 +254,8 @@ export interface Macro {
   blockTrigger: boolean;
   /** Hold to activate: the trigger must be held this long first (0 = on press). */
   activationMs: number;
+  /** Play Once: how many times the sequence plays per press (absent = 1). */
+  repeatCount?: number;
   createdAtMs: number;
   updatedAtMs: number;
 }
@@ -398,3 +409,9 @@ export interface WindowsIntegration { behaviour: WindowBehaviour; startWithWindo
 
 export type RestoreKind = "manual" | "daily" | "beforeRestore" | "beforeUpdate";
 export interface RestorePoint { id: string; name: string; kind: RestoreKind; modifiedMs: number; bytes: number }
+
+/** Engine: a macro arming (hold to activate) or running, since `sinceMs` (ms since 1970). */
+export interface MacroRun { id: string; state: "arming" | "running"; sinceMs: number }
+
+/** Macro Studio organisation data: pinned macros, profiles each macro is on in. */
+export interface MacroMeta { pinned: string[]; profiles: Record<string, number[]> }

@@ -3,7 +3,7 @@
 // authority; these mirror its rules so the UI can guide users instantly.
 
 import type {
-  ControllerState, Macro, MacroButton, MacroStep, PlaybackMode, ValidationIssue,
+  ControllerState, Macro, MacroButton, MacroStep, PlaybackMode, StepKind, ValidationIssue,
 } from "../types/engine";
 
 export interface ButtonInfo {
@@ -53,6 +53,8 @@ export const LIMITS = {
   /** Longest hold-to-activate time (engine: MAX_ACTIVATION_MS). */
   maxActivationMs: 3_000,
   maxSteps: 200,
+  /** Most passes of a Play Once macro per press (engine: MAX_REPEAT_COUNT). */
+  maxRepeatCount: 100,
   maxNameLength: 60,
   maxDescriptionLength: 300,
 };
@@ -99,8 +101,32 @@ export function uid(prefix = "s"): string {
   return `${prefix}-${rand}-${counter}`;
 }
 
-export function newStep(buttons: MacroButton[]): MacroStep {
-  return { id: uid(), buttons, holdMs: DEFAULT_HOLD_MS, delayAfterMs: DEFAULT_DELAY_MS };
+export function newStep(buttons: MacroButton[], kind: StepKind = "tap"): MacroStep {
+  return kind === "tap"
+    ? { id: uid(), buttons, holdMs: DEFAULT_HOLD_MS, delayAfterMs: DEFAULT_DELAY_MS }
+    : { id: uid(), buttons, holdMs: 0, delayAfterMs: DEFAULT_DELAY_MS, kind };
+}
+
+/** A step's kind ("tap" when absent). */
+export const kindOf = (s: MacroStep): StepKind => s.kind ?? "tap";
+
+/** How long the action itself presses its buttons (taps only). */
+export const pressMs = (s: MacroStep): number => (kindOf(s) === "tap" ? s.holdMs : 0);
+
+/** Time from this action's start to the next action's start. */
+export const lengthMs = (s: MacroStep): number => pressMs(s) + s.delayAfterMs;
+
+/** Buttons held by hold actions just before each action starts (index i = before action i). */
+export function heldBefore(steps: MacroStep[]): MacroButton[][] {
+  const out: MacroButton[][] = [];
+  let held: MacroButton[] = [];
+  for (const s of steps) {
+    out.push(held);
+    const k = kindOf(s);
+    if (k === "hold") held = [...held, ...s.buttons.filter((b) => !held.includes(b))];
+    else if (k === "release") held = held.filter((b) => !s.buttons.includes(b));
+  }
+  return out;
 }
 
 export function newMacro(): Macro {
@@ -115,6 +141,7 @@ export function newMacro(): Macro {
     repeatDelayMs: DEFAULT_REPEAT_DELAY_MS,
     blockTrigger: true,
     activationMs: 0,
+    repeatCount: 1,
     createdAtMs: 0,
     updatedAtMs: 0,
   };
@@ -123,22 +150,37 @@ export function newMacro(): Macro {
 // ---- Timeline ----
 
 export function totalDuration(steps: MacroStep[]): number {
-  return steps.reduce((t, s) => t + s.holdMs + s.delayAfterMs, 0);
+  return steps.reduce((t, s) => t + lengthMs(s), 0);
 }
 
 export interface SequencePoint { step: number | null; pressed: boolean; finished: boolean }
 
 /** Same rules as `sequence_at` in the engine. */
 export function sequenceAt(steps: MacroStep[], elapsedMs: number): SequencePoint {
+  return sequenceStateAt(steps, elapsedMs).point;
+}
+
+/**
+ * Same rules as `sequence_state_at` in the engine: where one pass is after
+ * `elapsedMs`, and every button down at that moment (the current tap during
+ * its press time plus buttons held by earlier hold actions). Nothing is down
+ * after the pass.
+ */
+export function sequenceStateAt(steps: MacroStep[], elapsedMs: number): { point: SequencePoint; down: MacroButton[] } {
   let t = 0;
+  let held: MacroButton[] = [];
   for (let i = 0; i < steps.length; i++) {
     const s = steps[i]!;
-    t += s.holdMs;
-    if (elapsedMs < t) return { step: i, pressed: true, finished: false };
+    const k = kindOf(s);
+    if (k === "tap") {
+      t += s.holdMs;
+      if (elapsedMs < t) return { point: { step: i, pressed: true, finished: false }, down: [...held, ...s.buttons.filter((b) => !held.includes(b))] };
+    } else if (k === "hold") held = [...held, ...s.buttons.filter((b) => !held.includes(b))];
+    else held = held.filter((b) => !s.buttons.includes(b));
     t += s.delayAfterMs;
-    if (elapsedMs < t) return { step: i, pressed: false, finished: false };
+    if (elapsedMs < t) return { point: { step: i, pressed: k === "hold", finished: false }, down: held };
   }
-  return { step: null, pressed: false, finished: true };
+  return { point: { step: null, pressed: false, finished: true }, down: [] };
 }
 
 export function formatMs(ms: number): string {
@@ -190,8 +232,36 @@ export function validateMacro(m: Macro, others: Macro[]): ValidationIssue[] {
   m.steps.forEach((s, i) => {
     if (s.buttons.length === 0) issues.push({ field: "steps", message: `Action ${i + 1} has no button.` });
   });
+  issues.push(...holdIssues(m.steps));
+  const count = m.repeatCount ?? 1;
+  if (!Number.isInteger(count) || count < 1 || count > LIMITS.maxRepeatCount)
+    issues.push({ field: "repeatCount", message: `Repeat count must be 1–${LIMITS.maxRepeatCount}.` });
   const conflict = triggerConflict(m, others);
   if (conflict) issues.push({ field: "trigger", message: conflict });
+  return issues;
+}
+
+/** Hold/release rules (mirror of the engine's): a release needs a held
+ *  button, a held button can't be pressed again until released, and it stays
+ *  down at least the minimum press time. */
+export function holdIssues(steps: MacroStep[]): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+  const held: Array<{ b: MacroButton; by: number; at: number }> = [];
+  let t = 0;
+  steps.forEach((s, i) => {
+    const n = i + 1, k = kindOf(s);
+    for (const b of s.buttons) {
+      const h = held.findIndex((x) => x.b === b);
+      if (k !== "release" && h >= 0) issues.push({ field: "steps", message: `Action ${n} presses ${BUTTONS[b].name}, which action ${held[h]!.by} is still holding. Release it first.` });
+      else if (k === "hold") held.push({ b, by: n, at: t });
+      else if (k === "release" && h < 0) issues.push({ field: "steps", message: `Action ${n} releases ${BUTTONS[b].name}, which isn't held at that point.` });
+      else if (k === "release") {
+        if (t - held[h]!.at < LIMITS.minHoldMs) issues.push({ field: "steps", message: `Action ${n} releases ${BUTTONS[b].name} ${t - held[h]!.at} ms after action ${held[h]!.by} pressed it; keep it down at least ${LIMITS.minHoldMs} ms.` });
+        held.splice(h, 1);
+      }
+    }
+    t += lengthMs(s);
+  });
   return issues;
 }
 

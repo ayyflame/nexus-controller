@@ -34,6 +34,8 @@ interface Props {
   onOpenOutput: () => void;
   /** Where the picture's view buttons go (the workspace toolbar), so they never sit under a connector. */
   toolbarHost?: HTMLElement | null;
+  /** A control to select on open, with its Macro tab (from Macro Studio). */
+  initialSelected?: MacroButton | null;
 }
 
 /**
@@ -42,8 +44,8 @@ interface Props {
  * selected control below. Click a card or the control on the controller to
  * select it. Uses the same remap rules as the list view.
  */
-export function MappingView({ config, onEdit, input, output, macros, onMacrosChanged, onOpenOutput, toolbarHost }: Props) {
-  const [selected, setSelected] = useState<MacroButton | null>(null);
+export function MappingView({ config, onEdit, input, output, macros, onMacrosChanged, onOpenOutput, toolbarHost, initialSelected = null }: Props) {
+  const [selected, setSelected] = useState<MacroButton | null>(initialSelected);
   const [hover, setHover] = useState<MacroButton | null>(null);
   const stage = useRef<HTMLDivElement>(null);
   const visual = useRef<HTMLDivElement>(null);
@@ -117,7 +119,8 @@ export function MappingView({ config, onEdit, input, output, macros, onMacrosCha
 
       {shown
         ? <MappingEditor key={shown} button={shown} model={model} config={config} onEdit={onEdit} output={output} macros={macros}
-            onMacrosChanged={onMacrosChanged} onClose={() => setSelected(null)} onOpenOutput={onOpenOutput} />
+            onMacrosChanged={onMacrosChanged} onClose={() => setSelected(null)} onOpenOutput={onOpenOutput}
+            initialTab={shown === initialSelected ? "macro" : "controller"} />
         : <p className="muted small mapping-hint">Select a card or a control on the controller to change what it does.</p>}
     </div>
   );
@@ -183,12 +186,12 @@ function useConnectors(
 
 type EditorTab = "controller" | "macro";
 
-function MappingEditor({ button, model, config, onEdit, output, macros, onMacrosChanged, onClose, onOpenOutput }: {
+function MappingEditor({ button, model, config, onEdit, output, macros, onMacrosChanged, onClose, onOpenOutput, initialTab = "controller" }: {
   button: MacroButton; model: ViewModel; config: ProcessingConfig; onEdit: (c: ProcessingConfig) => void; output: VirtualOutputKind;
-  macros: Macro[]; onMacrosChanged: (m: Macro[]) => void; onClose: () => void; onOpenOutput: () => void;
+  macros: Macro[]; onMacrosChanged: (m: Macro[]) => void; onClose: () => void; onOpenOutput: () => void; initialTab?: EditorTab;
 }) {
   const mapping = buttonMapping(button, config, macros);
-  const [tab, setTab] = useState<EditorTab>("controller");
+  const [tab, setTab] = useState<EditorTab>(initialTab);
   const callout = calloutFor(mapping, output);
   const rule = config.remap.find((r) => r.from === button);
   const target = !rule || rule.to === button ? "same" : rule.to === null ? "off" : rule.to;
@@ -303,7 +306,7 @@ function MacroAssign({ button, label, macros, onMacrosChanged }: {
   };
   // One enabled macro per button: assigning replaces the current one (it keeps its steps, just without a button).
   const assign = (m: Macro) => save([...(active && active.id !== m.id ? [{ ...active, trigger: null }] : []), { ...m, trigger: button }]);
-  const openMacros = () => window.dispatchEvent(new CustomEvent("nexus:navigate", { detail: { page: "macro-studio" } }));
+  const studio = (tab: string) => window.dispatchEvent(new CustomEvent("nexus:navigate", { detail: { page: "macro-studio", tab } }));
 
   if (button === "home") {
     return (
@@ -324,7 +327,11 @@ function MacroAssign({ button, label, macros, onMacrosChanged }: {
                 <li key={m.id}>
                   <strong>{m.name}</strong>
                   <span className="muted small">{MODES[m.mode].title}{m.enabled ? "" : " · turned off"}{m.blockTrigger ? ` · ${label} itself is not sent` : ""}</span>
-                  <button type="button" className="btn-ghost small" disabled={busy} onClick={() => void save([{ ...m, trigger: null }])}>Remove from {label}</button>
+                  <span className="row gap-sm">
+                    <button type="button" className="btn-ghost small" onClick={() => studio(`edit:${m.id}`)} title="Open it in Macro Studio (its button stays)">Edit in Macro Studio</button>
+                    <button type="button" className="btn-ghost small" disabled={busy} onClick={() => void save([{ ...m, trigger: null }])}
+                      title="The macro stays saved in Macro Studio, without a button">Remove from {label}</button>
+                  </span>
                 </li>
               ))}
             </ul>
@@ -342,7 +349,8 @@ function MacroAssign({ button, label, macros, onMacrosChanged }: {
         <button type="button" className="btn-primary small" disabled={!picked || busy} onClick={() => picked && void assign(picked)}>
           {busy ? "Saving…" : "Assign"}
         </button>
-        <button type="button" className="btn-ghost small" onClick={openMacros}>Create or edit macros</button>
+        <button type="button" className="btn-ghost small" onClick={() => studio(`new:${button}`)}
+          title={active ? `A new macro for ${label} (switch “${active.name}” off or remove it first)` : `Create a macro that starts from ${label}`}>＋ New macro for {label}</button>
       </div>
       {picked && (picked.trigger || active) && (
         <p className="muted small">

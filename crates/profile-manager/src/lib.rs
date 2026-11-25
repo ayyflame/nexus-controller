@@ -30,6 +30,7 @@ mod meta;
 mod portable;
 mod smart;
 
+pub use macros::MacroMeta;
 pub use meta::ProfileMeta;
 pub use portable::{
     ConfigBundle, ImportMode, ImportPreview, ImportReport, PortableProfile, BUNDLE_FORMAT,

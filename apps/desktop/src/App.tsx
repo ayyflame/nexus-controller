@@ -21,8 +21,8 @@ function Page({ id, tab }: { id: PageId; tab?: string }) {
     case "dashboard": return <Dashboard />;
     case "virtual-controller": return <VirtualControllerPage />;
     case "profiles": return <Profiles />;
-    case "mapping": return <MappingPage />;
-    case "macro-studio": return <MacroStudio />;
+    case "mapping": return <MappingPage initialControl={tab} />;
+    case "macro-studio": return <MacroStudio initialTab={tab} />;
     case "sticks": return <SticksPage />;
     case "triggers": return <TriggersPage />;
     case "motion": return <MotionPage />;

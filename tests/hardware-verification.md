@@ -172,6 +172,12 @@ Re-test V6–V12 on each new build that changes macro or output code. M4.5 chang
 | V19 | Select all actions, **2× faster**, save, test again; then Ctrl+Z | Faster playback; undo restores the recorded timing | |
 | V20 | Record: tap Square, then Triangle quickly (Square released before Triangle) | Two separate actions, not one "Square + Triangle" action | |
 | V21 | Build YY (Triangle, Triangle) with wait 0 ms and pause between repeats 0 ms | ⚠ on the wait and two warnings under the timeline. After setting both to 50 ms, warnings disappear and `joy.cpl` shows Y blinking in pairs while held | |
+| V22 | New macro from the **Hold L2 while tapping** template (template button Cross), Play Once on L1. Press L1 with `joy.cpl` Properties open | The Z axis (left trigger) moves and stays while Button 1 blinks twice, then Z returns to rest. Test panel: *Running*, action 1–4, then *Waiting* | |
+| V23 | Same macro, hold L1 to start it, then unplug the USB cable while L2 is held by the macro | Nothing stays pressed in `joy.cpl` after reconnecting; the macro does not restart until L1 is pressed again | |
+| V24 | Same macro: turn it off with the switch while it runs (Repeat While Held, hold L1) | Left trigger released at once | |
+| V25 | Record: hold L2, tap Cross twice, release L2 | Review shows *Press & keep held* L2, two Cross presses, *Release* L2; playback matches | |
+| V26 | Play Once, **Play 3 times per press**, pause between repeats 100 ms | One press of the trigger plays the sequence three times; Test panel shows *pass 1/2/3 of 3* | |
+| V27 | Macro Studio › **Show in Mapping**, then **Edit in Macro Studio**; then in Mapping **Remove from L1** | Mapping opens with L1 selected on its Macro tab; the editor reopens the same macro; after removing, the macro is still in Macro Studio with *No button* | |
 
 ## Duplicate input, with and without HidHide (optional)
 
