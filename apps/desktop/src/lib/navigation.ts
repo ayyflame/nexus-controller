@@ -112,3 +112,19 @@ export const SEARCH_ITEMS: PaletteItem[] = [
   { label: "Settings", hint: "App, devices, diagnostics", page: "settings", keywords: "version update diagnostics hid scan" },
   { label: "Check for updates", hint: "Settings", page: "settings", keywords: "update version release" },
 ];
+
+export interface Route { page: PageId; tab?: string }
+
+/** The address for a route (`#/macro-studio/edit%3Aabc`), so the window's history can go back and forward. */
+export function routeToHash(r: Route): string {
+  return r.tab ? `#/${r.page}/${encodeURIComponent(r.tab)}` : `#/${r.page}`;
+}
+
+/** The route an address stands for, or null when it isn't one (empty, or not ours). Unknown pages resolve like any link. */
+export function hashToRoute(hash: string | null | undefined): Route | null {
+  const m = /^#\/([a-z0-9-]+)(?:\/(.*))?$/.exec(hash ?? "");
+  if (!m) return null;
+  let tab: string | undefined;
+  try { tab = m[2] ? decodeURIComponent(m[2]) : undefined; } catch { return null; }
+  return resolvePage(m[1], tab || undefined);
+}

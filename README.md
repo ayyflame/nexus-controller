@@ -42,8 +42,8 @@ Built with Tauri 2, React and TypeScript for the UI, and Rust for the engine, wi
 - Shown on the Dashboard, *Mapping*, the Live Viewer and Macro Studio, always as the 3D model of whichever controller is connected, DualSense or DualShock 4.
 
 ### Macro Studio
-- A workspace of its own: search, sort and pin macros; see each one's button and the profiles it is on in; duplicate, export one macro, delete with confirmation.
-- **Record** a macro from the controller or **build it** on a controller layout. Actions can **press**, **press and keep held** (while later actions run) or **release**, so "hold L2 while tapping R2" is one macro.
+- A **Macro Library** page (search, sort, pinned macros, each one's button and the profiles it is on in) and a separate **editor page** per macro (duplicate, export one macro, delete with confirmation). Back and Forward move between them.
+- **Record** a macro from the controller or **build it** by clicking the 3D controller. Actions can **press**, **press and keep held** (while later actions run) or **release**, so "hold L2 while tapping R2" is one macro.
 - **Play Once** (1–100 times per press), **Repeat While Held** or **Toggle On/Off**, optionally **hold to activate** (the trigger must be held for a set time first; a quick tap does nothing).
 - A **Test** panel shows what the engine is doing: waiting, arming, running action N, stopped.
 - Linked with *Mapping*: show a macro's button there, start a new macro for a button, or remove a button's macro without deleting it.

@@ -105,3 +105,27 @@ export function playTime(m: Macro): number {
   const n = Math.max(1, m.repeatCount ?? 1);
   return n * one + (n - 1) * m.repeatDelayMs;
 }
+
+/**
+ * What a Macro Studio address opens. The library is the default; an editor
+ * needs a macro chosen first: "edit:<id>" opens a saved macro, "draft" the new
+ * macro that isn't saved yet, "new" / "new:<button>" the library with the
+ * New macro dialog (from Mapping, for that button).
+ */
+export type MacroRoute =
+  | { view: "library"; create: false }
+  | { view: "library"; create: true; trigger: MacroButton | null }
+  | { view: "editor"; id: string }
+  | { view: "draft" };
+
+export function parseMacroRoute(tab: string | undefined): MacroRoute {
+  if (tab === "draft") return { view: "draft" };
+  if (tab?.startsWith("edit:") && tab.length > 5) return { view: "editor", id: tab.slice(5) };
+  if (tab === "new" || tab?.startsWith("new:")) {
+    const b = tab.slice(4);
+    return { view: "library", create: true, trigger: Object.hasOwn(BUTTONS, b) ? (b as MacroButton) : null };
+  }
+  return { view: "library", create: false };
+}
+
+export const editorTab = (id: string) => `edit:${id}`;

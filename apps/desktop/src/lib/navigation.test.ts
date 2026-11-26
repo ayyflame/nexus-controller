@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { NAV_GROUPS, PAGE_IDS, SEARCH_ITEMS, resolvePage } from "./navigation.ts";
+import { NAV_GROUPS, PAGE_IDS, SEARCH_ITEMS, hashToRoute, resolvePage, routeToHash } from "./navigation.ts";
 
 test("every page has exactly one place in the sidebar (Settings in the footer)", () => {
   const ids = NAV_GROUPS.flatMap((g) => g.items.map((i) => i.id));
@@ -42,4 +42,16 @@ test("every search result opens a real page (no links into the old Controller ta
   assert.ok(hits("deadzone").includes("sticks"));
   assert.ok(hits("gyro").includes("motion"));
   assert.ok(hits("vigem").includes("virtual-controller"));
+});
+
+test("routes round-trip through the address bar, so back and forward work", () => {
+  assert.equal(routeToHash({ page: "macro-studio" }), "#/macro-studio");
+  assert.equal(routeToHash({ page: "macro-studio", tab: "edit:a b/c" }), "#/macro-studio/edit%3Aa%20b%2Fc");
+  assert.deepEqual(hashToRoute("#/macro-studio/edit%3Aa%20b%2Fc"), { page: "macro-studio", tab: "edit:a b/c" });
+  assert.deepEqual(hashToRoute("#/mapping"), { page: "mapping" });
+  assert.deepEqual(hashToRoute("#/controller/buttons"), { page: "mapping" }, "old links still resolve");
+  assert.deepEqual(hashToRoute("#/nowhere"), { page: "dashboard" });
+  assert.equal(hashToRoute(""), null);
+  assert.equal(hashToRoute("#section"), null);
+  assert.equal(hashToRoute("#/macro-studio/%E0%A4%A"), null, "a broken address is ignored, not thrown");
 });

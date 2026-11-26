@@ -4,7 +4,6 @@ import { engineApi } from "../../lib/engine";
 import { buttonNames } from "../../lib/macros";
 import { describeStep, runView } from "../../lib/macroStudio";
 import type { Macro } from "../../types/engine";
-import { ControllerVisual } from "../ControllerVisual";
 import { ButtonChip } from "./ButtonChip";
 
 /**
@@ -29,9 +28,9 @@ export function MacroTestPanel({ macro, savedEnabled }: { macro: Macro; savedEna
   const games = status?.macros.gamesCanReceive ?? false;
 
   let state: string, detail: string | null = null, progress: number | null = null;
-  if (!device?.processed) { state = "No controller"; detail = "Connect your controller to test this macro."; }
-  else if (!macro.trigger) { state = "No button"; detail = "Choose a button that starts this macro to test it."; }
-  else if (!savedEnabled) { state = "Off"; detail = "Turn the macro on (in this profile) to test it."; }
+  if (!device?.processed) { state = "No controller"; detail = "Connect your controller to test it."; }
+  else if (!macro.trigger) { state = "No button"; detail = "Choose the button that starts it."; }
+  else if (!savedEnabled) { state = "Off"; detail = "Switch it on to test it."; }
   else if (view.state === "arming") {
     state = "Arming"; detail = `Keep holding: ${view.heldMs} of ${view.neededMs} ms.`; progress = view.neededMs ? view.heldMs / view.neededMs : 1;
   } else if (view.state === "running") {
@@ -46,7 +45,9 @@ export function MacroTestPanel({ macro, savedEnabled }: { macro: Macro; savedEna
     <div className="card macro-test" aria-live="polite">
       <div className="card-title-row">
         <h2>Test</h2>
-        <span className={`badge ${games ? "tone-warn" : "dev"}`}>{games ? "Games receive this" : "NEXUS only · not sent to games"}</span>
+        <span className={`badge ${games ? "tone-warn" : "dev"}`}
+          data-tip={`${games ? "The virtual controller is on, so a game in front receives what the macro presses." : "Turn on the virtual controller for games to receive it."} Timing follows controller reports (about every 4 ms over USB), so it isn't millisecond-exact.`}>
+          {games ? "Games receive this" : "NEXUS only · not sent to games"}</span>
       </div>
       <div className={`run-state run-${state.toLowerCase().replace(" ", "-")}`}>
         <span className="run-dot" aria-hidden="true" />
@@ -57,15 +58,9 @@ export function MacroTestPanel({ macro, savedEnabled }: { macro: Macro; savedEna
       </div>
       {detail && <p className="small run-detail">{detail}</p>}
       {progress !== null && <div className="preview-progress"><div style={{ width: `${Math.round(progress * 100)}%` }} /></div>}
-      {device?.processed && (
-        <div className="live-test-visual"><ControllerVisual state={device.processed} live /></div>
-      )}
-      <div className="row gap-sm wrap">
+      <div>
         <button className="btn-danger small" disabled={!anyPlaying} onClick={() => void engineApi.stopAllMacros()}
           data-tip="Stops every running macro at once; nothing stays pressed">■ Stop all macros</button>
-        <span className="muted small">{games
-          ? "The virtual controller is on, so a game in front receives what the macro presses."
-          : "Turn on the virtual controller for games to receive it."} Timing follows controller reports (about every 4 ms over USB) plus Windows scheduling delay, so it isn't millisecond-exact.</span>
       </div>
     </div>
   );

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { EMPTY_MACRO_META, describeStep, macroMatches, organizeMacros, playTime, runView, usageOf, usageText } from "./macroStudio.ts";
+import { EMPTY_MACRO_META, describeStep, editorTab, parseMacroRoute, macroMatches, organizeMacros, playTime, runView, usageOf, usageText } from "./macroStudio.ts";
 import { heldBefore, holdIssues, newMacro, sequenceStateAt, totalDuration, validateMacro } from "./macros.ts";
 import type { Macro, MacroStep, Profile } from "../types/engine";
 
@@ -77,4 +77,25 @@ test("each action reads as a sentence", () => {
   assert.equal(describeStep(steps, 0), "Press L2 and keep it held, then wait 100 ms");
   assert.equal(describeStep(steps, 1), "Press R2 for 60 ms, release");
   assert.equal(describeStep(steps, 2), "Release L2");
+});
+
+test("Macro Studio addresses: library by default, an editor only for a chosen macro", () => {
+  assert.deepEqual(parseMacroRoute(undefined), { view: "library", create: false });
+  assert.deepEqual(parseMacroRoute("anything"), { view: "library", create: false });
+  assert.deepEqual(parseMacroRoute("edit:"), { view: "library", create: false }, "no id: the library");
+  assert.deepEqual(parseMacroRoute(editorTab("m1")), { view: "editor", id: "m1" });
+  assert.deepEqual(parseMacroRoute("draft"), { view: "draft" });
+  assert.deepEqual(parseMacroRoute("new:leftShoulder"), { view: "library", create: true, trigger: "leftShoulder" });
+  assert.deepEqual(parseMacroRoute("new:bogus"), { view: "library", create: true, trigger: null });
+  assert.deepEqual(parseMacroRoute("new"), { view: "library", create: true, trigger: null });
+});
+
+test("routes: inherited property names are not buttons", () => {
+  // `in` also finds properties every object inherits; only real buttons may be a trigger.
+  for (const name of ["toString", "constructor", "hasOwnProperty", "valueOf", "__proto__", "isPrototypeOf", "propertyIsEnumerable", "toLocaleString"]) {
+    assert.deepEqual(parseMacroRoute(`new:${name}`), { view: "library", create: true, trigger: null }, name);
+  }
+  for (const b of ["south", "touchpad", "home", "mute", "dpadLeft", "rightTrigger"]) {
+    assert.deepEqual(parseMacroRoute(`new:${b}`), { view: "library", create: true, trigger: b }, b);
+  }
 });

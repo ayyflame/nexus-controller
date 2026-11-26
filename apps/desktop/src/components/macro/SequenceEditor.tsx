@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { History } from "../../hooks/useHistory";
-import { BUTTONS, LIMITS, buttonNames, formatMs, heldBefore, newStep, sequenceStateAt, stateWithButtons, totalDuration, uid } from "../../lib/macros";
+import { BUTTONS, LIMITS, buttonNames, formatMs, heldBefore, newStep, sequenceStateAt, totalDuration, uid } from "../../lib/macros";
 import type { Macro, MacroButton, MacroStep, PlaybackMode, StepKind } from "../../types/engine";
-import { ControllerVisual } from "../ControllerVisual";
-import { ButtonPad } from "./ButtonPad";
+import { usePick } from "./ButtonPicker";
 import { RecordPanel } from "./RecordPanel";
 import { StepInspector } from "./StepInspector";
 import { BulkTiming } from "./BulkTiming";
@@ -155,6 +154,17 @@ export function SequenceEditor({ history, initialSource = "record", library = []
 
   const pressedNow = preview.down;
   const total = totalDuration(steps);
+  // The editor's controller: Build Manually adds an action per click; the preview plays on it.
+  const addBlocked: Partial<Record<MacroButton, string>> = Object.fromEntries((Object.keys(BUTTONS) as MacroButton[])
+    .filter((b) => addKind === "release" ? !heldAtEnd.includes(b) : heldAtEnd.includes(b))
+    .map((b) => [b, addKind === "release" ? "not held, so there's nothing to release" : "still held: add a Release first"]));
+  usePick("add", source === "manual" ? {
+    priority: 1,
+    title: addKind === "tap" ? "Click a button to add a press" : addKind === "hold" ? "Click a button to press and keep it held" : "Click a held button to release it",
+    selected: [], blocked: addBlocked,
+    onPick: (b) => { add(b); if (addKind === "release") setAddKind("tap"); },
+  } : null);
+  usePick("preview", preview.playing ? { priority: 3, title: "Preview (nothing is sent to games)", selected: pressedNow } : null);
 
   return (
     <div className="seq-editor">
@@ -162,12 +172,12 @@ export function SequenceEditor({ history, initialSource = "record", library = []
         <button role="tab" aria-selected={source === "record"} className={source === "record" ? "selected" : ""}
           onClick={() => setSource("record")}>
           <span className="tab-icon rec-dot" aria-hidden="true" />
-          <span><strong>Record</strong><small>Press buttons on your controller</small></span>
+          <span><strong>Record</strong></span>
         </button>
         <button role="tab" aria-selected={source === "manual"} className={source === "manual" ? "selected" : ""}
           onClick={() => setSource("manual")}>
           <span className="tab-icon" aria-hidden="true">✚</span>
-          <span><strong>Build Manually</strong><small>Click buttons to add actions</small></span>
+          <span><strong>Build Manually</strong></span>
         </button>
       </div>
 
@@ -181,21 +191,13 @@ export function SequenceEditor({ history, initialSource = "record", library = []
           <div className="row gap-sm wrap add-kind">
             <span className="field-label">Add as</span>
             <div className="segmented small" role="radiogroup" aria-label="Kind of action to add">
-              {([["tap", "Press"], ["hold", "Press & keep held"], ["release", "Release"]] as Array<[StepKind, string]>).map(([k, label]) => (
+              {([["tap", "Press", "Pressed, held for the press time, then released"], ["hold", "Press & keep held", "Stays down while the next actions run, until a Release"], ["release", "Release", "Lets go of a held button"]] as Array<[StepKind, string, string]>).map(([k, label, tip]) => (
                 <button key={k} type="button" role="radio" aria-checked={addKind === k} className={addKind === k ? "selected" : ""}
-                  disabled={k === "release" && heldAtEnd.length === 0} onClick={() => setAddKind(k)}>{label}</button>
+                  data-tip={tip} disabled={k === "release" && heldAtEnd.length === 0} onClick={() => setAddKind(k)}>{label}</button>
               ))}
             </div>
-            <span className="muted small">
-              {addKind === "tap" ? "Click a button: it is pressed, held for the press time, then released."
-                : addKind === "hold" ? "Click a button: it stays down while the actions after it run, until you add a Release."
-                  : heldAtEnd.length ? `Click a held button to let go of it (held now: ${buttonNames(heldAtEnd)}).` : "Nothing is held at the end of the sequence."}
-            </span>
+            {heldAtEnd.length > 0 && <span className="muted small">Held: {buttonNames(heldAtEnd)}</span>}
           </div>
-          <ButtonPad selected={[]} onPick={(b) => { add(b); if (addKind === "release") setAddKind("tap"); }} label="Add an action"
-            blocked={Object.fromEntries((Object.keys(BUTTONS) as MacroButton[])
-              .filter((b) => addKind === "release" ? !heldAtEnd.includes(b) : heldAtEnd.includes(b))
-              .map((b) => [b, addKind === "release" ? "Not held" : "Held: release it first"]))} />
         </div>
       )}
 
@@ -248,13 +250,6 @@ export function SequenceEditor({ history, initialSource = "record", library = []
               {" "}A game may see one long press instead of two. Use at least {LIMITS.minReleaseGapMs} ms.
             </div>
           ))}
-        </div>
-      )}
-
-      {preview.playing && (
-        <div className="preview-visual">
-          <ControllerVisual state={stateWithButtons(pressedNow)} live />
-          <span className="badge dev">Preview only</span>
         </div>
       )}
 

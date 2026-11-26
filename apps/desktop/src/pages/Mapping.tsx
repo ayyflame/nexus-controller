@@ -9,6 +9,7 @@ import { useShownModel } from "../hooks/useShownModel";
 import { Icon } from "../components/Icons";
 import { connectionLabel, modelLabel, outputLabel } from "../lib/format";
 import { engineApi } from "../lib/engine";
+import { macroSavesSettled } from "../lib/macroSaves";
 import { BUTTONS, pressedButtons } from "../lib/macros";
 import {
   EMPTY_HISTORY, recordEdit, redoRemap, setRemapAlso, setRemapTarget, undoRemap, type RemapHistory,
@@ -18,7 +19,7 @@ import type { ControllerState, Macro, MacroButton, ProcessingConfig, RemapRule, 
 /** `initialControl`: a button to select when the page opens (from Macro Studio's "Show in Mapping"). */
 export function MappingPage({ initialControl }: { initialControl?: string }) {
   const { profile } = useEngine();
-  const control = initialControl && initialControl in BUTTONS ? (initialControl as MacroButton) : null;
+  const control = initialControl && Object.hasOwn(BUTTONS, initialControl) ? (initialControl as MacroButton) : null;
   return (
     <ProcessingPage title="Mapping" className="mapping-page"
       description="Click any control on the controller, or its card, to change what it does.">
@@ -52,7 +53,8 @@ function ButtonsTab({ config, onChange, output, initialControl }: {
   const [history, setHistory] = useState<RemapHistory>(EMPTY_HISTORY);
   const [macros, setMacros] = useState<Macro[]>([]);
   useEffect(() => {
-    if (connection.kind === "ready") engineApi.listMacros().then(setMacros).catch(() => setMacros([]));
+    // After any macro save under way (e.g. a trigger changed just before Show in Mapping).
+    if (connection.kind === "ready") macroSavesSettled().then(() => engineApi.listMacros()).then(setMacros).catch(() => setMacros([]));
   }, [connection.kind]);
 
   /** Every remap change goes through here so it can be undone. */

@@ -80,15 +80,15 @@ export const DELAY_PRESETS = [
 export const MODES: Record<PlaybackMode, { title: string; description: string }> = {
   once: {
     title: "Play Once",
-    description: "Press the button once and the whole sequence plays (once, or as many times as you set below).",
+    description: "One press plays the sequence.",
   },
   repeatWhileHeld: {
     title: "Repeat While Held",
-    description: "The sequence keeps repeating while you hold the button and stops when you let go.",
+    description: "Repeats while the button is held.",
   },
   toggle: {
     title: "Toggle On/Off",
-    description: "Press once to start repeating. Press again to stop.",
+    description: "Press to start repeating, again to stop.",
   },
 };
 

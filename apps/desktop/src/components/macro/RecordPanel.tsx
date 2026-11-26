@@ -73,7 +73,7 @@ export function RecordPanel({ hasSteps, onRecorded }: {
           <button className="btn-primary" onClick={() => void stop()}>■ Stop Recording</button>
           <button className="btn-ghost" onClick={() => void engineApi.cancelMacroRecording()}>Cancel</button>
         </div>
-        <p className="muted small">Macros are paused while you record. Stick movement is not recorded, only buttons, D-pad and triggers.</p>
+        <p className="muted small" data-tip="Macros are paused while you record. Sticks aren't recorded.">Buttons, D-pad and triggers only.</p>
       </div>
     );
   }
@@ -96,11 +96,7 @@ export function RecordPanel({ hasSteps, onRecorded }: {
               data-tip={controllerReady ? "Then press buttons on your controller" : "Connect your controller first"}>
               <span className="rec-dot" aria-hidden="true" /> Start Recording
             </button>
-            <p className="muted small">
-              {controllerReady
-                ? "Press Start, perform your button presses on the controller, then press Stop. Timing is captured automatically."
-                : "Connect your DualSense or DualShock 4 with a USB cable to record."}
-            </p>
+            {!controllerReady && <p className="muted small">Connect your controller by USB to record.</p>}
           </div>
           {note && <div className="notice dev">{note}</div>}
         </>
