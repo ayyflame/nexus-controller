@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { Icon } from "../Icons";
 import { useEngine, usePrimaryDevice } from "../../hooks/useEngine";
 import { useShownModel } from "../../hooks/useShownModel";
 import { engineApi, errorMessage } from "../../lib/engine";
@@ -331,7 +332,7 @@ export function LayersPanel({ config, onChange }: { config: ProcessingConfig; on
             <button className="btn-secondary" onClick={() => {
               const activator = ALL_BUTTONS.find((b) => !used.includes(b) && b !== "home") ?? "leftShoulder";
               setLayers([...layers, { name: `Layer ${layers.length + 1}`, activator, mode: "hold", remap: [] }]);
-            }}>＋ Add layer</button>
+            }}><Icon name="plus" size={14} /> Add layer</button>
           )}
           {(layers.length > 0 || config.remap.length > 0) && (
             <button className="btn-ghost" onClick={() => setConfirmReset(true)}>Restore default mapping</button>

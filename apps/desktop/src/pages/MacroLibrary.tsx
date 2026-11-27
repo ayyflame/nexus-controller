@@ -1,4 +1,5 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Icon } from "../components/Icons";
 import { ButtonSelect } from "../components/controller/advanced";
 import { ButtonChip } from "../components/macro/ButtonChip";
 import { ConfirmDialog } from "../components/macro/common";
@@ -24,9 +25,9 @@ function MacroTransfer({ onImported, setMsg }: { onImported: () => void; setMsg:
   const [pending, setPending] = useState<{ json: string; names: string[]; renamed: string[] } | null>(null);
   return (
     <>
-      <button className="btn-ghost" data-tip="Add macros from a NEXUS file" onClick={() => file.current?.click()}>Import</button>
+      <button className="btn-ghost" data-tip="Add macros from a NEXUS file" onClick={() => file.current?.click()}><Icon name="upload" size={15} /> Import</button>
       <button className="btn-ghost" data-tip="Save every macro to one file in Documents\\NEXUS"
-        onClick={async () => { try { const r = await engineApi.exportMacros(); setMsg(r.path ? `Saved to ${r.path}` : "Couldn't write the file."); } catch (e) { setMsg(errorMessage(e)); } }}>Export all</button>
+        onClick={async () => { try { const r = await engineApi.exportMacros(); setMsg(r.path ? `Saved to ${r.path}` : "Couldn't write the file."); } catch (e) { setMsg(errorMessage(e)); } }}><Icon name="download" size={15} /> Export all</button>
       <input ref={file} type="file" accept=".json,application/json" hidden onChange={async (e) => {
         const f = e.target.files?.[0]; e.target.value = "";
         if (!f) return;
@@ -98,7 +99,7 @@ export const MacroLibraryPage = memo(function MacroLibraryPage({ create, ready, 
           onClick={() => choose(m)} aria-label={`Edit ${m.name}`}>
           <span className="pm-row-top">
             {m.trigger ? <ButtonChip button={m.trigger} size="sm" active={usage.activeNow} /> : <span className="chip chip-sm unassigned" title="No button">?</span>}
-            <span className="pm-row-name">{isPinned && <span className="pm-pin" aria-label="Pinned">★</span>}{m.name}</span>
+            <span className="pm-row-name">{isPinned && <span className="pm-pin"><Icon name="star" size={12} filled label="Pinned" /></span>}{m.name}</span>
             {isPlaying && <span className="play-dot" aria-label="Playing" />}
           </span>
           {m.description && <span className="ms-row-desc muted small">{m.description}</span>}
@@ -124,12 +125,12 @@ export const MacroLibraryPage = memo(function MacroLibraryPage({ create, ready, 
           <h1>Macro Studio</h1>
           <p className="muted">Record or build button sequences and start them from one button. Macros are shared by every profile; each profile chooses which are on. Choose a macro to edit it.</p>
         </div>
-        <div className="row gap-sm">
+        {/* The primary action only; library-wide tools (import, export) sit with search and sort. */}
+        <div className="page-actions">
           {playing.length > 0 && (
-            <button className="btn-danger" onClick={() => void engineApi.stopAllMacros()} data-tip="Stop every macro immediately; nothing stays pressed">■ Stop all</button>
+            <button className="btn-danger" onClick={() => void engineApi.stopAllMacros()} data-tip="Stop every macro immediately; nothing stays pressed"><Icon name="stop" size={13} filled /> Stop all</button>
           )}
-          <MacroTransfer onImported={() => void reload()} setMsg={setMsg} />
-          <button className="btn-primary" onClick={() => setCreating(null)}>＋ New macro</button>
+          <button className="btn-primary" onClick={() => setCreating(null)}><Icon name="plus" size={15} /> New macro</button>
         </div>
       </header>
 
@@ -150,7 +151,17 @@ export const MacroLibraryPage = memo(function MacroLibraryPage({ create, ready, 
             {MACRO_SORTS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
           </select>
         </label>
+        <div className="pm-toolbar-end">
+          <MacroTransfer onImported={() => void reload()} setMsg={setMsg} />
+        </div>
       </div>
+
+      {!loaded && (
+        <div className="ms-grid" role="status" aria-busy="true">
+          <span className="sr-only">Loading macros…</span>
+          {[0, 1, 2].map((i) => <div key={i} className="skeleton skeleton-card" aria-hidden="true" />)}
+        </div>
+      )}
 
       <nav className="ms-library-list" aria-label="Macros">
         {pinned.length > 0 && <>
@@ -167,7 +178,7 @@ export const MacroLibraryPage = memo(function MacroLibraryPage({ create, ready, 
         <div className="pm-detail ms-empty">
           <h2>Create your first macro</h2>
           <p className="muted">A macro presses a sequence of buttons for you when you press one button. Record it from your controller in a few seconds, or build it action by action.</p>
-          <div><button className="btn-primary" onClick={() => setCreating(null)}>＋ New macro</button></div>
+          <div><button className="btn-primary" onClick={() => setCreating(null)}><Icon name="plus" size={15} /> New macro</button></div>
         </div>
       )}
 

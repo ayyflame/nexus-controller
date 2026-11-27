@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Icon } from "../Icons";
 import { BUTTONS, formatMs, heldBefore, kindOf } from "../../lib/macros";
 import type { MacroStep } from "../../types/engine";
 import { ButtonCombo } from "./ButtonChip";
@@ -66,15 +67,15 @@ export function Timeline({ steps, selectedId, selection = [], onSelect, onMove, 
                 </span>
                 <span className="tl-release muted small">then release</span>
               </>}
-              {kind === "hold" && <span className="tl-kind">Press &amp; keep held ▸</span>}
-              {kind === "release" && <span className="tl-kind">◂ Release</span>}
+              {kind === "hold" && <span className="tl-kind">Press &amp; keep held <Icon name="chevronRight" size={12} /></span>}
+              {kind === "release" && <span className="tl-kind"><Icon name="chevronLeft" size={12} /> Release</span>}
               {under.length > 0 && <span className="tl-under" title="Still held by an earlier action">{under.map((b) => BUTTONS[b].name).join(" + ")} held</span>}
             </button>
             {(i < steps.length - 1 || s.delayAfterMs > 0) && (
               <span className={`tl-wait${isPlaying && !playing?.pressed ? " playing" : ""}${riskyWaits?.has(i) ? " risky" : ""}`}
                 data-tip={riskyWaits?.has(i) ? "Too short: the same button is pressed again, so a game may see one long press" : "Wait before the next action"}>
                 <span className="tl-wait-line" />
-                <span className="tl-wait-label">{riskyWaits?.has(i) ? "⚠ " : ""}wait {formatMs(s.delayAfterMs)}</span>
+                <span className="tl-wait-label">{riskyWaits?.has(i) && <Icon name="alert" size={11} label="Too short" />} wait {formatMs(s.delayAfterMs)}</span>
               </span>
             )}
           </div>

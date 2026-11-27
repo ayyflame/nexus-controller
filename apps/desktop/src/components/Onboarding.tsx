@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useControllerPhase } from "./StatusPill";
 
 const KEY = "nexus.onboarding.v1";
@@ -17,8 +17,18 @@ export function Onboarding({ forceOpen, onClose, onNavigate }: {
   const [open, setOpen] = useState(() => forceOpen || !done());
   const [step, setStep] = useState(0);
   const phase = useControllerPhase();
-  if (!open && !forceOpen) return null;
+  const visible = open || !!forceOpen;
+  // Escape dismisses the guide, like Skip.
+  const closeRef = useRef<() => void>(() => undefined);
+  useEffect(() => {
+    if (!visible) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeRef.current(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [visible]);
+  if (!visible) return null;
   const close = () => { markDone(); setOpen(false); onClose?.(); };
+  closeRef.current = close;
   const steps = [
     { title: "Welcome to NEXUS", body: <>NEXUS reads your DualSense or DualShock 4, lets you tune sticks and triggers, remap buttons, add gyro aiming and record macros, and saves everything in profiles.</> },
     { title: "Connect your controller", body: <>

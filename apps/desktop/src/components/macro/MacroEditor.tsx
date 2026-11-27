@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Icon } from "../Icons";
 import { useHistory } from "../../hooks/useHistory";
 import { engineApi, errorIssues, errorMessage } from "../../lib/engine";
 import { LIMITS, validateMacro } from "../../lib/macros";
@@ -158,7 +159,7 @@ export function MacroEditor({ initial, others, profiles, meta, activeProfileId, 
         )}
         <span className="ms-toolbar-actions">
           <button className={`pm-pin-btn${pinned ? " on" : ""}`} disabled={!saved} aria-pressed={pinned}
-            onClick={() => onPin(full, !pinned)}>{pinned ? "★ Pinned" : "☆ Pin"}</button>
+            onClick={() => onPin(full, !pinned)}><Icon name="star" size={14} filled={pinned} /> {pinned ? "Pinned" : "Pin"}</button>
           <button className="btn-ghost small" disabled={!saved} onClick={afterSave(onDuplicate)} title="A copy without a button assigned">Duplicate</button>
           <button className="btn-ghost small" disabled={!saved} onClick={afterSave(onExport)} title="Save this macro to a file">Export</button>
           <button className="btn-ghost small danger" disabled={!saved} onClick={() => onDelete(full)}>Delete</button>
@@ -189,7 +190,7 @@ export function MacroEditor({ initial, others, profiles, meta, activeProfileId, 
 
 function SaveIndicator({ state, isNew }: { state: SaveState; isNew: boolean }) {
   switch (state.kind) {
-    case "saved": return <span className="save-state ok" role="status">✓ Saved</span>;
+    case "saved": return <span className="save-state ok" role="status"><Icon name="check" size={14} /> Saved</span>;
     case "pending":
     case "saving": return <span className="save-state" role="status">{isNew ? "Not saved yet" : "Saving…"}</span>;
     case "invalid": return <span className="save-state warn" role="status" title={state.issues.map((i) => i.message).join("\n")}>Not saved: {state.issues[0]?.message}</span>;

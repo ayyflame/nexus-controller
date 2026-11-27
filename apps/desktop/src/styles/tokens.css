@@ -1,0 +1,139 @@
+/* NEXUS design tokens.
+ *
+ * Dark-first: near-black graphite surfaces, one electric-blue accent for
+ * primary actions, focus and the active state, and status colours used only
+ * for status. Every colour, size and timing in the app comes from here; a
+ * page never invents its own.
+ */
+:root {
+  color-scheme: dark;
+
+  /* ---- Surfaces (darkest to lightest) ---------------------------------- */
+  --bg-sidebar: #0a0b0d;        /* navigation rail */
+  --bg: #0e0f12;                /* application / content background */
+  --surface-inset: #0b0c0f;     /* wells inside cards: lists, editors, code */
+  --surface-1: #15171b;         /* cards */
+  --surface-2: #1b1d22;         /* controls and raised areas inside cards */
+  --surface-3: #23262c;         /* hover */
+  --surface-4: #2b2f36;         /* pressed / selected neutral */
+  --overlay: rgba(4, 5, 7, 0.72);
+  --surface-float: #1d2026;     /* tooltips, toasts */
+  --surface-accent: #172238;    /* selected / playing on the accent */
+  --surface-warn: #1a1810;      /* banners */
+  --surface-error: #1f1313;
+  --surface-info: #101a2c;
+  --surface-ok: #0f1d17;
+
+  /* ---- Lines ------------------------------------------------------------ */
+  --border: #23262c;
+  --border-strong: #31353d;
+  /* Outline of inputs, selects and switches: at least 3:1 against every surface they sit on (WCAG 1.4.11). */
+  --border-control: #686d75;
+  --border-control-hover: #80868f;
+  --divider: #1c1f24;
+  --border-hover: #3f444d;       /* raised controls on hover */
+  --line-strong: #4a4f59;        /* centre lines, axes */
+
+  /* ---- Text ------------------------------------------------------------- */
+  --text: #e8eaee;              /* primary */
+  --text-dim: #a4aab5;          /* secondary */
+  --text-faint: #878d97;        /* muted: hints, units (at least 4.5:1 on every surface, hover included) */
+  --text-code: #cbd3e0;         /* hex dumps, report text */
+  --graphic-muted: #8a909b;     /* "your stick" dots and raw meters */
+
+  /* ---- Accent: electric blue ------------------------------------------- */
+  --accent: #4c8dff;            /* indicators, links, selected borders */
+  --accent-bright: #7aaeff;     /* accent text on dark surfaces */
+  --accent-strong: #2f6fe4;     /* filled primary buttons (white text 4.6:1) */
+  --accent-strong-hover: #3a7cf2;
+  --accent-deep: #1d4fae;
+  --accent-wash: rgba(76, 141, 255, 0.12);
+  --accent-wash-strong: rgba(76, 141, 255, 0.2);
+  --accent-ring: rgba(76, 141, 255, 0.45);
+  --accent-line: rgba(76, 141, 255, 0.4);    /* accent borders on cards */
+  --on-accent: #ffffff;
+
+  /* ---- Status ----------------------------------------------------------- */
+  --ok: #3ebd80;
+  --ok-text: #8ddcb3;
+  --ok-wash: rgba(62, 189, 128, 0.12);
+  --ok-line: rgba(62, 189, 128, 0.38);
+  --warn: #e8a33d;
+  --warn-text: #f2c886;
+  --warn-wash: rgba(232, 163, 61, 0.1);
+  --warn-line: rgba(232, 163, 61, 0.38);
+  --error: #ef5e5e;
+  --error-text: #f5a3a3;
+  --error-wash: rgba(239, 94, 94, 0.1);
+  --error-line: rgba(239, 94, 94, 0.4);
+  --danger-strong: #c8423f;     /* filled destructive buttons */
+  --danger-strong-hover: #d64e4b;
+  --info: var(--accent);
+
+  /* ---- Controller marks (3D model, Mapping legend, Live Viewer) --------- */
+  --mark-pressed: var(--accent);
+  --mark-remapped: #2ec4d6;
+  --mark-macro: #a98bff;
+  --mark-disabled: var(--error);
+  --record: #ef4f4f;
+  --mark-remapped-light: #bdf1f7;
+  /* Key caps (controller buttons drawn as chips) */
+  --keycap-top: #2b2e35;
+  --keycap-bottom: #212329;
+  --keycap-border: #3d414a;
+  --ps-triangle: #4fd1b4;
+  --ps-circle: #f2707c;
+  --ps-cross: #84a9ff;
+  --ps-square: #e58ad6;
+
+  /* ---- Type -------------------------------------------------------------
+   * Segoe UI Variable on Windows (the app's platform); Inter or the system
+   * font elsewhere. Monospace only for numbers, timings and identifiers. */
+  --font: "Segoe UI Variable Text", "Segoe UI", Inter, system-ui, sans-serif;
+  --font-display: "Segoe UI Variable Display", "Segoe UI", Inter, system-ui, sans-serif;
+  --mono: "Cascadia Mono", "Cascadia Code", Consolas, "JetBrains Mono", ui-monospace, monospace;
+  --fs-page: 24px;              /* page title */
+  --fs-title: 20px;             /* detail titles (a profile) */
+  --fs-section: 16px;           /* section heading */
+  --fs-card: 14.5px;            /* card heading */
+  --fs-body: 13.5px;            /* body and controls */
+  --fs-small: 12.5px;           /* descriptions, secondary values */
+  --fs-xs: 11.5px;              /* captions, badges */
+  --fs-overline: 10.5px;        /* group labels (the only upper-case text) */
+
+  /* ---- Space: an 4/8-point scale --------------------------------------- */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+  --page-x: 32px;               /* page side margin */
+  --page-max: 1360px;
+
+  /* ---- Shape ------------------------------------------------------------ */
+  --radius-xl: 14px;            /* dialogs, palette */
+  --radius-lg: 12px;            /* cards */
+  --radius: 10px;               /* panels inside cards */
+  --radius-sm: 7px;             /* buttons, inputs */
+  --radius-xs: 5px;             /* badges inside text, kbd */
+  --control-h: 34px;            /* standard button / input height */
+  --control-h-sm: 28px;
+
+  /* ---- Depth: borders first; shadows only for floating layers ---------- */
+  --shadow-pop: 0 12px 32px -12px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.02);
+  --shadow-modal: 0 32px 80px -24px rgba(0, 0, 0, 0.85);
+
+  /* ---- Motion: fast and subtle ----------------------------------------- */
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --t-fast: 120ms;
+  --t: 160ms;
+  --t-slow: 220ms;
+
+  /* ---- Layers ----------------------------------------------------------- */
+  --z-sticky: 5;
+  --z-tip: 40;
+  --z-modal: 50;
+  --z-toast: 60;
+}

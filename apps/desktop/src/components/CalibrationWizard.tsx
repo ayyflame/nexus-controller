@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Icon } from "./Icons";
 import { useEngine, usePrimaryDevice } from "../hooks/useEngine";
 import {
   DIRECTIONS, adviseDeadzone, applyCalibration, measureCenter, measureRange, measureTrigger, restoreSnapshot, snapshotOf,
@@ -263,7 +264,7 @@ export function CalibrationWizard() {
 
       {stage.kind === "applied" && (
         <>
-          <p className="ok-text">✓ Calibration applied and saved to {stage.profile}. Games receive it through the virtual controller right away.</p>
+          <p className="ok-text inline-icon"><Icon name="checkCircle" size={15} /> Calibration applied and saved to {stage.profile}. Games receive it through the virtual controller right away.</p>
           <div className="row gap-sm wrap">
             <button className="btn-secondary" onClick={() => void doRestore(stage.previous)}>Reset to previous calibration</button>
             <button className="btn-ghost" onClick={cancel}>Done</button>

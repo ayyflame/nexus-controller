@@ -1,7 +1,7 @@
 // Output Check (Live Viewer): reads of the virtual Xbox 360 controller back
 // through XInput, compared with what NEXUS sent. Pure helpers, unit-tested.
 
-import type { LatencySummary, OutputCheck, SlowCalls, StageSummary, XInputPad } from "../types/engine";
+import type { OutputCheck, XInputPad } from "../types/engine";
 
 export const XBUTTONS: Array<[number, string]> = [
   [0x1000, "A"], [0x2000, "B"], [0x4000, "X"], [0x8000, "Y"], [0x0100, "LB"], [0x0200, "RB"],
@@ -66,30 +66,4 @@ export function formatNs(ns: number): string {
   if (ns < 1000) return `${Math.round(ns)} ns`;
   if (ns < 1_000_000) return `${(ns / 1000).toFixed(ns < 10_000 ? 1 : 0)} µs`;
   return `${(ns / 1_000_000).toFixed(1)} ms`;
-}
-
-/** Average / median / 95th / 99th percentile / max (average and 95th only when the engine provides them). */
-export function stageText(s: StageSummary | undefined): string {
-  if (!s?.samples) return "—";
-  const parts = s.meanNs !== undefined && s.p95Ns !== undefined
-    ? [s.meanNs, s.p50Ns, s.p95Ns, s.p99Ns, s.maxNs]
-    : [s.p50Ns, s.p99Ns, s.maxNs];
-  return parts.map(formatNs).join(" / ");
-}
-
-/** The same for a microsecond distribution, in ms (e.g. time between reports). */
-export function gapsText(s: LatencySummary | undefined): string {
-  if (!s?.samples) return "—";
-  const ms = (us: number) => (us / 1000).toFixed(2);
-  const parts = s.meanUs !== undefined && s.p95Us !== undefined
-    ? [s.meanUs, s.p50Us, s.p95Us, s.p99Us, s.maxUs]
-    : [s.p50Us, s.p99Us, s.maxUs];
-  return `${parts.map(ms).join(" / ")} ms`;
-}
-
-/** Slow driver calls since the controller connected, and whether they matter. */
-export function slowCallsText(s: SlowCalls | undefined): { text: string; tone: "ok" | "warn" | "bad" } {
-  if (!s?.calls) return { text: "—", tone: "ok" };
-  const text = `${s.over4ms} over 4 ms · ${s.over50ms} over 50 ms · longest ${formatNs(s.longestNs)}`;
-  return { text, tone: s.over50ms > 0 ? "bad" : s.over4ms > 0 ? "warn" : "ok" };
 }

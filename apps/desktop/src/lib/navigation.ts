@@ -128,3 +128,14 @@ export function hashToRoute(hash: string | null | undefined): Route | null {
   try { tab = m[2] ? decodeURIComponent(m[2]) : undefined; } catch { return null; }
   return resolvePage(m[1], tab || undefined);
 }
+
+/** Where a page sits, for the top bar: its sidebar group, its name, and a sub-page (a macro's editor). */
+export interface PageTrail { group: string | null; label: string; sub: string | null }
+
+export function pageTrail(page: PageId, tab?: string): PageTrail {
+  if (page === "settings") return { group: null, label: "Settings", sub: null };
+  const group = NAV_GROUPS.find((g) => g.items.some((i) => i.id === page));
+  const item = group?.items.find((i) => i.id === page);
+  const sub = page === "macro-studio" && (tab === "draft" || (tab?.startsWith("edit:") ?? false)) ? "Editor" : null;
+  return { group: group?.label ?? null, label: item?.label ?? "Dashboard", sub };
+}

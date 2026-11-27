@@ -1,7 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CalibrationWizard } from "../components/CalibrationWizard";
 import { ControllerVisual } from "../components/ControllerVisual";
 import { OutputCheck } from "../components/OutputCheck";
+import { DeviceSelector } from "../components/controller/advanced";
+import { Icon } from "../components/Icons";
+import { useControllerPhase } from "../components/StatusPill";
+import { TabPanel, Tabs } from "../components/Tabs";
+import { useNow } from "../hooks/useNow";
 import { calibrationStatus } from "../lib/calibration";
 import { Panel, StickPlot, TriggerMeter, Segmented } from "../components/controller/widgets";
 import { useEngine, usePrimaryDevice } from "../hooks/useEngine";
@@ -12,13 +17,13 @@ import {
 } from "../lib/diagAnalog";
 import { activeControls, controlsFor, mergeSeen, type ControlId } from "../lib/diagDetected";
 import { analyzeDrift, compareToReference, invalidReason, type DriftSample } from "../lib/diagDrift";
-import { freshness, freshnessText, healthItems, reportAge, type Source } from "../lib/diagHealth";
+import { freshness, freshnessText, healthItems, reportAge, type Freshness, type Source } from "../lib/diagHealth";
 import { accelG, gyroDps, motionAvailability, tiltFrom, type Vec3 } from "../lib/diagMotion";
 import {
   checkProgress, feed, goTo, markFailed, retry, startTest, stepsFor, summary, type TestState,
 } from "../lib/diagTest";
 import { engineApi } from "../lib/engine";
-import { connectionLabel, describeDeviceEvent, formatLabel, modelLabel, modelWithRevision } from "../lib/format";
+import { connectionLabel, describeDeviceEvent, durationText, formatLabel, modelLabel, modelWithRevision, usbIdText } from "../lib/format";
 import { BUTTONS } from "../lib/macros";
 import { withDefaults } from "../lib/processing";
 import type { ControllerModel, ControllerState, DeviceSnapshot, Macro, MacroButton, ProcessingConfig } from "../types/engine";
@@ -50,47 +55,87 @@ export function LiveViewer({ initialTab }: { initialTab?: string }) {
   const { profile } = useEngine();
   const config = useMemo(() => withDefaults(profile?.processing), [profile?.processing]);
   return (
-    <div className="page">
-      <header className="page-head">
-        <h1>Live Viewer</h1>
-        <p className="muted">Everything here is read from your controller as NEXUS receives it. Nothing is simulated and no setting is changed.</p>
-      </header>
-      <nav className="tabs" role="tablist" aria-label="Live Viewer">
-        {TABS.map((t) => (
-          <button key={t.id} role="tab" aria-selected={tab === t.id} className={tab === t.id ? "selected" : ""} onClick={() => setTab(t.id)}>{t.label}</button>
-        ))}
-      </nav>
-      {!device ? (
-        <div className="card"><p className="muted">Connect your DualSense or DualShock 4 with a USB cable. Nothing is shown until NEXUS receives real input.</p></div>
-      ) : (
-        <div className="tab-body" key={tab}>
-          <StaleNotice device={device} />
-          {tab === "live" && <LiveTab device={device} config={config} onCalibrate={() => setTab("calibration")} />}
-          {tab === "analog" && <AnalogTab device={device} config={config} />}
-          {tab === "motion" && <MotionTab input={device.input} />}
-          {tab === "health" && <HealthTab device={device} />}
-          {tab === "test" && <TestTab input={device.input} model={device.device.model} />}
-          {tab === "output" && <OutputCheck />}
-          {tab === "drift" && <DriftTab input={device.input} config={config} />}
-          {tab === "calibration" && <CalibrationWizard />}
+    <div className="page lv-page">
+      <header className="page-header">
+        <div>
+          <h1>Live Viewer</h1>
+          <p className="muted">Everything here is read from your controller as NEXUS receives it. Nothing is simulated and no setting is changed.</p>
         </div>
-      )}
+        <Monitored device={device} />
+      </header>
+      <DeviceSelector />
+      <Tabs id="lv" label="Live Viewer" tabs={TABS} value={tab} onChange={setTab} />
+      <TabPanel id="lv" tab={tab} className="tab-body" key={tab}>
+        {!device ? <NoController /> : (
+          <>
+            <StaleNotice device={device} />
+            {tab === "live" && <LiveTab device={device} config={config} onCalibrate={() => setTab("calibration")} />}
+            {tab === "analog" && <AnalogTab device={device} config={config} />}
+            {tab === "motion" && <MotionTab input={device.input} />}
+            {tab === "health" && <HealthTab device={device} />}
+            {tab === "test" && <TestTab input={device.input} model={device.device.model} />}
+            {tab === "output" && <OutputCheck />}
+            {tab === "drift" && <DriftTab input={device.input} config={config} />}
+            {tab === "calibration" && <CalibrationWizard />}
+          </>
+        )}
+      </TabPanel>
     </div>
   );
 }
 
-function useNow(ms = 250): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => { const t = setInterval(() => setNow(Date.now()), ms); return () => clearInterval(t); }, [ms]);
-  return now;
+const MONITOR: Record<Freshness, { tone: "ok" | "warn" | "error"; label: string }> = {
+  live: { tone: "ok", label: "Live input" },
+  slow: { tone: "warn", label: "Input slower than usual" },
+  stale: { tone: "error", label: "Input stopped" },
+  none: { tone: "warn", label: "Waiting for input" },
+};
+
+/** Which controller is shown, and whether its input is live. Only the state words are announced, never each update. */
+function Monitored({ device }: { device: DeviceSnapshot | null }) {
+  const { status } = useEngine();
+  const now = useNow(250, !!device);
+  if (!device) return null;
+  const m = MONITOR[freshness(reportAge(device.lastReportMs, now))];
+  const count = status?.devices.length ?? 1;
+  const index = (status?.devices.findIndex((d) => d.device.id === device.device.id) ?? 0) + 1;
+  return (
+    <div className="lv-monitor" role="group" aria-label="Monitored controller">
+      <span className="lv-monitor-icon" aria-hidden="true"><Icon name="controller" size={16} /></span>
+      <span className="lv-monitor-text">
+        <strong>{modelLabel[device.device.model]}</strong>
+        <span className="muted small">
+          {device.device.connection !== "unknown" && <Icon name={device.device.connection} size={12} />}
+          {connectionLabel[device.device.connection]}{count > 1 ? ` · controller ${index} of ${count}` : ""}
+        </span>
+      </span>
+      <span className={`pill tone-${m.tone}`} role="status"><span className="dot" />{m.label}</span>
+    </div>
+  );
+}
+
+/** No controller: says why (engine starting, not available here, or nothing plugged in). */
+function NoController() {
+  const phase = useControllerPhase();
+  const title = phase.key === "loading" ? "Starting the controller engine…" : phase.key === "browser" ? "No controller engine here"
+    : phase.key === "error" ? "The controller engine didn't start" : phase.key === "unsupported" ? "Controllers can't be read here" : "No controller connected";
+  return (
+    <section className="card">
+      <div className="empty-state" role="status">
+        <Icon name="usb" size={22} />
+        <strong>{title}</strong>
+        <span>{phase.key === "disconnected" ? "Connect your DualSense or DualShock 4 with a USB cable. Nothing is shown until NEXUS receives real input." : phase.detail}</span>
+      </div>
+    </section>
+  );
 }
 
 function StaleNotice({ device }: { device: DeviceSnapshot }) {
-  const now = useNow();
+  const now = useNow(250);
   const age = reportAge(device.lastReportMs, now);
   const f = freshness(age);
   if (f === "live" || f === "slow") return null;
-  return <div className="notice warn" role="status">{freshnessText(f, age)}. The values below are the last ones received.</div>;
+  return <div className="notice warn">{freshnessText(f, age)}. The values below are the last ones received.</div>;
 }
 
 // ---- Live ----------------------------------------------------------------------
@@ -102,6 +147,8 @@ function LiveTab({ device, config, onCalibrate }: { device: DeviceSnapshot; conf
   const [macros, setMacros] = useState<Macro[]>([]);
   const [selected, setSelected] = useState<MacroButton | null>(null);
   const [seen, setSeen] = useState<Set<ControlId>>(() => new Set());
+  // One 3D view at a time: the physical input or what the game receives.
+  const [view, setView] = useState<"input" | "output">("input");
   useEffect(() => {
     if (connection.kind === "ready") engineApi.listMacros().then(setMacros).catch(() => setMacros([]));
   }, [connection.kind]);
@@ -112,38 +159,45 @@ function LiveTab({ device, config, onCalibrate }: { device: DeviceSnapshot; conf
   const mapping = selected ? buttonMapping(selected, config, macros) : null;
   return (
     <div className="lv-grid">
-      <Panel title="Your controller" aside={<span className={`badge ${layerName ? "tone-ok" : "tone-neutral"}`}>{layerName ? `Layer active: ${layerName}` : "Base layout (no shift layer)"}</span>}>
-        <ControllerVisual state={input} live selected={selected} marks={marks} onSelect={(b) => setSelected((c) => (c === b ? null : b))} />
-        <div className="controller-legend" aria-hidden="true">
-          <span><i className="l-pressed" />Pressed</span><span><i className="l-selected" />Selected</span>
-          <span><i className="l-remapped" />Remapped</span><span><i className="l-macro" />Starts a macro</span>
-          <span><i className="l-disabled" />Disabled</span><span><i className="l-special" />Layer or gyro</span>
+      <Panel title="Controller" aside={<span className={`badge ${layerName ? "tone-ok" : "tone-neutral"}`}>{layerName ? `Layer active: ${layerName}` : "Base layout"}</span>}>
+        <div className="lv-view-row">
+          <Segmented label="Show" value={view} onChange={setView} options={[
+            { value: "input", label: "Your controller", tip: "Exactly what the controller sends" },
+            { value: "output", label: "Sent to the game", tip: "After settings, remapping and macros" },
+          ]} />
+          <span className="muted small">{view === "input" ? "Click a control to see what it does." : `Playing macros: ${device.playingMacros.length || "none"}`}</span>
         </div>
-        {mapping && (
-          <div className="mapping-card" aria-live="polite">
-            <h4>{BUTTONS[mapping.button].name}<span className="mapping-kind">{mapping.kind}</span></h4>
-            <ul>{describeMapping(mapping, (b) => BUTTONS[b].name).map((l) => <li key={l}>{l}</li>)}</ul>
-          </div>
-        )}
-      </Panel>
-      <Panel title="Sent to the game" aside={<span className="muted small">after settings, remapping and macros</span>}>
-        <ControllerVisual state={out} live />
-        <p className="muted small">Playing macros: {device.playingMacros.length ? device.playingMacros.length : "none"}</p>
+        {view === "input" ? (
+          <>
+            <ControllerVisual state={input} live selected={selected} marks={marks} onSelect={(b) => setSelected((c) => (c === b ? null : b))} />
+            <div className="controller-legend" aria-hidden="true">
+              <span><i className="l-pressed" />Pressed</span><span><i className="l-selected" />Selected</span>
+              <span><i className="l-remapped" />Remapped</span><span><i className="l-macro" />Starts a macro</span>
+              <span><i className="l-disabled" />Disabled</span><span><i className="l-special" />Layer or gyro</span>
+            </div>
+            {mapping && (
+              <div className="mapping-card" aria-live="polite">
+                <h4>{BUTTONS[mapping.button].name}<span className="mapping-kind">{mapping.kind}</span></h4>
+                <ul>{describeMapping(mapping, (b) => BUTTONS[b].name).map((l) => <li key={l}>{l}</li>)}</ul>
+              </div>
+            )}
+          </>
+        ) : <ControllerVisual state={out} live />}
       </Panel>
       <Panel title="Analog values">
         <AnalogTable input={input} out={out} />
       </Panel>
       <CalibrationStatusPanel config={config} onCalibrate={onCalibrate} />
       <Panel title="Detected this session" aside={<button className="btn-ghost small" onClick={() => setSeen(new Set())}>Reset</button>}>
-        <p className="muted small">Each control lights while it's in use and gets a tick once NEXUS has seen it. Anything that never ticks isn't reaching NEXUS.</p>
+        <p className="muted small">Each control lights while it's in use and gets a check mark once NEXUS has seen it. Anything that never gets one isn't reaching NEXUS.</p>
         <div className="lv-detected">
           {controlsFor(device.device.model).map((c) => (
             <span key={c.id} className={`lv-chip${active.has(c.id) ? " on" : ""}${seen.has(c.id) ? " seen" : ""}`}>
-              {seen.has(c.id) ? "✓ " : ""}{c.label}
+              {seen.has(c.id) && <Icon name="check" size={12} />}{c.label}{seen.has(c.id) && <span className="sr-only"> (detected)</span>}
             </span>
           ))}
         </div>
-        <p className="muted small">{seen.size} of {controlsFor(device.device.model).length} controls detected.</p>
+        <p className="muted small" aria-live="polite">{seen.size} of {controlsFor(device.device.model).length} controls detected.</p>
       </Panel>
     </div>
   );
@@ -195,8 +249,12 @@ function CalibrationStatusPanel({ config, onCalibrate }: { config: ProcessingCon
 
 function useRange<T>(empty: () => T, add: (r: T, s: ControllerState) => T, input: ControllerState | null): [T, () => void] {
   const [r, setR] = useState<T>(empty);
-  useEffect(() => { if (input) setR((cur) => add(cur, input)); }, [input]); // eslint-disable-line react-hooks/exhaustive-deps
-  return [r, () => setR(empty())];
+  // The callbacks are recreated on every render; the effect runs only for new input.
+  const fns = useRef({ empty, add });
+  fns.current = { empty, add };
+  useEffect(() => { if (input) setR((cur) => fns.current.add(cur, input)); }, [input]);
+  const reset = useCallback(() => setR(fns.current.empty()), []);
+  return [r, reset];
 }
 
 function AnalogTab({ device, config }: { device: DeviceSnapshot; config: ProcessingConfig }) {
@@ -205,7 +263,7 @@ function AnalogTab({ device, config }: { device: DeviceSnapshot; config: Process
   const [rs, resetRs] = useRange<StickRange>(emptyStickRange, (r, s) => addStickSample(r, s.rightStick.x, s.rightStick.y), input);
   const [lt, resetLt] = useRange<TriggerRange>(emptyTriggerRange, (r, s) => addTriggerSample(r, s.leftTrigger.raw), input);
   const [rt, resetRt] = useRange<TriggerRange>(emptyTriggerRange, (r, s) => addTriggerSample(r, s.rightTrigger.raw), input);
-  if (!input) return <div className="card"><p className="muted">No input yet.</p></div>;
+  if (!input) return <section className="card"><div className="empty-state"><strong>No input yet</strong><span>Values appear as soon as the controller sends its first report.</span></div></section>;
   return (
     <div className="lv-grid">
       {([["Left stick", "leftStick", ls, resetLs], ["Right stick", "rightStick", rs, resetRs]] as const).map(([label, side, range, reset]) => {
@@ -223,7 +281,7 @@ function AnalogTab({ device, config }: { device: DeviceSnapshot; config: Process
                 <Stat k="Sent to game" v={out ? `${signed(out[side].x)} / ${signed(out[side].y)}` : "—"} />
                 <h4 className="lv-sub">Full-range test</h4>
                 <p className="muted small">Roll the stick slowly around the edge.</p>
-                <Stat k="Left · Right · Up · Down" v={[res.left, res.right, res.up, res.down].map((b) => (b ? "✓" : "–")).join("  ")} />
+                <Stat k="Edges reached" v={reachedText(res)} />
                 <Stat k="Directions reached" v={`${res.sectorsReached} of 8`} />
                 <Stat k="Furthest reached" v={pct(range.maxRadius)} />
                 <Stat k="Result" v={res.complete ? "Full range reached" : range.samples ? "Not yet" : "—"} ok={res.complete} />
@@ -243,8 +301,8 @@ function AnalogTab({ device, config }: { device: DeviceSnapshot; config: Process
               <Stat k="Raw / travel" v={`${t.raw} / ${pct(t.value)}`} />
               <Stat k="Sent to game" v={out ? pct(out[side].value) : "—"} />
               <Stat k="Lowest · highest seen" v={range.samples ? `${range.minRaw} · ${range.maxRaw}` : "—"} />
-              <Stat k="Fully released (≤ 2)" v={res.fullRelease ? "✓" : "–"} ok={res.fullRelease} />
-              <Stat k="Fully pressed (≥ 253)" v={res.fullPress ? "✓" : "–"} ok={res.fullPress} />
+              <Stat k="Fully released (≤ 2)" v={res.fullRelease ? "Yes" : "Not yet"} ok={res.fullRelease} />
+              <Stat k="Fully pressed (≥ 253)" v={res.fullPress ? "Yes" : "Not yet"} ok={res.fullPress} />
             </div>
             {res.incomplete && <div className="notice warn small">{res.incomplete}</div>}
           </Panel>
@@ -255,6 +313,14 @@ function AnalogTab({ device, config }: { device: DeviceSnapshot; config: Process
   );
 }
 
+/** "Left, right and up": the stick edges reached so far, in words. */
+function reachedText(r: { left: boolean; right: boolean; up: boolean; down: boolean }): string {
+  const names = (["left", "right", "up", "down"] as const).filter((k) => r[k]);
+  if (names.length === 0) return "None yet";
+  if (names.length === 4) return "All four";
+  return names.length === 1 ? names[0]! : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
 function Stat({ k, v, ok }: { k: string; v: string; ok?: boolean }) {
   return <div className="kv-row"><span className="muted">{k}</span><span className={`mono${ok ? " ok-text" : ""}`}>{v}</span></div>;
 }
@@ -263,7 +329,17 @@ function Stat({ k, v, ok }: { k: string; v: string; ok?: boolean }) {
 
 function MotionTab({ input }: { input: ControllerState | null }) {
   const avail = motionAvailability(input);
-  if (!avail.available) return <div className="card"><p className="muted">Motion data unavailable: {avail.reason}</p></div>;
+  if (!avail.available) {
+    return (
+      <section className="card">
+        <div className="empty-state">
+          <Icon name="gyro" size={22} />
+          <strong>Motion data unavailable</strong>
+          <span>{avail.reason}</span>
+        </div>
+      </section>
+    );
+  }
   const m = input!.motion!;
   const dps = gyroDps(m.gyroRaw);
   const g = accelG(m.accelRaw);
@@ -339,7 +415,6 @@ function HealthTab({ device }: { device: DeviceSnapshot }) {
   const { deviceEvents } = useEngine();
   const now = useNow(500);
   const d = device.device;
-  const hex = (n: number) => n.toString(16).toUpperCase().padStart(4, "0");
   const items = healthItems(device, now);
   return (
     <div className="lv-grid">
@@ -347,9 +422,9 @@ function HealthTab({ device }: { device: DeviceSnapshot }) {
         <Stat k="Name" v={d.productName ?? modelLabel[d.model]} />
         <Stat k="Model" v={modelWithRevision(d.model, d.productId)} />
         <Stat k="Connection" v={connectionLabel[d.connection]} />
-        <Stat k="Vendor : product ID" v={`${hex(d.vendorId)} : ${hex(d.productId)}`} />
+        <Stat k="USB ID (vendor:product)" v={usbIdText(d.vendorId, d.productId)} />
         <Stat k="Report format" v={device.input ? formatLabel[device.input.format] : "—"} />
-        <Stat k="Connected for" v={`${Math.max(0, Math.round((now - device.connectedAtMs) / 1000))} s`} />
+        <Stat k="Connected for" v={durationText((now - device.connectedAtMs) / 1000)} />
         <Stat k="Last report" v={device.lastReportMs ? new Date(device.lastReportMs).toLocaleTimeString() : "—"} />
         {device.lastParseError && <Stat k="Last unreadable report" v={device.lastParseError} />}
       </Panel>
@@ -385,7 +460,7 @@ function TestTab({ input, model }: { input: ControllerState | null; model: Contr
   useEffect(() => { setT((cur) => (cur ? feed(cur, input) : cur)); }, [input]);
   if (!t) {
     return (
-      <div className="card">
+      <div className="card lv-intro">
         <h2>Controller Test</h2>
         <p>Walks through every control in {stepsFor(model).length} steps and checks that each one works fully: buttons press and release, triggers reach both ends, sticks reach every direction.</p>
         <p className="muted small">The test only reads input. It doesn't change mappings, calibration, profiles or macros. Your presses still reach NEXUS as usual, so macros can play and the virtual controller receives them; you may want to stay out of games meanwhile.</p>
@@ -413,9 +488,11 @@ function TestTab({ input, model }: { input: ControllerState | null; model: Contr
   const result = t.results[step.id]!;
   return (
     <div className="card lv-test">
-      <div className="row gap wrap">
+      <div className="row gap wrap" role="group" aria-label="Test steps">
         {t.steps.map((st, i) => (
-          <button key={st.id} className={`lv-step${i === t.step ? " current" : ""} r-${t.results[st.id]}`} onClick={() => setT(goTo(t, i))}>{i + 1}</button>
+          <button key={st.id} type="button" className={`lv-step${i === t.step ? " current" : ""} r-${t.results[st.id]}`}
+            aria-current={i === t.step ? "step" : undefined} aria-label={`Step ${i + 1}: ${st.title}, ${resultText(t.results[st.id]!).toLowerCase()}`}
+            onClick={() => setT(goTo(t, i))}>{i + 1}</button>
         ))}
       </div>
       <h2>{t.step + 1}. {step.title}</h2>
@@ -423,10 +500,16 @@ function TestTab({ input, model }: { input: ControllerState | null; model: Contr
       <ul className="lv-checks">
         {step.checks.map((c) => {
           const p = checkProgress(t, c.id);
-          return <li key={c.id} className={p?.done ? "ok-text" : undefined}>{p?.done ? "✓" : "○"} {c.label}{p ? progressText(p) : ""}</li>;
+          return (
+            <li key={c.id} className={p?.done ? "ok-text" : undefined}>
+              {p?.done ? <Icon name="checkCircle" size={14} /> : <span className="lv-check-dot" aria-hidden="true" />}
+              <span>{c.label}{p ? progressText(p) : ""}</span>
+              <span className="sr-only">{p?.done ? " (done)" : " (not yet)"}</span>
+            </li>
+          );
         })}
       </ul>
-      <p className={result === "pass" ? "ok-text" : result === "fail" ? "err-text" : "muted"}>{result === "untested" ? "Waiting for input…" : resultText(result)}</p>
+      <p className={result === "pass" ? "ok-text" : result === "fail" ? "err-text" : "muted"} role="status">{result === "untested" ? "Waiting for input…" : resultText(result)}</p>
       <div className="row gap-sm wrap">
         <button className="btn-ghost" disabled={t.step === 0} onClick={() => setT(goTo(t, t.step - 1))}>Back</button>
         {result === "untested" && <button className="btn-ghost danger" onClick={() => setT(markFailed(t))}>Mark as failed</button>}
@@ -446,7 +529,7 @@ function progressText(p: NonNullable<ReturnType<typeof checkProgress>>): string 
     case "button": return p.pressed ? " — pressed, now release it" : "";
     case "trigger": return p.range.samples ? ` — highest ${p.range.maxRaw} of 255${p.pressedEnd ? ", now release it fully" : ""}` : "";
     case "stick": { const r = stickRangeResult(p.range); return p.range.samples ? ` — ${r.sectorsReached} of 8 directions${r.complete ? ", now let it go" : ""}` : ""; }
-    case "touch": return p.touched || p.clicked ? ` — ${p.touched ? "touch ✓" : "touch –"}, ${p.clicked ? "click ✓" : "click –"}` : "";
+    case "touch": return p.touched || p.clicked ? ` — touch ${p.touched ? "done" : "not yet"}, click ${p.clicked ? "done" : "not yet"}` : "";
   }
 }
 
@@ -459,7 +542,8 @@ function DriftTab({ input, config }: { input: ControllerState | null; config: Pr
   const [running, setRunning] = useState<{ until: number; side: "leftStick" | "rightStick" } | null>(null);
   const samples = useRef<DriftSample[]>([]);
   const [result, setResult] = useState<{ r: ReturnType<typeof analyzeDrift>; seconds: number } | null>(null);
-  const now = useNow(100);
+  // The clock ticks only while measuring (countdown and end of the run).
+  const now = useNow(100, !!running);
   useEffect(() => { setRefText((config[side].deadzone * 100).toFixed(1)); }, [side, config]);
   useEffect(() => {
     if (!running || !input) return;
@@ -482,26 +566,25 @@ function DriftTab({ input, config }: { input: ControllerState | null; config: Pr
           <Segmented label="Duration" value={seconds} onChange={setSeconds}
             options={[{ value: "5", label: "5 s" }, { value: "10", label: "10 s" }, { value: "30", label: "30 s" }]} />
         </div>
-        <label className="ms-input" style={{ marginTop: 10 }}>
-          <span>Reference radius</span>
-          <input className="text-input mono" inputMode="decimal" value={refText} onChange={(e) => setRefText(e.target.value)} aria-label="Reference radius (percent)" />
-          <span className="muted small">% (default: this profile's deadzone)</span>
+        <label className="field lv-ref">
+          <span className="field-label">Reference radius, % (default: this profile's deadzone)</span>
+          <input className="text-input mono" inputMode="decimal" value={refText} onChange={(e) => setRefText(e.target.value)} />
         </label>
-        <div className="row gap-sm" style={{ marginTop: 12 }}>
+        <div className="row gap-sm lv-actions">
           <button className="btn-primary" disabled={!!running || !input} onClick={() => {
             samples.current = []; setResult(null);
             setRunning({ until: Date.now() + Number(seconds) * 1000, side });
           }}>{running ? `Measuring… ${Math.max(0, Math.ceil((running.until - now) / 1000))} s` : "Start measuring"}</button>
           {running && <button className="btn-ghost" onClick={() => setRunning(null)}>Cancel</button>}
         </div>
-        {st && <div className="lv-stats" style={{ marginTop: 12 }}>
+        {st && <div className="lv-stats lv-actions">
           <Stat k="Current X / Y (raw bytes)" v={`${st.rawX} / ${st.rawY}`} />
           <Stat k="Current X / Y" v={`${signed(st.x)} / ${signed(st.y)}`} />
           <Stat k="Current offset from centre" v={p(Math.hypot(st.x, st.y))} />
         </div>}
       </Panel>
       <Panel title="Result">
-        {!result ? <p className="muted">{running ? "Recording… keep the controller still." : "No measurement yet."}</p>
+        {!result ? <p className="muted" role="status">{running ? "Recording… keep the controller still." : "No measurement yet."}</p>
           : invalidReason(result.r, result.seconds) ? <div className="notice warn">{invalidReason(result.r, result.seconds)}</div> : (
           <DriftResultView result={result.r!} reference={ref} />
         )}

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Icon } from "../Icons";
 import { engineApi, errorMessage } from "../../lib/engine";
 import { pickable } from "../../lib/games";
 import { restoreLabel, visiblePoints } from "../../lib/restorePoints";
@@ -22,7 +23,7 @@ export function GamesEditor({ profile, onSaved }: { profile: Profile; onSaved: (
       <div className="row gap-sm wrap">
         {profile.games.map((g) => (
           <span key={g} className="game-chip">{g}
-            <button aria-label={`Remove ${g}`} onClick={() => void save(profile.games.filter((x) => x !== g))}>✕</button>
+            <button aria-label={`Remove ${g}`} onClick={() => void save(profile.games.filter((x) => x !== g))}><Icon name="x" size={12} /></button>
           </span>
         ))}
         <form className="row gap-sm" onSubmit={(e) => { e.preventDefault(); if (text.trim()) void save([...profile.games, text]); }}>
@@ -106,11 +107,11 @@ export function PortabilityPanel({ onChanged }: { onChanged: () => void }) {
       <h2>Backup and transfer</h2>
       <p className="muted small">Files are saved in your Documents\NEXUS folder. Importing adds to your setup and never overwrites anything; restoring a backup replaces everything (after NEXUS saves a safety copy).</p>
       <div className="row gap wrap">
-        <button className="btn-secondary" onClick={async () => { try { setExported(await engineApi.exportConfig([], true)); } catch (e) { setError(errorMessage(e)); } }}>Export all profiles</button>
-        <button className="btn-secondary" onClick={async () => { try { setExported(await engineApi.exportMacros()); } catch (e) { setError(errorMessage(e)); } }}>Export macros</button>
-        <button className="btn-secondary" onClick={() => pick("add")}>Import file…</button>
+        <button className="btn-secondary" onClick={async () => { try { setExported(await engineApi.exportConfig([], true)); } catch (e) { setError(errorMessage(e)); } }}><Icon name="download" size={15} /> Export all profiles</button>
+        <button className="btn-secondary" onClick={async () => { try { setExported(await engineApi.exportMacros()); } catch (e) { setError(errorMessage(e)); } }}><Icon name="download" size={15} /> Export macros</button>
+        <button className="btn-secondary" onClick={() => pick("add")}><Icon name="upload" size={15} /> Import file…</button>
         <span className="divider" />
-        <button className="btn-secondary" onClick={async () => { try { setExported(await engineApi.createBackup()); } catch (e) { setError(errorMessage(e)); } }}>Create backup</button>
+        <button className="btn-secondary" onClick={async () => { try { setExported(await engineApi.createBackup()); } catch (e) { setError(errorMessage(e)); } }}><Icon name="shield" size={15} /> Create backup</button>
         <button className="btn-ghost danger" onClick={() => pick("replace")}>Restore backup…</button>
       </div>
       <h3 className="restore-head">Restore points</h3>

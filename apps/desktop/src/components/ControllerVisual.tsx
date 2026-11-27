@@ -29,16 +29,18 @@ interface VisualProps {
   accentSelection?: boolean;
   /** Put the view buttons (presets, zoom, colour) in this element instead of over the picture. */
   toolbarHost?: HTMLElement | null;
+  /** Called if the 3D view fails while the app runs (it then shows the plain picture). */
+  onUnavailable?: () => void;
 }
 
 /** The 3D view is loaded on first use, so pages without a controller picture stay light. */
 const Controller3D = lazy(() => import("./controller3d/Controller3D"));
 
-export function ControllerVisual(props: VisualProps) {
+export function ControllerVisual({ onUnavailable, ...props }: VisualProps) {
   if (!webglAvailable()) return <NoPicture state={props.state} />;
   return (
-    <Fallback3D fallback={<NoPicture state={props.state} />}>
-      <Suspense fallback={<div className="c3d c3d-loading" aria-label="Loading the 3D controller" />}>
+    <Fallback3D fallback={<NoPicture state={props.state} />} onFail={onUnavailable}>
+      <Suspense fallback={<div className="c3d c3d-loading" role="status" aria-busy="true"><span className="sr-only">Loading the 3D controller…</span></div>}>
         <Controller3D {...props} />
       </Suspense>
     </Fallback3D>
@@ -61,10 +63,10 @@ function NoPicture({ state }: { state: ControllerState | null }) {
 }
 
 /** If the 3D view fails (e.g. the graphics driver refuses WebGL), show the notice instead. */
-class Fallback3D extends Component<{ fallback: ReactNode; children: ReactNode }, { failed: boolean }> {
+class Fallback3D extends Component<{ fallback: ReactNode; children: ReactNode; onFail?: () => void }, { failed: boolean }> {
   state = { failed: false };
   static getDerivedStateFromError() { return { failed: true }; }
-  componentDidCatch(e: unknown) { console.warn("3D controller view unavailable.", e); }
+  componentDidCatch(e: unknown) { console.warn("3D controller view unavailable.", e); this.props.onFail?.(); }
   render() {
     return this.state.failed ? this.props.fallback : this.props.children;
   }

@@ -9,6 +9,9 @@ const device = (output: Record<string, unknown>) => ({ output }) as unknown as D
 
 test("the sidebar says whether games get NEXUS's output, and why not", () => {
   assert.equal(outputLine(null, null).tone, "idle");
+  assert.equal(outputLine(null, null, "loading").label, "Xbox output: starting…", "no status yet: starting");
+  assert.equal(outputLine(null, null, "unavailable").label, "Xbox output: unavailable", "no engine (browser preview), not a bare ellipsis");
+  assert.equal(outputLine(null, null, "error").tone, "error");
   assert.equal(outputLine(status({ requestedOutput: "disabled" }), null).label, "Xbox output: off");
   assert.equal(outputLine(status({ outputBackendStatus: { state: "unavailable", reason: "x" } }), null).tone, "error");
   assert.equal(outputLine(status(), null).label, "Xbox output: waiting");

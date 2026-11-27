@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Icon } from "../Icons";
 import type { History } from "../../hooks/useHistory";
 import { BUTTONS, LIMITS, buttonNames, formatMs, heldBefore, newStep, sequenceStateAt, totalDuration, uid } from "../../lib/macros";
 import type { Macro, MacroButton, MacroStep, PlaybackMode, StepKind } from "../../types/engine";
+import { deletesActions } from "../../lib/buttonPicker";
 import { usePick } from "./ButtonPicker";
 import { RecordPanel } from "./RecordPanel";
 import { StepInspector } from "./StepInspector";
@@ -134,7 +136,7 @@ export function SequenceEditor({ history, initialSource = "record", library = []
     setSelectedId(copy.id);
   };
 
-  // Keyboard: Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z / Delete.
+  // Keyboard: Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z / Delete (not from the controller: see deletesActions).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
@@ -145,8 +147,8 @@ export function SequenceEditor({ history, initialSource = "record", library = []
       else if (mod && e.key.toLowerCase() === "a") { e.preventDefault(); setSelection(steps.map((s) => s.id)); }
       else if (mod && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? history.redo() : history.undo(); }
       else if (mod && e.key.toLowerCase() === "y") { e.preventDefault(); history.redo(); }
-      else if ((e.key === "Delete" || e.key === "Backspace") && selected_.length > 1) { e.preventDefault(); removeSelected(); }
-      else if ((e.key === "Delete" || e.key === "Backspace") && selectedIndex >= 0) { e.preventDefault(); remove(selectedIndex); }
+      else if (deletesActions(e.key, target) && selected_.length > 1) { e.preventDefault(); removeSelected(); }
+      else if (deletesActions(e.key, target) && selectedIndex >= 0) { e.preventDefault(); remove(selectedIndex); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -176,7 +178,7 @@ export function SequenceEditor({ history, initialSource = "record", library = []
         </button>
         <button role="tab" aria-selected={source === "manual"} className={source === "manual" ? "selected" : ""}
           onClick={() => setSource("manual")}>
-          <span className="tab-icon" aria-hidden="true">✚</span>
+          <span className="tab-icon" aria-hidden="true"><Icon name="plus" size={13} /></span>
           <span><strong>Build Manually</strong></span>
         </button>
       </div>
@@ -204,14 +206,14 @@ export function SequenceEditor({ history, initialSource = "record", library = []
       <div className="seq-toolbar">
         <div className="row gap-sm">
           {preview.playing ? (
-            <button className="btn-primary" onClick={preview.stop} data-tip="Stop the preview">■ Stop</button>
+            <button className="btn-primary" onClick={preview.stop} data-tip="Stop the preview"><Icon name="stop" size={14} filled /> Stop</button>
           ) : (
             <button className="btn-primary" onClick={preview.play} disabled={steps.length === 0}
               data-tip={looping ? "Play on screen, repeating like the real macro until you press Stop (does not press anything in games)" : "Play the sequence on screen once (does not press anything in games)"}>
-              ▶ Play preview{looping ? " (loops)" : ""}</button>
+              <Icon name="play" size={14} filled /> Play preview{looping ? " (loops)" : ""}</button>
           )}
-          <button className="btn-icon" onClick={history.undo} disabled={!history.canUndo} data-tip="Undo (Ctrl+Z)" aria-label="Undo">↶</button>
-          <button className="btn-icon" onClick={history.redo} disabled={!history.canRedo} data-tip="Redo (Ctrl+Y)" aria-label="Redo">↷</button>
+          <button className="btn-icon" onClick={history.undo} disabled={!history.canUndo} data-tip="Undo (Ctrl+Z)" aria-label="Undo"><Icon name="undo" size={16} /></button>
+          <button className="btn-icon" onClick={history.redo} disabled={!history.canRedo} data-tip="Redo (Ctrl+Y)" aria-label="Redo"><Icon name="redo" size={16} /></button>
           <span className="divider" />
           <button className="btn-ghost" onClick={copy} disabled={!selected_.length} data-tip="Copy selected actions (Ctrl+C)">Copy</button>
           <button className="btn-ghost" onClick={paste} disabled={!clipCount} data-tip="Paste after the selection (Ctrl+V)">Paste{clipCount ? ` (${clipCount})` : ""}</button>
@@ -244,7 +246,7 @@ export function SequenceEditor({ history, initialSource = "record", library = []
         <div className="notice warn small" role="status">
           {risks.map((r) => (
             <div key={`${r.after}-${r.repeat}`}>
-              ⚠ {r.repeat
+              {r.repeat
                 ? <>Repeat boundary: action {steps.length} and action 1 both press {buttonNames(r.buttons)} with only {r.gapMs} ms between them (wait after action {steps.length} + pause between repeats).</>
                 : <>Actions {r.after + 1} and {r.after + 2} both press {buttonNames(r.buttons)} with only {r.gapMs} ms between them.</>}
               {" "}A game may see one long press instead of two. Use at least {LIMITS.minReleaseGapMs} ms.

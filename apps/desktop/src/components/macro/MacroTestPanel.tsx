@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Icon } from "../Icons";
 import { useEngine, usePrimaryDevice } from "../../hooks/useEngine";
 import { engineApi } from "../../lib/engine";
 import { buttonNames } from "../../lib/macros";
@@ -60,7 +61,7 @@ export function MacroTestPanel({ macro, savedEnabled }: { macro: Macro; savedEna
       {progress !== null && <div className="preview-progress"><div style={{ width: `${Math.round(progress * 100)}%` }} /></div>}
       <div>
         <button className="btn-danger small" disabled={!anyPlaying} onClick={() => void engineApi.stopAllMacros()}
-          data-tip="Stops every running macro at once; nothing stays pressed">■ Stop all macros</button>
+          data-tip="Stops every running macro at once; nothing stays pressed"><Icon name="stop" size={13} filled /> Stop all macros</button>
       </div>
     </div>
   );

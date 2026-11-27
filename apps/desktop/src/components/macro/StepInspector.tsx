@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Icon } from "../Icons";
 import { BUTTONS, DELAY_PRESETS, HOLD_PRESETS, LIMITS, buttonNames, kindOf } from "../../lib/macros";
 import { describeStep } from "../../lib/macroStudio";
 import type { MacroButton, MacroStep, StepKind } from "../../types/engine";
@@ -60,7 +61,7 @@ export function StepInspector({ step, index, count, steps, held, onChange, waitB
   const [changing, setChanging] = useState(false);
   useEffect(() => { setChanging(false); }, [step.id]);
   usePick("step", changing ? {
-    priority: 2, title: `Click buttons to add or remove them in action ${index + 1}`,
+    priority: 2, kind: "toggle", title: `Click buttons to add or remove them in action ${index + 1}`,
     selected: step.buttons, blocked, onPick: toggle, onDone: () => setChanging(false),
   } : null);
 
@@ -76,9 +77,9 @@ export function StepInspector({ step, index, count, steps, held, onChange, waitB
         </div>
         <div className="row gap-sm">
           <button className="btn-icon" onClick={() => onMove(-1)} disabled={index === 0}
-            data-tip="Move earlier" aria-label="Move earlier">←</button>
+            data-tip="Move earlier" aria-label="Move earlier"><Icon name="arrowLeft" size={16} /></button>
           <button className="btn-icon" onClick={() => onMove(1)} disabled={index === count - 1}
-            data-tip="Move later" aria-label="Move later">→</button>
+            data-tip="Move later" aria-label="Move later"><Icon name="arrowRight" size={16} /></button>
           <button className="btn-ghost" onClick={onDuplicate} data-tip="Insert a copy right after this action">Duplicate</button>
           <button className="btn-ghost danger" onClick={onDelete} data-tip="Remove this action (you can undo)">Delete</button>
         </div>
@@ -110,7 +111,7 @@ export function StepInspector({ step, index, count, steps, held, onChange, waitB
           )}
           {kind === "hold" && <p className="muted small">Held until a Release (or the end).</p>}
           {gapWarning && (
-            <div className="notice warn small">⚠ Same button next: wait at least {LIMITS.minReleaseGapMs} ms, or a game may see one long press.</div>
+            <div className="notice warn small">Same button next: wait at least {LIMITS.minReleaseGapMs} ms, or a game may see one long press.</div>
           )}
           <DurationPicker label={kind === "tap" ? "Wait after release" : "Wait after"} tip="Pause before the next action starts"
             value={step.delayAfterMs} presets={DELAY_PRESETS} min={0} max={LIMITS.maxDelayMs}

@@ -4,8 +4,12 @@ import type { DeviceSnapshot, EngineStatus } from "../types/engine";
 
 export interface OutputLine { label: string; tone: "ok" | "warn" | "error" | "idle"; tip: string }
 
-export function outputLine(status: EngineStatus | null, device: DeviceSnapshot | null): OutputLine {
-  if (!status) return { label: "Xbox output: …", tone: "idle", tip: "Starting" };
+/** `engine`: the connection to the controller engine (no status yet means starting, or no engine at all). */
+export function outputLine(status: EngineStatus | null, device: DeviceSnapshot | null,
+  engine: "loading" | "ready" | "unavailable" | "error" = "ready"): OutputLine {
+  if (engine === "unavailable") return { label: "Xbox output: unavailable", tone: "idle", tip: "The controller engine runs only in the NEXUS desktop app." };
+  if (engine === "error") return { label: "Xbox output: unknown", tone: "error", tip: "Could not reach the controller engine." };
+  if (!status) return { label: "Xbox output: starting…", tone: "idle", tip: "Connecting to the controller engine." };
   if (status.requestedOutput === "disabled") {
     return { label: "Xbox output: off", tone: "idle", tip: "Games don't see NEXUS. Turn it on on the Virtual Controller page." };
   }

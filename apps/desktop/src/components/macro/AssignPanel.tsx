@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Icon } from "../Icons";
 import { BUTTONS, LIMITS, MODES, triggerBlockers } from "../../lib/macros";
 import type { Macro, PlaybackMode, ValidationIssue } from "../../types/engine";
 import { ButtonChip } from "./ButtonChip";
@@ -6,6 +7,7 @@ import { usePick } from "./ButtonPicker";
 import { Advanced, Issues, MsInput, Switch } from "./common";
 
 const MODE_ORDER: PlaybackMode[] = ["once", "repeatWhileHeld", "toggle"];
+const MODE_ICON = { once: "play", repeatWhileHeld: "repeat", toggle: "power" } as const;
 
 export function AssignPanel({ draft, others, onChange, issues }: {
   draft: Macro;
@@ -17,7 +19,7 @@ export function AssignPanel({ draft, others, onChange, issues }: {
   // Choosing uses the editor's controller: one click sets the button.
   const [choosing, setChoosing] = useState(false);
   usePick("trigger", choosing ? {
-    priority: 2, title: "Click the button that starts this macro",
+    priority: 2, kind: "choose", title: "Click the button that starts this macro",
     selected: draft.trigger ? [draft.trigger] : [], blocked,
     onPick: (b) => { onChange({ trigger: b }); setChoosing(false); }, onDone: () => setChoosing(false),
   } : null);
@@ -50,7 +52,7 @@ export function AssignPanel({ draft, others, onChange, issues }: {
             <button key={mode} type="button" role="radio" aria-checked={draft.mode === mode}
               className={`mode-card${draft.mode === mode ? " selected" : ""}`}
               onClick={() => onChange({ mode })}>
-              <span className={`mode-icon mode-${mode}`} aria-hidden="true" />
+              <span className={`mode-icon mode-${mode}`} aria-hidden="true"><Icon name={MODE_ICON[mode]} size={15} /></span>
               <strong>{MODES[mode].title}</strong>
               <span className="muted small">{MODES[mode].description}</span>
             </button>

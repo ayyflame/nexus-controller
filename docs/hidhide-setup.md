@@ -15,7 +15,7 @@ The same steps are shown in NEXUS: **Virtual Controller › Avoid double input (
 1. Open the official release page: <https://github.com/nefarius/HidHide/releases>. Only the GitHub repository and the nefarius.at sites are official.
 2. Download the latest `HidHide_…_x64.exe` and run it. Approve the Windows administrator prompt.
 3. Restart Windows if the installer asks.
-4. In NEXUS, click **Check again** on the Virtual Controller page. HidHide should show as **Installed**.
+4. In NEXUS, click **Check drivers again** on the Virtual Controller page. HidHide should show as **Installed**. NEXUS can only see that HidHide is installed, not whether your controller is hidden: check that in HidHide's own app.
 
 ## 2. Configure: keep NEXUS allowed, hide the DualSense from games
 

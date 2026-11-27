@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { CommandPalette } from "./components/CommandPalette";
 import { Onboarding } from "./components/Onboarding";
+import { PageErrorBoundary } from "./components/PageErrorBoundary";
 import { Sidebar } from "./components/Sidebar";
+import { TopBar } from "./components/TopBar";
 import { loadPage, savePage } from "./lib/lastPage";
 import { leaveMacroEditor } from "./lib/macroSaves";
 import { hashToRoute, resolvePage, routeToHash, type PageId, type Route } from "./lib/navigation";
@@ -101,14 +103,21 @@ export function App() {
   return (
     <EngineProvider>
       <div className="app">
+        {/* First stop for the keyboard: past the sidebar and top bar to the page. A button, not a
+            "#main" link, because the address hash is the app's route. */}
+        <button type="button" className="skip-link"
+          onClick={() => document.getElementById("main-content")?.focus()}>Skip to content</button>
         <Sidebar page={page} onNavigate={(p) => navigate({ page: p })} />
+        <div className="main-col">
+          <TopBar page={page} tab={tab} />
+          <main className="content" id="main-content" tabIndex={-1}>
+            <ShellBanner />
+            <UpdateBanner />
+            <PageErrorBoundary key={`${page}-${nav}`}><Page id={page} tab={tab} /></PageErrorBoundary>
+          </main>
+        </div>
         <CommandPalette onNavigate={(p, t) => navigate({ page: p, tab: t })} />
         <Onboarding onNavigate={(p) => navigate({ page: p })} />
-        <main className="content">
-          <ShellBanner />
-          <UpdateBanner />
-          <Page key={`${page}-${nav}`} id={page} tab={tab} />
-        </main>
       </div>
     </EngineProvider>
   );

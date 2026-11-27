@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Icon } from "../Icons";
 import { ControllerVisual } from "../ControllerVisual";
 import type { Anchors } from "../controller3d/Controller3D";
 import { buttonMapping, buttonMarks } from "../../lib/buttonMapping";
@@ -350,7 +351,7 @@ function MacroAssign({ button, label, macros, onMacrosChanged }: {
           {busy ? "Saving…" : "Assign"}
         </button>
         <button type="button" className="btn-ghost small" onClick={() => studio(`new:${button}`)}
-          title={active ? `A new macro for ${label} (switch “${active.name}” off or remove it first)` : `Create a macro that starts from ${label}`}>＋ New macro for {label}</button>
+          title={active ? `A new macro for ${label} (switch “${active.name}” off or remove it first)` : `Create a macro that starts from ${label}`}><Icon name="plus" size={14} /> New macro for {label}</button>
       </div>
       {picked && (picked.trigger || active) && (
         <p className="muted small">

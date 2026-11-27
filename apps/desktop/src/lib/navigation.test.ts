@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { NAV_GROUPS, PAGE_IDS, SEARCH_ITEMS, hashToRoute, resolvePage, routeToHash } from "./navigation.ts";
+import { NAV_GROUPS, PAGE_IDS, SEARCH_ITEMS, hashToRoute, pageTrail, resolvePage, routeToHash } from "./navigation.ts";
 
 test("every page has exactly one place in the sidebar (Settings in the footer)", () => {
   const ids = NAV_GROUPS.flatMap((g) => g.items.map((i) => i.id));
@@ -54,4 +54,18 @@ test("routes round-trip through the address bar, so back and forward work", () =
   assert.equal(hashToRoute(""), null);
   assert.equal(hashToRoute("#section"), null);
   assert.equal(hashToRoute("#/macro-studio/%E0%A4%A"), null, "a broken address is ignored, not thrown");
+});
+
+test("the top bar names where each page sits", () => {
+  for (const id of PAGE_IDS) {
+    const t = pageTrail(id);
+    assert.ok(t.label.length > 0, `${id} has a name`);
+    assert.equal(t.sub, null);
+  }
+  assert.deepEqual(pageTrail("dashboard"), { group: null, label: "Dashboard", sub: null });
+  assert.deepEqual(pageTrail("sticks"), { group: "Your controller", label: "Sticks", sub: null });
+  assert.deepEqual(pageTrail("settings"), { group: null, label: "Settings", sub: null });
+  assert.equal(pageTrail("macro-studio", "edit:m1").sub, "Editor");
+  assert.equal(pageTrail("macro-studio", "draft").sub, "Editor");
+  assert.equal(pageTrail("macro-studio", "new:south").sub, null, "the library (with the new-macro dialog)");
 });

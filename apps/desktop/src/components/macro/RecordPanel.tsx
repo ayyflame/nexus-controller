@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Icon } from "../Icons";
 import { useEngine } from "../../hooks/useEngine";
 import { engineApi, errorMessage } from "../../lib/engine";
 import { formatMs, uid } from "../../lib/macros";
@@ -70,7 +71,7 @@ export function RecordPanel({ hasSteps, onRecorded }: {
         {rec.interrupted && <div className="notice warn">Your controller disconnected, so recording stopped. Press Stop to keep what was captured.</div>}
         {rec.limitReached && <div className="notice warn">Recording limit reached. Press Stop to keep it.</div>}
         <div className="row gap">
-          <button className="btn-primary" onClick={() => void stop()}>■ Stop Recording</button>
+          <button className="btn-primary" onClick={() => void stop()}><Icon name="stop" size={14} filled /> Stop Recording</button>
           <button className="btn-ghost" onClick={() => void engineApi.cancelMacroRecording()}>Cancel</button>
         </div>
         <p className="muted small" data-tip="Macros are paused while you record. Sticks aren't recorded.">Buttons, D-pad and triggers only.</p>

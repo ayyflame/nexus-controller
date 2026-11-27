@@ -77,3 +77,18 @@ export function describeDeviceEvent(e: DeviceEvent): string {
       return `Device enumeration failed`;
   }
 }
+
+/** USB vendor and product ID as Windows shows them, e.g. "054C:0CE6". */
+export function usbIdText(vendorId: number, productId: number): string {
+  const h = (n: number) => n.toString(16).toUpperCase().padStart(4, "0");
+  return `${h(vendorId)}:${h(productId)}`;
+}
+
+/** A duration in seconds as "45 s", "3 min 05 s" or "2 h 04 min". */
+export function durationText(totalSeconds: number): string {
+  const s = Math.max(0, Math.floor(totalSeconds));
+  if (s < 60) return `${s} s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m} min ${String(s % 60).padStart(2, "0")} s`;
+  return `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")} min`;
+}

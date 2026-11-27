@@ -9,11 +9,12 @@ How long NEXUS takes from a DualSense report to the virtual Xbox 360 controller,
 | Report rate, time between reports, reports later than 8 ms / 50 ms | Performance, Live Viewer › Health |
 | Dropped reports (from the controller's sequence counter, an estimate) | Performance |
 | Unreadable reports | Performance |
-| NEXUS processing time per report (µs), median / 99th percentile / max | Performance |
+| NEXUS processing time per report (*Total: read → virtual controller*), average / median / 95th / 99th percentile / max | Performance › 2 |
 | **The same time split by stage** (ns): report hand-over, mapping, macros, virtual controller driver call | Performance |
 | **Slow driver calls** since the controller connected (over 4 ms, over 50 ms, longest) | Performance |
 | **Stale reports skipped** after a slow call (only the newest queued report is processed) | Performance |
 | **Whether Windows receives exactly what NEXUS sends** | Live Viewer › Output Check |
+| End-to-end time, button press to game reaction | **Not measured**: NEXUS sees neither the press itself nor when the game reads the virtual controller. Performance › 4 says so |
 
 Every value is measured on the controller's own reader thread with fixed-size buffers. Measuring adds four clock reads per report and allocates nothing. Values refresh every 64 reports (about 4 times a second).
 

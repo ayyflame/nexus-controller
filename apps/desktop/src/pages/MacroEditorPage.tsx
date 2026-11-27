@@ -1,4 +1,5 @@
 import { memo, useEffect, useMemo, useState } from "react";
+import { Icon } from "../components/Icons";
 import { ConfirmDialog } from "../components/macro/common";
 import { MacroEditor } from "../components/macro/MacroEditor";
 import { clearDraft, draftSavedAs, openEditor, openLibrary, peekDraft, takeFlash } from "../components/macro/studioNav";
@@ -9,7 +10,7 @@ import { BUTTONS } from "../lib/macros";
 import type { Macro } from "../types/engine";
 
 export const MISSING_MACRO = "That macro doesn't exist any more (it may have been deleted), so the library is shown instead.";
-export const LOST_DRAFT = "The new macro wasn't saved (it had no actions yet), so it is gone. Create it again with ＋ New macro.";
+export const LOST_DRAFT = "The new macro wasn't saved (it had no actions yet), so it is gone. Create it again with New macro.";
 
 /**
  * One macro's editing page: the editor and its Test panel, full width, with a
@@ -62,7 +63,7 @@ export const MacroEditorPage = memo(function MacroEditorPage({ target, ready, pr
   return (
     <div className="page macro-studio ms-editor-page">
       <div className="ms-editor-nav">
-        <button type="button" className="ms-back" onClick={() => openLibrary()}>← Macro Library</button>
+        <button type="button" className="ms-back" onClick={() => openLibrary()}><Icon name="arrowLeft" size={15} /> Macro Library</button>
       </div>
 
       {blockedReason && (
@@ -93,7 +94,17 @@ export const MacroEditorPage = memo(function MacroEditorPage({ target, ready, pr
           onDelete={(m) => setToDelete(m)}
           onPin={(m, on) => void run(async () => setMeta(await engineApi.setMacroPinned(m.id, on)))} />
       ) : (
-        <p className="muted" role="status">Loading macro…</p>
+        // Shown until the library has loaded and this macro is found (useMacroLibrary's real state).
+        <div className="ms-editor-loading" role="status" aria-busy="true">
+          <span className="sr-only">Loading macro…</span>
+          <div className="skeleton skeleton-title" aria-hidden="true" />
+          <div className="skeleton skeleton-line short" aria-hidden="true" />
+          <div className="skeleton skeleton-bar" aria-hidden="true" />
+          <div className="ms-editor-grid" aria-hidden="true">
+            <div className="skeleton skeleton-panel" />
+            <div className="skeleton skeleton-panel short" />
+          </div>
+        </div>
       )}
 
       {toDelete && (

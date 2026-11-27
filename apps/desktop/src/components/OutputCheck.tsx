@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Icon } from "./Icons";
 import { engineApi, errorMessage } from "../lib/engine";
 import { describeCheck, nextStreak, rowsFor } from "../lib/outputCheck";
 import type { OutputCheck as Check } from "../types/engine";
@@ -46,7 +47,8 @@ export function OutputCheck() {
   }, []);
 
   if (error) return <div className="card"><p className="warn-text">{error}</p></div>;
-  if (!check) return <div className="card"><p className="muted">Reading…</p></div>;
+  // Until the first read-back arrives from the engine.
+  if (!check) return <div className="card" role="status" aria-busy="true"><span className="loading-inline"><span className="spinner" aria-hidden="true" /> Reading the virtual controller…</span></div>;
   const d = describeCheck(check);
   const stable = check.state === "compared" && (streak.matches >= STABLE || streak.mismatches >= STABLE);
   const tone = check.state === "compared" ? (streak.matches >= STABLE ? "ok" : streak.mismatches >= STABLE ? "bad" : "warn") : d.tone;
@@ -74,7 +76,7 @@ export function OutputCheck() {
             {rowsFor(check.sent, check.read).map((r) => (
               <div key={r.label} className={`oc-row${r.ok ? "" : " bad"}`}>
                 <span>{r.label}</span><span className="mono">{r.sent}</span><span className="mono">{r.read}</span>
-                <span aria-label={r.ok ? "match" : "different"}>{r.ok ? "✓" : "✗"}</span>
+                <span className={r.ok ? "ok-text" : "err-text"}><Icon name={r.ok ? "check" : "x"} size={13} label={r.ok ? "match" : "different"} /></span>
               </div>
             ))}
           </div>

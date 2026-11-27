@@ -44,6 +44,8 @@ Edits save automatically when they're valid (after a short pause in editing, or 
 
 A button you can't use at that moment (held by an earlier action, used by another macro, the PS button) isn't taken; the controller says why. Where the PC can't draw 3D (no WebGL), a plain list of buttons does the same job.
 
+**From the keyboard.** **Button list** (above the 3D controller) shows the same buttons as a list; without WebGL it is always shown. The list is one stop in the Tab order: the arrow keys (and Home / End) move between buttons, Enter or Space chooses, and a button you can't use says why. Starting **Choose on controller** or **Change on controller** from the keyboard opens the list and puts focus in it. **Done** ends choosing, and so does Escape while focus is in the controller (list, Done) or still on the button that started choosing; focus then returns to that button. If the 3D view fails while NEXUS runs, the list is shown instead, as on a PC without WebGL. Screen readers hear an action's buttons as toggles (pressed or not), the chosen trigger as the current one, and the reason each time an unavailable button is chosen.
+
 **Test.** The *Test* panel reads the engine's own state for this macro: *Waiting* for its button, *Arming* (hold to activate, with progress), *Running* with the current action, the pass (for example *pass 2 of 3*) and the buttons down, then back to *Waiting*. It says whether games receive it, and has **Stop all macros**.
 
 **With Mapping.**

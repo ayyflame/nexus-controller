@@ -32,7 +32,7 @@
 
 1. Open <https://github.com/nefarius/ViGEmBus/releases> and download **ViGEmBus 1.22.0** (`ViGEmBus_1.22.0_x64_x86_arm64.exe`).
 2. Run it and approve the Windows administrator prompt. This is the driver's installer; NEXUS itself never needs admin rights.
-3. In NEXUS: Virtual Controller › **Check again**. Turn on **Use the experimental virtual controller**, then choose **Xbox 360**.
+3. In NEXUS: Virtual Controller › **Check drivers again**. Turn on **Use the experimental virtual controller**, then choose **Xbox 360**.
 4. **To remove:** Windows Settings › Apps › Installed apps › *Nefarius Virtual Gamepad Emulation Bus Driver* › Uninstall. NEXUS keeps working; games simply no longer see a virtual controller.
 
 **Game compatibility:** none is claimed. Only titles recorded in the compatibility report have been tested. This beta must not be used to automate play in online games whose rules prohibit macros or third-party input tools, and nothing in NEXUS attempts to hide from anti-cheat systems.

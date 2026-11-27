@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { useControllerPhase } from "./StatusPill";
 import { CopyText } from "./CopyText";
+import { Icon, type IconName } from "./Icons";
 import { useEngine, usePrimaryDevice } from "../hooks/useEngine";
 import { engineApi } from "../lib/engine";
 import { readinessSteps, readyToPlay, type ReadyStep } from "../lib/readiness";
 
-const MARK: Record<ReadyStep["state"], string> = { done: "✓", todo: "•", problem: "!", waiting: "…", optional: "○" };
+/** Each step's mark (its state is also in the step's text, so the icon is decorative). */
+const MARK: Record<ReadyStep["state"], IconName> = { done: "check", todo: "arrowRight", problem: "alert", waiting: "clock", optional: "info" };
 
 function go(page: string, tab?: string) {
   window.dispatchEvent(new CustomEvent("nexus:navigate", { detail: { page, tab } }));
@@ -49,7 +51,7 @@ export function SetupChecklist() {
         <ol className="setup-steps">
           {steps.map((s) => (
             <li key={s.id} className={`setup-step st-${s.state}`}>
-              <span className="setup-mark" aria-hidden="true">{MARK[s.state]}</span>
+              <span className="setup-mark" aria-hidden="true"><Icon name={MARK[s.state]} size={12} /></span>
               <div>
                 <div className="setup-title">{s.title}</div>
                 <div className="small muted">{s.detail}</div>

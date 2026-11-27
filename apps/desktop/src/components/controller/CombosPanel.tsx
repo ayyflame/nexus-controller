@@ -1,3 +1,4 @@
+import { Icon } from "../Icons";
 import { ButtonSelect } from "./advanced";
 import { Panel } from "./widgets";
 import { Switch } from "../macro/common";
@@ -23,7 +24,7 @@ export function CombosPanel({ config, onChange }: { config: ProcessingConfig; on
   return (
     <Panel title="Button combinations" aside={
       <button type="button" className="btn-ghost" disabled={combos.length >= MAX_COMBOS}
-        onClick={() => onChange({ ...config, combos: [...combos, newCombo()] })}>+ Add combination</button>
+        onClick={() => onChange({ ...config, combos: [...combos, newCombo()] })}><Icon name="plus" size={14} /> Add combination</button>
     }>
       <p className="muted small">
         Hold two or three buttons together to press other buttons, e.g. L1 + R1 → Triangle. With <b>Hide the held buttons</b> on, the game doesn't see them while the combination is used,

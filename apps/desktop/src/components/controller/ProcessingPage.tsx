@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useEngine } from "../../hooks/useEngine";
 import { engineApi, errorMessage } from "../../lib/engine";
 import { withDefaults } from "../../lib/processing";
+import { Icon } from "../Icons";
 import type { ProcessingConfig } from "../../types/engine";
 import { DeviceSelector } from "./advanced";
 
@@ -87,7 +88,7 @@ export function ProcessingPage({ title, description, className, needsEngine = tr
 function SaveState({ save }: { save: Save }) {
   return (
     <span className={`save-state ${save === "saved" ? "ok" : typeof save === "object" ? "err" : ""}`} role="status">
-      {save === "saved" ? "✓ Saved to profile" : save === "saving" ? "Saving…" : `Not saved: ${save.error}`}
+      {save === "saved" ? <><Icon name="check" size={14} /> Saved to profile</> : save === "saving" ? "Saving…" : `Not saved: ${save.error}`}
     </span>
   );
 }

@@ -166,8 +166,8 @@ Use the same match type or the firing range, and the same movements, for each sc
 | Row | Healthy |
 |---|---|
 | Time between reports | median ≈ 4.0 ms, 99th < 5 ms |
-| Time between frames sent to the virtual controller | the same as the row above |
-| NEXUS processing time | 99th < 1 ms |
+| Time between frames sent (part 3) | the same as the row above |
+| Total: read → virtual controller (part 2) | 99th < 1 ms |
 | Virtual controller driver call | 99th < 1 ms; slow calls over 4 ms rare |
 | Reports already waiting · most in a row | 0 · 0–1 |
 | Stale reports skipped | 0 |

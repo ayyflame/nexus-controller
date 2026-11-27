@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Icon } from "../components/Icons";
 import { ConfirmDialog, Switch } from "../components/macro/common";
 import { AutoSwitchToggle, GamesEditor, PortabilityPanel } from "../components/profiles/Portability";
 import { useEngine } from "../hooks/useEngine";
@@ -75,7 +76,7 @@ export function Profiles() {
           aria-current={selected?.id === p.id ? "true" : undefined} onClick={() => setSelectedId(p.id)}
           data-profile={p.id}>
           <span className="pm-row-top">
-            <span className="pm-row-name">{isPinned && <span className="pm-pin" aria-label="Pinned">★</span>}{p.name}</span>
+            <span className="pm-row-name">{isPinned && <span className="pm-pin"><Icon name="star" size={12} filled label="Pinned" /></span>}{p.name}</span>
             {isActive && <span className="badge pm-active">Active</span>}
             {meta.startup === p.id && <span className="badge tone-neutral">Start-up</span>}
           </span>
@@ -96,7 +97,7 @@ export function Profiles() {
           <h1>Profiles</h1>
           <p className="muted">A profile holds your mapping, stick and trigger settings, which macros are on, and the virtual controller type. Link a game and NEXUS switches to its profile while the game is in front.</p>
         </div>
-        <button className="btn-primary" onClick={() => setCreating(true)}>＋ New profile</button>
+        <button className="btn-primary" onClick={() => setCreating(true)}><Icon name="plus" size={15} /> New profile</button>
       </header>
 
       <div className="pm-toolbar">
@@ -185,13 +186,13 @@ function ProfileDetail({ profile: p, profiles, meta, now, isActive, run, setNoti
         <button type="button" className={`pm-pin-btn${isPinned ? " on" : ""}`} aria-pressed={isPinned}
           title={isPinned ? "Unpin" : "Pin to the top of the list"}
           onClick={() => void run(async () => { await engineApi.setProfilePinned(p.id, !isPinned); })}>
-          {isPinned ? "★ Pinned" : "☆ Pin"}
+          <Icon name="star" size={14} filled={isPinned} /> {isPinned ? "Pinned" : "Pin"}
         </button>
       </header>
 
       <div className="pm-actions">
         {isActive
-          ? <span className="pm-in-use">✓ In use now</span>
+          ? <span className="pm-in-use"><Icon name="checkCircle" size={15} /> In use now</span>
           : <button className="btn-primary" onClick={() => void run(async () => onActivated(await engineApi.setActiveProfile(p.id)))}>Use now</button>}
         <button className="btn-ghost" onClick={() => setRenaming(p.name)}>Rename</button>
         <button className="btn-ghost" title="A full copy: settings, macros that are on, virtual controller type"
@@ -218,9 +219,9 @@ function ProfileDetail({ profile: p, profiles, meta, now, isActive, run, setNoti
         </dd>
         <dt>Controllers</dt>
         <dd>
-          <span className="pm-compat ok">DualSense ✓</span>
+          <span className="pm-compat ok">DualSense <Icon name="check" size={13} label="supported" /></span>
           <span className={`pm-compat${compat.dualShock4.length ? " partial" : " ok"}`}>
-            DualShock 4 {compat.dualShock4.length ? "· partly" : "✓"}
+            DualShock 4 {compat.dualShock4.length ? "· partly" : <Icon name="check" size={13} label="supported" />}
           </span>
           {compat.dualShock4.length > 0 && <div className="muted small">On a DualShock 4: {compat.dualShock4.join("; ")}.</div>}
           {compat.general.map((g) => <div key={g} className="warn-text small">Note: {g}.</div>)}

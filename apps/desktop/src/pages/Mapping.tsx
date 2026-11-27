@@ -96,9 +96,9 @@ function ButtonsTab({ config, onChange, output, initialControl }: {
         <div className="map-toolbar-actions">
           {view === "picture" && <div className="map-view-tools" ref={setViewTools} />}
           <button type="button" className="btn-ghost small" disabled={history.past.length === 0}
-            onClick={() => step(undoRemap(history, config.remap))} title="Undo the last mapping change">↶ Undo</button>
+            onClick={() => step(undoRemap(history, config.remap))} title="Undo the last mapping change"><Icon name="undo" size={15} /> Undo</button>
           <button type="button" className="btn-ghost small" disabled={history.future.length === 0}
-            onClick={() => step(redoRemap(history, config.remap))} title="Redo">↷ Redo</button>
+            onClick={() => step(redoRemap(history, config.remap))} title="Redo"><Icon name="redo" size={15} /> Redo</button>
           <div className="segmented small" role="group" aria-label="View">
             <button type="button" className={view === "picture" ? "selected" : ""} aria-pressed={view === "picture"} onClick={() => chooseView("picture")}>Picture</button>
             <button type="button" className={view === "list" ? "selected" : ""} aria-pressed={view === "list"} onClick={() => chooseView("list")}>List</button>

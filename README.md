@@ -68,7 +68,7 @@ Built with Tauri 2, React and TypeScript for the UI, and Rust for the engine, wi
 ### Live Viewer and diagnostics
 - **Live Viewer** (sidebar): every control and analog value, motion (gyro, accelerometer, tilt), connection health, a guided 10-step controller test, a drift test and the calibration wizard. Read-only apart from calibration.
 - **Output Check** (*Live Viewer*): reads the virtual Xbox controller back through XInput (as games do) and compares every button and axis with what NEXUS sent.
-- **Performance:** report rate, timing, late and dropped reports, NEXUS processing time split by stage (mapping, macros, virtual controller driver call), slow driver calls since the controller connected, and stale reports skipped. Measurements: [`docs/performance.md`](docs/performance.md); what a slow driver call does: [`docs/driver-performance.md`](docs/driver-performance.md).
+- **Performance:** an overview first (report rate, time inside NEXUS, virtual controller submission, findings), then four parts: controller reports (spacing, late and dropped reports), processing in NEXUS split by stage, virtual controller submission (driver call, slow calls), and end to end, which NEXUS can't measure and says so. Findings say what to do; the settings in effect are shown read-only. Measurements: [`docs/performance.md`](docs/performance.md); what a slow driver call does: [`docs/driver-performance.md`](docs/driver-performance.md).
 - **Diagnostics** (*Settings › HID Devices*): raw reports, the engine log, a Report Inspector and a shareable diagnostics report. The report includes the virtual controller's status and errors; serial numbers, MAC addresses, your Windows account name, folder paths, and profile and macro contents are left out.
 
 ### Virtual Xbox 360 output
@@ -125,8 +125,8 @@ Each model has its own report reader (DualShock 4 format: [`docs/dualshock4-prot
 1. **Install NEXUS.** Use the **Download NEXUS** button above and run `NEXUS-latest-x64-setup.exe`.
    - Windows SmartScreen may say *"Windows protected your PC"* because development builds aren't code-signed: click **More info › Run anyway**. Releases from 0.2.0 on are signed (see the [code signing policy](CODE_SIGNING_POLICY.md)); each download can also be checked with `gh attestation verify <file> --repo ayyflame/nexus-controller`. Why, and what signing would take: [`docs/code-signing.md`](docs/code-signing.md).
    - It installs for your account only; no administrator password needed. Installing over an older version keeps your profiles, macros and settings.
-2. **Install ViGEmBus.** Download `ViGEmBus_1.22.0_x64_x86_arm64.exe` from the [official page](https://github.com/nefarius/ViGEmBus/releases) and run it (the administrator prompt is from ViGEmBus). In NEXUS, **Virtual Controller › Check again** should show **Installed and ready**.
-3. **Connect and turn on output.** Plug in the DualSense or DualShock 4; the Dashboard shows **DualSense** or **DualShock 4** and the sidebar shows it as connected. In **Virtual Controller**, turn on **Use the experimental virtual controller** and choose **Xbox 360**. It should show **Xbox 360 connected · Games see it as player 1**.
+2. **Install ViGEmBus.** Download `ViGEmBus_1.22.0_x64_x86_arm64.exe` from the [official page](https://github.com/nefarius/ViGEmBus/releases) and run it (the administrator prompt is from ViGEmBus). In NEXUS, **Virtual Controller › Check drivers again**: the *ViGEmBus driver* card should show **Ready**.
+3. **Connect and turn on output.** Plug in the DualSense or DualShock 4; the Dashboard shows **DualSense** or **DualShock 4** and the sidebar shows it as connected. In **Virtual Controller**, turn on **Use the experimental virtual controller** and choose **Xbox 360**. The Xbox 360 option should show **Active**, with **Xbox 360 connected** and *Games see it as player 1*.
 4. **Check in Windows.** Win + R → `joy.cpl` → **Controller (XBOX 360 For Windows)** → **Properties**. Pressing controller buttons lights the matching Xbox buttons, remaps and macros included.
 
 More detail: [`docs/install-windows.md`](docs/install-windows.md).
@@ -184,7 +184,7 @@ Full details: [`docs/game-output.md`](docs/game-output.md).
 | Problem | What to do |
 |---|---|
 | The controller never appears | Use a **data** cable (USB-C for a DualSense, Micro-USB for a DualShock 4) in a direct USB port. A DualShock 4 connected by Bluetooth isn't used: plug it in by cable. Close Steam, DS4Windows or similar tools, then **Settings › Scan now**. |
-| *Waiting for ViGEmBus* / driver not installed | Install ViGEmBus 1.22, then **Virtual Controller › Check again**. If it says *installed but could not be opened*, restart Windows. |
+| *Waiting for ViGEmBus* / driver not installed | Install ViGEmBus 1.22, then **Virtual Controller › Check drivers again**. If it says *installed but could not be opened*, restart Windows. |
 | Games don't react, but `joy.cpl` shows the Xbox controller | Check the **player** number under *Virtual controller now*. Many games only listen to player 1: unplug other Xbox-type controllers and turn the output off and on. |
 | A press counts twice | The game or Steam sees both controllers. Turn off PlayStation controller support there, or set up HidHide. |
 | Controller missing after setting up HidHide | NEXUS must be on HidHide's *Applications* list (copy its path from *Virtual Controller*), or untick *Enable device hiding*. |

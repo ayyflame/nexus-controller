@@ -96,10 +96,12 @@ function subGeometry(g: THREE.BufferGeometry, triangles: number[]): THREE.Buffer
   return out;
 }
 
-const GOLD = new THREE.Color("#d6a54b");
-const TEAL = new THREE.Color("#4fa8b8");
+// Mark colours follow the app palette (styles/tokens.css): pressed = accent blue,
+// selected = cyan, Mapping's selection = bright accent.
+const GOLD = new THREE.Color("#4c8dff");
+const TEAL = new THREE.Color("#5fd3e2");
 /** NEXUS accent (--gold-bright): selection in the Mapping workspace. */
-const ACCENT = new THREE.Color("#f0cb72");
+const ACCENT = new THREE.Color("#7aaeff");
 const MUTE_ORANGE = new THREE.Color("#ff8a3c");
 const BLACK = new THREE.Color(0, 0, 0);
 /** Base colour: the textures carry the colour, so materials stay white. */
@@ -259,8 +261,8 @@ export function applyFinish(model: BuiltModel, finish: Finish): void {
 }
 
 /** Colour multipliers so a lit or selected control reads clearly on white or black plastic. */
-const GOLD_TINT = new THREE.Color(1, 0.74, 0.36);
-const TEAL_TINT = new THREE.Color(0.62, 0.9, 0.96);
+const GOLD_TINT = new THREE.Color(0.55, 0.72, 1);
+const TEAL_TINT = new THREE.Color(0.6, 0.92, 0.98);
 
 /** Applies one input state (plus selection and hover) to the model. */
 export function applyVisual(

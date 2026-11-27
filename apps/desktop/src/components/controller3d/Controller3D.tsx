@@ -20,6 +20,7 @@ import type { ControllerState, MacroButton } from "../../types/engine";
 import { applyFinish, applyVisual, buildModel, type BuiltModel, type Finish, type PartNode } from "./modelParts";
 import { useFinish } from "../../lib/controllerViewMode";
 import { useWindowActive } from "../../hooks/useWindowActive";
+import { Icon } from "../Icons";
 
 /** Screen position of each control inside the canvas (CSS px), for leader lines. */
 export type Anchors = Partial<Record<MacroButton, { x: number; y: number; visible: boolean }>>;
@@ -59,7 +60,8 @@ const MODELS: Record<ViewModel, { url: string; spec: ModelSpec; credit: typeof M
 type Request = { kind: "view"; view: ViewName; n: number } | { kind: "zoom"; factor: number; n: number };
 type Pick = { over: (b: MacroButton) => void; out: (b: MacroButton) => void; click: (b: MacroButton) => void };
 
-const MARK_COLOURS = { disabled: "#e26a6a", remapped: "#4fa8b8", macro: "#d6a54b", special: "#9b9ea6" } as const;
+/** The same colours as the legend tokens in styles/tokens.css (--mark-*). */
+const MARK_COLOURS = { disabled: "#ef5e5e", remapped: "#2ec4d6", macro: "#a98bff", special: "#a4aab5" } as const;
 
 /**
  * Interactive 3D controller. Renders on demand only: a frame is drawn when
@@ -120,7 +122,7 @@ export default function Controller3D({ state, live, selected = null, onSelect, m
         aria-label={`Controller colour: ${finish === "black" ? "Midnight Black" : "White"}. Change`}><i /></button>
       <span className="c3d-sep" aria-hidden="true" />
     </>}
-    <button type="button" aria-label="3D model credit" aria-expanded={credit} title="3D model credit" onClick={() => setCredit((c) => !c)}>ⓘ</button>
+    <button type="button" aria-label="3D model credit" aria-expanded={credit} title="3D model credit" onClick={() => setCredit((c) => !c)}><Icon name="info" size={14} /></button>
   </div>
   );
 
@@ -182,8 +184,8 @@ function Scene() {
         shadow-camera-left={-5} shadow-camera-right={5} shadow-camera-top={5} shadow-camera-bottom={-5}
         shadow-camera-near={1} shadow-camera-far={25} />
       <directionalLight position={[-7, 2, 5]} intensity={0.5} color="#cfd6ff" />
-      {/* A faint warm rim from behind picks out the edges against the dark page. */}
-      <directionalLight position={[0, 6, -7]} intensity={0.7} color="#f0cb72" />
+      {/* A faint cool rim from behind picks out the edges against the dark page. */}
+      <directionalLight position={[0, 6, -7]} intensity={0.7} color="#9ab8ff" />
       {/* Backdrop that only shows the shadow. */}
       <mesh position={[0, -0.2, -2.8]} receiveShadow>
         <planeGeometry args={[30, 30]} />

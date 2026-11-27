@@ -22,7 +22,6 @@ function UpdatesCard() {
   const failed = st?.state.kind === "failed" ? st.state.error : null;
   return (
     <div className="card">
-      <h2>Updates</h2>
       <Row label="Current version">{st?.currentVersion ?? "—"}</Row>
       <Row label="Channel">Stable</Row>
       <Row label="Check automatically">
@@ -159,7 +158,7 @@ function HidDevicesSection() {
   return (
     <div className="card">
       <div className="card-title-row">
-        <h2>HID Devices (Sony)</h2>
+        <h2>HID devices (Sony)</h2>
         <button className="btn-secondary" onClick={() => void copyReport()} disabled={!ready}>
           Copy diagnostics report
         </button>
@@ -221,7 +220,7 @@ function DiagnosticsSection() {
     <>
       <div className="card">
         <div className="card-title-row">
-          <h2>Raw HID Reports</h2>
+          <h2>Raw HID reports</h2>
           <div className="row gap">
             <label className="check"><input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} disabled={!ready} /> Auto-refresh</label>
             <button className="btn-secondary" onClick={() => void refresh()} disabled={!ready}><Icon name="refresh" size={15} /> Refresh</button>
@@ -242,7 +241,7 @@ function DiagnosticsSection() {
       </div>
 
       <div className="card">
-        <h2>Engine Log</h2>
+        <h2>Engine log</h2>
         {log.length === 0 ? <p className="muted small">No log entries.</p> : (
           <ul className="log-list">
             {log.map((l, i) => (
@@ -259,50 +258,123 @@ function DiagnosticsSection() {
   );
 }
 
+const SECTIONS = [
+  { id: "general", label: "General", icon: "settings" },
+  { id: "updates", label: "Updates", icon: "download" },
+  { id: "devices", label: "Devices", icon: "usb" },
+  { id: "diagnostics", label: "Diagnostics", icon: "bug" },
+] as const;
+type SectionId = (typeof SECTIONS)[number]["id"];
+
+/** The section list beside the settings: jumps to a section and shows which one is in view. */
+function useCurrentSection(): [SectionId, (id: SectionId) => void] {
+  const [current, setCurrent] = useState<SectionId>("general");
+  useEffect(() => {
+    const scroller = document.querySelector<HTMLElement>(".content");
+    if (!scroller) return;
+    const onScroll = () => {
+      const top = scroller.getBoundingClientRect().top + 96;
+      let at: SectionId = "general";
+      for (const s of SECTIONS) {
+        const el = document.getElementById(`settings-${s.id}`);
+        if (el && el.getBoundingClientRect().top <= top) at = s.id;
+      }
+      // At the very bottom the last section counts as current even if short.
+      if (scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 4) at = SECTIONS[SECTIONS.length - 1]!.id;
+      setCurrent(at);
+    };
+    scroller.addEventListener("scroll", onScroll, { passive: true });
+    return () => scroller.removeEventListener("scroll", onScroll);
+  }, []);
+  const jump = (id: SectionId) => {
+    setCurrent(id);
+    // The one place that scrolls smoothly (and not when reduced motion is asked for).
+    const smooth = !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    document.getElementById(`settings-${id}`)?.scrollIntoView({ block: "start", behavior: smooth ? "smooth" : "auto" });
+  };
+  return [current, jump];
+}
+
+function Section({ id, title, description, children }: { id: SectionId; title: string; description: ReactNode; children: ReactNode }) {
+  return (
+    <section className="settings-section" id={`settings-${id}`} aria-labelledby={`settings-${id}-title`}>
+      <header>
+        <h2 id={`settings-${id}-title`}>{title}</h2>
+        <p>{description}</p>
+      </header>
+      {children}
+    </section>
+  );
+}
+
 export function Settings() {
   const { appInfo, status, connection } = useEngine();
+  const [current, jump] = useCurrentSection();
+  const go = (page: string) => window.dispatchEvent(new CustomEvent("nexus:navigate", { detail: { page } }));
   return (
     <div className="page">
       <header className="page-header">
         <div>
           <h1>Settings</h1>
-          <p className="muted">Application, discovery and diagnostics.</p>
+          <p className="muted">How NEXUS runs on this PC, updates, device discovery and diagnostics.</p>
         </div>
       </header>
 
       {appInfo?.storageWarning && <div className="notice warn">{appInfo.storageWarning}</div>}
 
-      <div className="settings-grid">
-        <div className="card">
-          <h2>Application</h2>
-          <Row label="Version">{appInfo?.version ?? "—"}</Row>
-          <Row label="Your data">Profiles and macros are stored separately from the program, so updates and reinstalls keep them.</Row>
-          <Row label="Welcome guide"><button className="btn-ghost" onClick={() => { try { localStorage.removeItem("nexus.onboarding.v1"); } catch { /* ignore */ } window.location.reload(); }}>Show again</button></Row>
-          <Row label="Platform">{appInfo ? `${appInfo.os} / ${appInfo.arch}` : "—"}</Row>
-          <Row label="Data folder"><span className="mono small break">{appInfo?.dataDir ?? "—"}</span></Row>
-        </div>
+      <div className="settings-layout">
+        <nav className="settings-index" aria-label="Settings sections">
+          {SECTIONS.map((s) => (
+            <button key={s.id} type="button" className={current === s.id ? "current" : undefined}
+              aria-current={current === s.id ? "true" : undefined} onClick={() => jump(s.id)}>
+              <Icon name={s.icon} size={16} /> {s.label}
+            </button>
+          ))}
+        </nav>
 
-        <WindowsCard />
+        <div className="settings-sections">
+          <Section id="general" title="General" description="This copy of NEXUS and how it behaves in Windows.">
+            <div className="settings-grid">
+              <div className="card">
+                <h2>Application</h2>
+                <Row label="Version">{appInfo?.version ?? "—"}</Row>
+                <Row label="Platform">{appInfo ? `${appInfo.os} / ${appInfo.arch}` : "—"}</Row>
+                <Row label="Data folder"><span className="mono small break">{appInfo?.dataDir ?? "—"}</span></Row>
+                <Row label="Welcome guide"><button className="btn-ghost small" onClick={() => { try { localStorage.removeItem("nexus.onboarding.v1"); } catch { /* ignore */ } window.location.reload(); }}>Show again</button></Row>
+                <p className="settings-note">Profiles and macros are stored separately from the program, so updates and reinstalls keep them.</p>
+              </div>
+              <WindowsCard />
+            </div>
+          </Section>
 
-        <UpdatesCard />
+          <Section id="updates" title="Updates" description="New versions are checked against NEXUS's signing key and only installed with your OK.">
+            <UpdatesCard />
+          </Section>
 
-        <div className="card">
-          <h2>Device Discovery</h2>
-          <Row label="HID backend">{status?.hidBackend ?? "—"}</Row>
-          <Row label="Automatic connect">{status?.hotplugActive ? "Instant (Windows device notifications)" : "Enabled (scans every second)"}</Row>
-          <Row label="Automatic reconnect">Enabled</Row>
-          {status?.enumerationError && <div className="notice error">{status.enumerationError}</div>}
-          <button className="btn-secondary" disabled={connection.kind !== "ready"}
-            onClick={() => void engineApi.rescanDevices()}>
-            <Icon name="refresh" size={15} /> Scan now
-          </button>
+          <Section id="devices" title="Devices" description={<>How NEXUS finds controllers. Virtual controller type and driver status are on the{" "}
+            <button className="map-link" onClick={() => go("virtual-controller")}>Virtual Controller</button> page.</>}>
+            <div className="card">
+              <h2>Device discovery</h2>
+              <Row label="HID backend">{status?.hidBackend ?? "—"}</Row>
+              <Row label="Automatic connect">{status?.hotplugActive ? "Instant (Windows device notifications)" : "Enabled (scans every second)"}</Row>
+              <Row label="Automatic reconnect">Enabled</Row>
+              {status?.enumerationError && <div className="notice error">{status.enumerationError}</div>}
+              <div className="row gap-sm" style={{ marginTop: 12 }}>
+                <button className="btn-secondary" disabled={connection.kind !== "ready"}
+                  onClick={() => void engineApi.rescanDevices()}>
+                  <Icon name="refresh" size={15} /> Scan now
+                </button>
+              </div>
+            </div>
+            <HidDevicesSection />
+          </Section>
+
+          <Section id="diagnostics" title="Diagnostics" description="For troubleshooting and support: what the controller sends, byte by byte, and the engine's log.">
+            <ReportInspector />
+            <DiagnosticsSection />
+          </Section>
         </div>
       </div>
-
-      <div className="notice dev">Virtual controller type and driver status are on the <strong>Virtual Controller</strong> page.</div>
-      <HidDevicesSection />
-      <ReportInspector />
-      <DiagnosticsSection />
     </div>
   );
 }

@@ -2,8 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import { useEngine } from "../hooks/useEngine";
 import { engineApi, errorMessage } from "../lib/engine";
 import type { Profile } from "../types/engine";
+import { Icon } from "./Icons";
 
-/** The active profile, switchable from every page (and when a game switched it). */
+/** The active profile, switchable from every page (and when a game switched it); shown in the top bar. */
 export function ProfileSwitcher() {
   const { connection, profile, setProfile } = useEngine();
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -22,13 +23,14 @@ export function ProfileSwitcher() {
   return (
     <div className="profile-switcher">
       <label className="profile-switcher-label" htmlFor="active-profile">Active profile</label>
-      <select id="active-profile" className="select" value={profile.id} onFocus={load}
+      <span className="profile-switcher-icon" aria-hidden="true"><Icon name="profiles" size={15} /></span>
+      <select id="active-profile" className="select" value={profile.id} onFocus={load} title="Active profile"
         onChange={(e) => void switchTo(Number(e.target.value))}>
         {(profiles.some((p) => p.id === profile.id) ? profiles : [profile, ...profiles]).map((p) => (
           <option key={p.id} value={p.id}>{p.name}{p.games.length ? ` (${p.games.length} game${p.games.length === 1 ? "" : "s"})` : ""}</option>
         ))}
       </select>
-      {error && <div className="small err-text">{error}</div>}
+      {error && <div className="small err-text" role="alert">{error}</div>}
     </div>
   );
 }
