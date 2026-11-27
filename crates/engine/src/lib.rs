@@ -21,13 +21,15 @@ use nexus_device_manager::{
     platform_backend, DeviceManager, DeviceManagerConfig, HidBackend, ScannedDevice, SessionHandler,
 };
 use nexus_dualsense::DualSenseDriver;
+use nexus_dualshock4::DualShock4Driver;
 use nexus_input_processing::{ConfiguredProcessor, ProcessingConfig, ProcessingPipeline};
 use nexus_macro_engine::{
-    Macro, MacroButton, MacroLibrary, MacroRecorder, MacroRunner, RecordingResult,
+    Macro, MacroButton, MacroLibrary, MacroRecorder, MacroRun, MacroRunner, RecordingResult,
 };
 use nexus_telemetry::{
-    unix_millis, IntervalStats, IntervalSummary, LatencySummary, LatencyWindow, LogEntry, LogLevel,
-    RateCounter, RawReport, Telemetry,
+    unix_millis, FlowStats, FlowSummary, IntervalStats, IntervalSummary, LatencySummary,
+    LatencyWindow, LogEntry, LogLevel, RateCounter, RawReport, SlowCalls, StageLatency,
+    StageWindow, Telemetry,
 };
 use nexus_virtual_controller::drivers::{probe_drivers, DriverStatus};
 use nexus_virtual_controller::{
@@ -54,6 +56,9 @@ pub struct EngineConfig {
     pub hotplug: bool,
     /// Stick, trigger and remapping settings at start-up (from the profile).
     pub processing: ProcessingConfig,
+    /// The start-up profile's macros, in place before any controller is
+    /// read (so the first report already has the whole profile).
+    pub macros: Vec<Macro>,
     /// Scan interval used as a safety net while notifications are active.
     pub hotplug_fallback_interval: Duration,
 }
@@ -67,6 +72,7 @@ impl Default for EngineConfig {
             raw_report_capacity: 256,
             hotplug: true,
             processing: ProcessingConfig::default(),
+            macros: Vec::new(),
             hotplug_fallback_interval: Duration::from_secs(5),
         }
     }
@@ -85,14 +91,26 @@ pub struct DeviceSnapshot {
     pub processed: Option<ControllerState>,
     /// IDs of macros currently playing on this controller.
     pub playing_macros: Vec<String>,
+    /// What each active macro is doing (arming or running, and since when),
+    /// for Macro Studio's test panel. Updated when it changes.
+    pub macro_runs: Vec<MacroRun>,
     /// Index (in the profile's `layers`) of the shift layer active on this
     /// controller, if any.
     pub active_layer: Option<usize>,
     /// Time NEXUS spends per report: processing, macros and output.
     pub pipeline_latency: LatencySummary,
+    /// The same time split by stage, in nanoseconds.
+    pub stage_latency: StageLatency,
+    /// Spacing of reports and of virtual-controller frames, and whether
+    /// NEXUS fell behind the controller (see `FlowSummary`).
+    #[serde(default)]
+    pub flow: FlowSummary,
     /// Reports missing according to the controller's sequence counter
     /// (estimate: assumes the counter advances once per report).
     pub sequence_gaps: u64,
+    /// Queued reports skipped because a slow iteration (usually a slow
+    /// driver call) made them stale; only the newest was processed.
+    pub stale_reports_skipped: u64,
     /// Time between reports since connect (USB stability).
     pub report_intervals: IntervalSummary,
     /// Output reports (lightbar, LEDs, vibration) sent to this controller.
@@ -318,6 +336,14 @@ struct Shared {
     recording: Mutex<Option<RecordingState>>,
     processing: Mutex<Arc<ProcessingConfig>>,
     processing_generation: AtomicU64,
+    /// Whether the latest settings change keeps toggles (an edit) or not (a
+    /// profile switch).
+    processing_keep_toggles: std::sync::atomic::AtomicBool,
+    /// Held for writing while a profile switch replaces the settings and the
+    /// macros, and for reading while a session adopts changes, so a session
+    /// never runs one profile's settings with another profile's macros.
+    /// Sessions take it only when something changed, never per report.
+    profile_switch: std::sync::RwLock<()>,
     rumble_request: Mutex<(u64, f32, u32)>,
     /// Generation of `rumble_request`, read lock-free on every report.
     rumble_generation: AtomicU64,
@@ -365,15 +391,23 @@ pub struct Engine {
     control: Sender<Control>,
     hotplug: Mutex<Option<nexus_device_manager::HotplugGuard>>,
     supervisor: Mutex<Option<JoinHandle<()>>>,
+    /// Signalled when the supervisor has released every controller.
+    stopped: Mutex<Option<Receiver<()>>>,
+}
+
+/// Every physical controller family NEXUS reads. Each driver claims only its
+/// own product IDs, so a device is never identified by two drivers.
+pub fn supported_drivers() -> Vec<Arc<dyn ControllerDriver>> {
+    vec![Arc::new(DualSenseDriver), Arc::new(DualShock4Driver)]
 }
 
 impl Engine {
-    /// Starts the engine with the platform HID backend, the DualSense driver
-    /// and no virtual output driver.
+    /// Starts the engine with the platform HID backend, the DualSense and
+    /// DualShock 4 drivers and the platform's virtual output driver.
     pub fn start_default(config: EngineConfig) -> Self {
         Self::start(
             platform_backend(),
-            vec![Arc::new(DualSenseDriver)],
+            supported_drivers(),
             Arc::new(nexus_virtual_controller::platform_backend),
             config,
         )
@@ -399,10 +433,16 @@ impl Engine {
             capturing: std::sync::atomic::AtomicBool::new(false),
             capture: Mutex::new(None),
             drivers: Mutex::new(probe_drivers()),
-            macros: Arc::new(MacroLibrary::new()),
+            macros: Arc::new({
+                let library = MacroLibrary::new();
+                library.set(config.macros.clone());
+                library
+            }),
             recording: Mutex::new(None),
             processing: Mutex::new(Arc::new(config.processing.sanitized())),
             processing_generation: AtomicU64::new(0),
+            processing_keep_toggles: std::sync::atomic::AtomicBool::new(true),
+            profile_switch: std::sync::RwLock::new(()),
             rumble_request: Mutex::new((0, 0.0, 0)),
             rumble_generation: AtomicU64::new(0),
             stats: Mutex::new(EngineStats::default()),
@@ -472,11 +512,13 @@ impl Engine {
 
         let sup_shared = shared.clone();
         let hid_for_engine = hid.clone();
+        let (stopped_tx, stopped) = channel();
         let supervisor = std::thread::Builder::new()
             .name("nexus-supervisor".into())
             .spawn(move || {
                 let manager = DeviceManager::new(hid, drivers, device_config, factory, notify);
                 supervise(manager, sup_shared, control_rx);
+                let _ = stopped_tx.send(());
             })
             .expect("failed to spawn engine supervisor thread");
 
@@ -486,6 +528,7 @@ impl Engine {
             control,
             hotplug: Mutex::new(hotplug),
             supervisor: Mutex::new(Some(supervisor)),
+            stopped: Mutex::new(Some(stopped)),
         }
     }
 
@@ -567,8 +610,24 @@ impl Engine {
 
     /// Applies new stick/trigger/remap settings to every controller on its
     /// next report.
+    /// New settings for the active profile (an edit). Toggled layers and
+    /// toggled gyro stay on; held buttons stay held, not new presses.
     pub fn set_processing(&self, config: ProcessingConfig) {
+        self.replace_processing(config, true);
+    }
+
+    /// Settings of another profile (a profile switch). Toggles start off;
+    /// held buttons and hidden combination buttons are still carried over,
+    /// so nothing toggles or leaks just because the profile changed.
+    pub fn switch_processing(&self, config: ProcessingConfig) {
+        self.replace_processing(config, false);
+    }
+
+    fn replace_processing(&self, config: ProcessingConfig, keep_toggles: bool) {
         *lock(&self.shared.processing) = Arc::new(config.sanitized());
+        self.shared
+            .processing_keep_toggles
+            .store(keep_toggles, Ordering::Release);
         self.shared
             .processing_generation
             .fetch_add(1, Ordering::AcqRel);
@@ -579,6 +638,39 @@ impl Engine {
         (**lock(&self.shared.processing)).clone()
     }
 
+    /// Applies another profile as one change: its settings and its macros
+    /// are adopted together by every session, between two reports. No report
+    /// is ever processed with half of the switch (new settings with the old
+    /// profile's macros, or the reverse). Toggles start off and running
+    /// macros stop, as with [`Engine::switch_processing`] and
+    /// [`Engine::set_macros`].
+    pub fn switch_profile(&self, config: ProcessingConfig, macros: Vec<Macro>) {
+        let _switch = self
+            .shared
+            .profile_switch
+            .write()
+            .unwrap_or_else(|e| e.into_inner());
+        *lock(&self.shared.processing) = Arc::new(config.sanitized());
+        self.shared
+            .processing_keep_toggles
+            .store(false, Ordering::Release);
+        self.shared
+            .processing_generation
+            .fetch_add(1, Ordering::AcqRel);
+        self.shared.macros.set(macros);
+        drop(_switch);
+        self.shared.bump();
+    }
+
+    /// Holds a profile switch open (as if it were half written), for tests.
+    #[cfg(test)]
+    pub(crate) fn hold_profile_switch(&self) -> std::sync::RwLockWriteGuard<'_, ()> {
+        self.shared
+            .profile_switch
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+    }
+
     /// Replaces the macros the engine runs. Running macros stop; each starts
     /// again on its next trigger press.
     pub fn set_macros(&self, macros: Vec<Macro>) {
@@ -586,7 +678,7 @@ impl Engine {
         self.shared.bump();
     }
 
-    /// Vibrates every connected DualSense at `strength` (0–1, scaled by the
+    /// Vibrates every connected controller (DualSense or DualShock 4) at `strength` (0–1, scaled by the
     /// profile's vibration intensity) for `duration_ms`, then stops.
     pub fn test_vibration(&self, strength: f32, duration_ms: u32) -> Result<(), String> {
         if lock(&self.shared.devices).is_empty() {
@@ -822,6 +914,12 @@ impl Engine {
         let _ = self.control.send(Control::Rescan);
     }
 
+    /// Adds an entry to the engine log (shown in Settings and the
+    /// diagnostics report), e.g. how long the app window took to open.
+    pub fn log(&self, level: LogLevel, category: &str, message: impl Into<String>) {
+        self.shared.log(level, category, message);
+    }
+
     pub fn recent_log(&self, limit: usize) -> Vec<LogEntry> {
         self.shared.telemetry.recent_log(limit)
     }
@@ -831,15 +929,47 @@ impl Engine {
     }
 
     /// Stops all controller sessions, releases virtual devices and joins the
-    /// engine threads. Idempotent.
+    /// engine threads. Idempotent. Waits as long as that takes; at app exit
+    /// use [`Engine::shutdown_within`].
     pub fn shutdown(&self) {
+        self.shutdown_within(Duration::MAX);
+    }
+
+    /// Like [`Engine::shutdown`], but gives up waiting after `timeout`.
+    ///
+    /// Each controller's reader thread sends a neutral frame and removes its
+    /// virtual controller before it stops. A reader stuck inside a driver
+    /// call that never returns cannot do that, and must not keep NEXUS from
+    /// exiting: after `timeout` this returns `false` and leaves the threads
+    /// to finish on their own. When the process then exits, Windows closes
+    /// the driver connection and ViGEmBus removes the virtual controller.
+    pub fn shutdown_within(&self, timeout: Duration) -> bool {
         // Stop OS notifications first so none arrive during shutdown.
         *lock(&self.hotplug) = None;
-        let handle = lock(&self.supervisor).take();
-        if let Some(handle) = handle {
-            let _ = self.control.send(Control::Shutdown);
+        let Some(handle) = lock(&self.supervisor).take() else {
+            return true;
+        };
+        let _ = self.control.send(Control::Shutdown);
+        let stopped = lock(&self.stopped).take();
+        let finished = match stopped {
+            // Disconnected: the supervisor ended without signalling (it panicked).
+            Some(rx) => !matches!(rx.recv_timeout(timeout), Err(RecvTimeoutError::Timeout)),
+            None => true,
+        };
+        if finished {
             let _ = handle.join();
+        } else {
+            self.shared.log(
+                LogLevel::Warn,
+                "engine",
+                format!(
+                    "Controllers were not released within {} ms (a driver call is not \
+                     returning). Windows removes the virtual controller when NEXUS exits.",
+                    timeout.as_millis()
+                ),
+            );
         }
+        finished
     }
 }
 
@@ -987,6 +1117,8 @@ struct EngineSessionHandler {
     pipeline: ProcessingPipeline,
     processing_generation: u64,
     latency: LatencyWindow,
+    /// Per-stage time of each report (nanoseconds), published with `latency`.
+    stages: Stages,
     reports_since_latency_publish: u32,
     macros: MacroRunner,
     last_physical: Option<ControllerState>,
@@ -1002,12 +1134,24 @@ struct EngineSessionHandler {
     feedback: Feedback,
     last_sequence: Option<u8>,
     sequence_gaps: u64,
+    /// Reports skipped as stale (not counted as dropped by the controller).
+    stale_skipped: u64,
+    /// Skipped reports not yet accounted for in the sequence-gap count.
+    skip_credit: u64,
+    /// Report and virtual-frame spacing, backlog and repeated frames.
+    flow: FlowStats,
+    /// The report being handled was already queued when read.
+    read_was_queued: bool,
+    /// The last frame sent to the virtual controller, as the game sees it.
+    last_sent: Option<nexus_virtual_controller::translate::XusbReport>,
 }
 
-/// Physical DualSense feedback for one session: sends a report only when
-/// the wanted lightbar/LED state changes or a vibration starts or ends.
+/// Physical controller feedback for one session: sends a report only when
+/// the wanted lightbar/LED state changes or a vibration starts or ends. The
+/// report format follows the model (DualSense or DualShock 4).
 struct Feedback {
     usb: bool,
+    dualshock4: bool,
     output_len: usize,
     config: nexus_input_processing::FeedbackConfig,
     sent_lighting: (Option<[u8; 3]>, Option<u8>, u8),
@@ -1030,6 +1174,7 @@ impl Feedback {
         };
         Self {
             usb,
+            dualshock4: device.model == ControllerModel::DualShock4,
             output_len: device.output_report_len as usize,
             config: Default::default(),
             sent_lighting: (None, None, 0),
@@ -1078,6 +1223,17 @@ impl Feedback {
 
     fn take(&mut self) -> Option<Vec<u8>> {
         let state = self.pending.take()?;
+        if self.dualshock4 {
+            // USB only; no player LEDs, so a change to those alone sends nothing.
+            if state.rumble.is_none() && state.lightbar.is_none() {
+                return None;
+            }
+            self.sent += 1;
+            return Some(nexus_dualshock4::output::usb_output_report(
+                &state,
+                self.output_len,
+            ));
+        }
         self.sent += 1;
         Some(if self.usb {
             nexus_dualsense::output::usb_output_report(&state, self.output_len)
@@ -1114,9 +1270,13 @@ fn new_session_handler(
             input: None,
             processed: None,
             playing_macros: Vec::new(),
+            macro_runs: Vec::new(),
             active_layer: None,
             pipeline_latency: LatencySummary::default(),
+            stage_latency: StageLatency::default(),
+            flow: FlowSummary::default(),
             sequence_gaps: 0,
+            stale_reports_skipped: 0,
             report_intervals: IntervalSummary::default(),
             output_reports_sent: 0,
             last_report_ms: None,
@@ -1139,11 +1299,22 @@ fn new_session_handler(
         },
         last_sequence: None,
         sequence_gaps: 0,
+        stale_skipped: 0,
+        skip_credit: 0,
+        flow: FlowStats::default(),
+        read_was_queued: false,
+        last_sent: None,
         pipeline: build_pipeline(&lock(&shared.processing)),
         processing_generation: shared.processing_generation.load(Ordering::Acquire),
         latency: LatencyWindow::default(),
+        stages: Stages::default(),
         reports_since_latency_publish: 0,
-        macros: MacroRunner::new(shared.macros.clone()),
+        // Macros are adopted together with the settings (sync_settings).
+        macros: {
+            let mut r = MacroRunner::new(shared.macros.clone());
+            r.set_manual_reload(true);
+            r
+        },
         last_physical: None,
         unreadable_run: 0,
         unreadable_failsafe: false,
@@ -1161,6 +1332,9 @@ fn build_pipeline(config: &ProcessingConfig) -> ProcessingPipeline {
     p
 }
 
+/// Which macros are playing and their run states, when either changed this report.
+type MacroChange = Option<(Vec<String>, Vec<MacroRun>)>;
+
 impl EngineSessionHandler {
     /// physical → processing (sticks, triggers, remap) → macros → virtual output.
     ///
@@ -1172,32 +1346,73 @@ impl EngineSessionHandler {
         &mut self,
         physical: &ControllerState,
         received: Option<Instant>,
-    ) -> (ControllerState, Option<Vec<String>>) {
-        self.sync_processing();
+    ) -> (ControllerState, MacroChange) {
+        self.sync_settings(Some(*physical));
+        // Four clock reads per report split the time by stage; macros reuse
+        // one of them as their "now".
+        let t0 = Instant::now();
         let mut out = self.pipeline.run(physical);
-        self.macros.process(physical, &mut out, Instant::now());
+        let t1 = Instant::now();
+        self.macros.process(physical, &mut out, t1);
+        let t2 = Instant::now();
         self.output.submit(&out);
+        let t3 = Instant::now();
+        let sent = nexus_virtual_controller::translate::to_xusb(&out);
+        self.flow.output(t3, self.last_sent == Some(sent));
+        self.last_sent = Some(sent);
+        self.stages.mapping.record(t1 - t0);
+        self.stages.macros.record(t2 - t1);
+        self.stages.output.record(t3 - t2);
+        self.stages.slow_output.record(t3 - t2);
         if let Some(received) = received {
-            self.latency.record(received.elapsed());
+            self.latency.record(t3.saturating_duration_since(received));
+            self.stages
+                .input
+                .record(t0.saturating_duration_since(received));
         }
         if let Some(event) = self.output.take_event() {
             self.on_output_event(event);
         }
-        // The list (which allocates) is built only when it changed.
-        let playing = self
-            .macros
-            .take_playing_changed()
-            .then(|| self.macros.playing());
+        // The lists (which allocate) are built only when they changed.
+        let playing = self.macros.take_playing_changed().then(|| {
+            (
+                self.macros.playing(),
+                self.macros.runs(Instant::now(), unix_millis() as i64),
+            )
+        });
         (out, playing)
     }
 
-    /// Picks up new settings (pipeline and feedback) before anything uses them.
+    /// Picks up new settings and macros before anything uses them. Nothing
+    /// to do (two atomic reads) unless something changed; then both are
+    /// adopted under the profile-switch lock, so a switch in progress is
+    /// waited for and never seen half applied.
+    fn sync_settings(&mut self, physical: Option<ControllerState>) {
+        let generation = self.shared.processing_generation.load(Ordering::Acquire);
+        if generation == self.processing_generation && self.macros.is_current() {
+            return;
+        }
+        let shared = self.shared.clone();
+        let _switch = shared
+            .profile_switch
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
+        self.sync_processing();
+        if let Some(p) = physical.or(self.last_physical) {
+            self.macros.refresh(&p);
+        }
+    }
+
+    /// Picks up new settings (pipeline and feedback). Called by sync_settings.
     fn sync_processing(&mut self) {
         let generation = self.shared.processing_generation.load(Ordering::Acquire);
         if generation != self.processing_generation {
             self.processing_generation = generation;
             let config = lock(&self.shared.processing).clone();
-            self.pipeline = build_pipeline(&config);
+            let keep_toggles = self.shared.processing_keep_toggles.load(Ordering::Acquire);
+            let mut pipeline = build_pipeline(&config);
+            pipeline.carry_state_from(&self.pipeline, keep_toggles);
+            self.pipeline = pipeline;
             self.feedback.config = config.feedback.clone();
         }
     }
@@ -1272,8 +1487,11 @@ impl EngineSessionHandler {
                 let gap = seq.wrapping_sub(prev).wrapping_sub(1);
                 // Large jumps are resets, not losses.
                 if gap > 0 && gap < 64 {
-                    self.sequence_gaps += gap as u64;
+                    // Reports NEXUS skipped itself were not lost by the controller.
+                    let skipped = self.skip_credit.min(gap as u64);
+                    self.sequence_gaps += gap as u64 - skipped;
                 }
+                self.skip_credit = 0;
             }
             self.last_sequence = Some(seq);
         }
@@ -1339,7 +1557,7 @@ impl SessionHandler for EngineSessionHandler {
     fn on_report(&mut self, raw: &[u8], parsed: Result<ControllerState, ReportError>) {
         let now = Instant::now();
         self.sync_output_mode();
-        self.sync_processing();
+        self.sync_settings(parsed.as_ref().ok().copied());
 
         // Input path first: processing, macros and the virtual controller.
         // Everything below is bookkeeping and runs after the game already has
@@ -1358,6 +1576,8 @@ impl SessionHandler for EngineSessionHandler {
 
         self.rate.record(now, parsed.is_ok());
         self.intervals.record(now);
+        self.flow
+            .report(now, std::mem::take(&mut self.read_was_queued));
         let error = parsed.as_ref().err().map(ToString::to_string);
         self.shared
             .telemetry
@@ -1375,7 +1595,7 @@ impl SessionHandler for EngineSessionHandler {
             self.feed_recording(state);
         }
         self.feedback.update(&self.shared, Instant::now());
-        let (gaps, sent) = (self.sequence_gaps, self.feedback.sent);
+        let (gaps, sent, stale) = (self.sequence_gaps, self.feedback.sent, self.stale_skipped);
         // For display only, after the virtual controller already has this report.
         let layer = self.pipeline.active_layer();
 
@@ -1388,26 +1608,35 @@ impl SessionHandler for EngineSessionHandler {
         self.reports_since_latency_publish += 1;
         let latency = (self.reports_since_latency_publish >= 64).then(|| {
             self.reports_since_latency_publish = 0;
-            (self.latency.summary(), self.intervals.summary())
+            (
+                self.latency.summary(),
+                self.intervals.summary(),
+                self.stages.summary(),
+                self.flow.summary(),
+            )
         });
         self.shared.update_device(&self.id, |s| {
-            if let Some((l, i)) = latency {
+            if let Some((l, i, st, flow)) = latency {
                 s.pipeline_latency = l;
                 s.report_intervals = i;
+                s.stage_latency = st;
+                s.flow = flow;
             }
             s.last_report_ms = Some(unix_millis());
             s.report_rate_hz = rate;
             s.total_reports = total;
             s.parse_errors = errors;
             s.sequence_gaps = gaps;
+            s.stale_reports_skipped = stale;
             s.output_reports_sent = sent;
             s.active_layer = layer;
             match (physical, processed) {
                 (Some(input), Some((out, playing))) => {
                     s.input = Some(input);
                     s.processed = Some(out);
-                    if let Some(p) = playing {
+                    if let Some((p, runs)) = playing {
                         s.playing_macros = p;
+                        s.macro_runs = runs;
                     }
                 }
                 // Keep the last valid state; record why this report failed.
@@ -1416,6 +1645,7 @@ impl SessionHandler for EngineSessionHandler {
                     if failsafe_started {
                         s.processed = Some(ControllerState::default());
                         s.playing_macros.clear();
+                        s.macro_runs.clear();
                     }
                 }
             }
@@ -1424,11 +1654,11 @@ impl SessionHandler for EngineSessionHandler {
 
     fn on_idle(&mut self) {
         self.sync_output_mode();
-        self.sync_processing();
+        // Also picks up macro changes, so a new macro is ready before its trigger.
+        self.sync_settings(None);
         self.feedback.update(&self.shared, Instant::now());
         // Keep macro timing moving even if reports pause briefly.
         if let Some(physical) = self.last_physical {
-            self.macros.refresh(&physical);
             if self.macros.take_playing_changed() {
                 // A reload (e.g. profile switch) stopped a macro while no
                 // reports arrive. The virtual controller still holds the
@@ -1442,17 +1672,20 @@ impl SessionHandler for EngineSessionHandler {
                 // Publish it too, otherwise the UI would keep showing the
                 // macro as playing.
                 let playing = self.macros.playing();
+                let runs = self.macros.runs(Instant::now(), unix_millis() as i64);
                 self.shared.update_device(&self.id, |s| {
                     s.processed = Some(ControllerState::default());
                     s.playing_macros = playing;
+                    s.macro_runs = runs;
                 });
             }
             if !self.macros.playing().is_empty() {
                 let (out, playing) = self.run_pipeline(&physical, None);
                 self.shared.update_device(&self.id, |s| {
                     s.processed = Some(out);
-                    if let Some(p) = playing {
+                    if let Some((p, runs)) = playing {
                         s.playing_macros = p;
+                        s.macro_runs = runs;
                     }
                 });
             }
@@ -1468,6 +1701,15 @@ impl SessionHandler for EngineSessionHandler {
             self.shared
                 .update_device(&self.id, |s| s.report_rate_hz = rate);
         }
+    }
+
+    fn on_read_wait(&mut self, waited: Duration) {
+        self.read_was_queued = waited < nexus_device_manager::CAUGHT_UP_WAIT;
+    }
+
+    fn on_stale_skipped(&mut self, count: usize) {
+        self.stale_skipped += count as u64;
+        self.skip_credit += count as u64;
     }
 
     fn take_output(&mut self) -> Option<Vec<u8>> {
@@ -1497,7 +1739,30 @@ impl SessionHandler for EngineSessionHandler {
     }
 }
 
+/// Per-stage timing windows of one controller's reader thread.
+#[derive(Default)]
+struct Stages {
+    input: StageWindow,
+    mapping: StageWindow,
+    macros: StageWindow,
+    output: StageWindow,
+    slow_output: SlowCalls,
+}
+
+impl Stages {
+    fn summary(&self) -> StageLatency {
+        StageLatency {
+            input: self.input.summary(),
+            mapping: self.mapping.summary(),
+            macros: self.macros.summary(),
+            output: self.output.summary(),
+            slow_output: self.slow_output,
+        }
+    }
+}
+
 pub mod inspector;
+pub mod output_check;
 
 #[cfg(test)]
 mod tests;

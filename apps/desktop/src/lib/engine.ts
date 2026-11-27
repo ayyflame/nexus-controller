@@ -1,9 +1,11 @@
+import type { ProfileMeta } from "./profileManager";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
+  OutputCheck, RestorePoint, WindowBehaviour, WindowsIntegration,
   AppInfo, CommandError, EngineEvent, HidDiagnostic, EngineStatus, LogEntry, Macro, Profile, RawReport,
   ConfigConflict, DriverStatus, ExportResult, GyroCalibration, ImportMode, ImportPreview, ImportReport, ProcessingConfig,
-  ProfileTemplate, RecordingResult, ValidationIssue, VirtualOutputKind,
+  MacroMeta, ProfileTemplate, RecordingResult, ValidationIssue, VirtualOutputKind,
 } from "../types/engine";
 import type { UpdateStatus } from "./updates";
 
@@ -36,6 +38,12 @@ export function errorMessage(e: unknown): string {
 export const engineApi = {
   getAppInfo: () => invoke<AppInfo>("get_app_info"),
   getStatus: () => invoke<EngineStatus>("get_status"),
+  getDefaultProfile: () => invoke<number | null>("get_default_profile"),
+  setDefaultProfile: (id: number | null) => invoke<number | null>("set_default_profile", { id }),
+  checkVirtualOutput: () => invoke<OutputCheck>("check_virtual_output"),
+  getWindowsIntegration: () => invoke<WindowsIntegration>("get_windows_integration"),
+  setWindowBehaviour: (behaviour: WindowBehaviour) => invoke<WindowsIntegration>("set_window_behaviour", { behaviour }),
+  setStartWithWindows: (enabled: boolean) => invoke<WindowsIntegration>("set_start_with_windows", { enabled }),
   getEventLog: (limit?: number) => invoke<LogEntry[]>("get_event_log", { limit }),
   getRawReports: (limit?: number) => invoke<RawReport[]>("get_raw_reports", { limit }),
   getHidDiagnostics: () => invoke<HidDiagnostic[]>("get_hid_diagnostics"),
@@ -44,12 +52,16 @@ export const engineApi = {
   getActiveProfile: () => invoke<Profile>("get_active_profile"),
   setActiveProfile: (id: number) => invoke<Profile>("set_active_profile", { id }),
   setVirtualOutput: (mode: VirtualOutputKind) => invoke<Profile>("set_virtual_output", { mode }),
-  createProfile: (name: string) => invoke<Profile>("create_profile", { name }),
+  /** A blank profile, or (with `copyFrom`) a full copy of another one under `name`. */
+  createProfile: (name: string, copyFrom?: number) => invoke<Profile>("create_profile", { name, copyFrom: copyFrom ?? null }),
+  getProfileMeta: () => invoke<ProfileMeta>("get_profile_meta"),
+  setProfilePinned: (id: number, pinned: boolean) => invoke<ProfileMeta>("set_profile_pinned", { id, pinned }),
   renameProfile: (id: number, name: string) => invoke<Profile>("rename_profile", { id, name }),
   duplicateProfile: (id: number) => invoke<Profile>("duplicate_profile", { id }),
   /** Returns the active profile afterwards. */
   deleteProfile: (id: number) => invoke<Profile>("delete_profile", { id }),
-  setProcessing: (config: ProcessingConfig) => invoke<Profile>("set_processing", { config }),
+  /** Saves to `profileId` (the profile the edit was made in), or the active profile. */
+  setProcessing: (config: ProcessingConfig, profileId?: number) => invoke<Profile>("set_processing", { config, profileId: profileId ?? null }),
   stopAllMacros: () => invoke<void>("stop_all_macros"),
   refreshDrivers: () => invoke<DriverStatus>("refresh_drivers"),
   getOutputConsent: () => invoke<{ enabled: boolean }>("get_output_consent"),
@@ -59,12 +71,18 @@ export const engineApi = {
   finishGyroCalibration: () => invoke<GyroCalibration>("finish_gyro_calibration"),
   findConflicts: (config: ProcessingConfig) => invoke<ConfigConflict[]>("find_conflicts", { config }),
   setProfileGames: (id: number, games: string[]) => invoke<Profile>("set_profile_games", { id, games }),
+  recentPrograms: () => invoke<string[]>("recent_programs"),
+  listRestorePoints: () => invoke<RestorePoint[]>("list_restore_points"),
+  readRestorePoint: (id: string) => invoke<string>("read_restore_point", { id }),
   getAutoSwitch: () => invoke<boolean>("get_auto_switch"),
   setAutoSwitch: (enabled: boolean) => invoke<void>("set_auto_switch", { enabled }),
   listTemplates: () => invoke<ProfileTemplate[]>("list_templates"),
   createProfileFromTemplate: (name: string, template: string) => invoke<Profile>("create_profile_from_template", { name, template }),
   exportConfig: (profileIds: number[], includeAllMacros: boolean) => invoke<ExportResult>("export_config", { profileIds, includeAllMacros }),
   exportMacros: () => invoke<ExportResult>("export_macros"),
+  exportMacro: (ids: string[]) => invoke<ExportResult>("export_macro", { ids }),
+  getMacroMeta: () => invoke<MacroMeta>("get_macro_meta"),
+  setMacroPinned: (id: string, pinned: boolean) => invoke<MacroMeta>("set_macro_pinned", { id, pinned }),
   previewImport: (json: string, mode: ImportMode) => invoke<ImportPreview>("preview_import", { json, mode }),
   importConfig: (json: string, mode: ImportMode) => invoke<ImportReport>("import_config", { json, mode }),
   createBackup: () => invoke<ExportResult>("create_backup"),

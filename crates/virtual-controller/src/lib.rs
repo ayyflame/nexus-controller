@@ -24,6 +24,7 @@ pub mod drivers;
 pub mod translate;
 #[cfg(windows)]
 pub mod vigem;
+pub mod xinput;
 
 use nexus_controller_core::{ControllerState, VirtualOutputKind};
 use serde::Serialize;

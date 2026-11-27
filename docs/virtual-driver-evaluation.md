@@ -89,3 +89,47 @@ Research date: 2026-11-15. Sources were checked where the session's network allo
 3. **Before release**, test anti-cheat interaction for target games with each backend, and decide on physical-device hiding (HidHide or an alternative).
 
 **Explicit approval is requested** to proceed with step 1 in Milestone 2, given that ViGEmBus is retired. If the risk is not acceptable, the alternative is to start a LizardByte licensing conversation and accept a C++ FFI layer and per-machine license cost.
+
+## Long-term update (2026-11-20): what could replace ViGEmBus
+
+NEXUS's virtual output still uses **ViGEmBus 1.22.0**, unchanged. This section records what exists now, so the decision can be made with evidence when it is needed. Sources are listed at the end. Points that come only from third-party pages are marked *(secondary)*.
+
+### Why this is hard
+
+Games read an Xbox 360 controller through XInput, which talks to Microsoft's `xusb22` driver for a **USB** device. A virtual Xbox 360 pad therefore has to appear as a USB device. That needs either a kernel bus driver (ViGEmBus) or a virtual USB host (USB/IP). Windows' built-in Virtual HID Framework (VHF) creates HID devices only. An Xbox 360 pad is not HID, so VHF-based drivers can't produce one: the libvirtualhid docs state their Windows driver rejects the Xbox 360 profile for exactly this reason.
+
+### Candidates
+
+| | ViGEmBus 1.22.0 (current) | VIIPER + usbip-win2 | LizardByte libvirtualhid (Windows driver) | Steam Input |
+|---|---|---|---|---|
+| Maintained | **No**: archived Nov 2023; no fixes for Windows changes | Yes (active project) | Yes | Yes |
+| Xbox 360 on Windows | Yes | Yes (listed device: Xbox 360) | **No**: Xbox 360 profile rejected on Windows; offers Xbox One/Series HID-style profiles instead | Only for games launched through Steam |
+| How it works | Kernel bus driver; `vigem-client` crate talks to it directly | A user-space VIIPER server emulates the USB device; usbip-win2 (a kernel USB/IP driver) attaches it to Windows | UMDF (user-mode) driver on VHF | Valve hooks the game's controller APIs; no driver |
+| Licence | BSD-3-Clause | VIIPER: GPL-3.0; client libraries (incl. a Rust client) MIT. usbip-win2: BSD-2-Clause (nefarius fork) *(secondary; check the LICENSE files)* | MIT library; **Windows driver source-available (LB-SAL 1.0) and needs a paid licence for gamepads** | Proprietary (Steam) |
+| Install | User installs the signed setup once | User installs usbip-win2 (driver) and runs the VIIPER server; NEXUS would talk to it over a local socket | Signed MSI; licence key | Steam installed and running |
+| Distribution | NEXUS doesn't bundle it (correct) | Talking to a separate GPL program over a socket with the MIT client keeps NEXUS MIT; bundling VIIPER itself would need GPL compliance for that part | Paid | n/a |
+| Anti-cheat | Some anti-cheat flags ViGEm devices | Unknown; also a virtual device | Unknown | Widely accepted |
+| Risk | Unfixable crashes or Windows breakage, and nothing to fall back to | Two moving parts (server + driver); not yet tested with NEXUS | No Xbox 360 output; paid | Not a general solution |
+
+Reports that DS4Windows moved to VIIPER as its only backend come from third-party pages *(secondary)*. They show the approach is viable but are not evidence for NEXUS.
+
+### Recommendation
+
+1. **Keep ViGEmBus 1.22.0 as the supported output for the first public release.** It works on Windows 11 today, its binaries are signed, users install it themselves, and the whole NEXUS stack is built and tested against it (`xinput-loopback.yml`, Output Check). Keep calling it *experimental* and keep it user-installed.
+2. **Make VIIPER the next backend to evaluate**, as its own milestone, not now. NEXUS already isolates the driver behind `VirtualControllerBackend`, so a `ViiperBackend` would sit next to `ViGEmBackend` without engine changes. The evaluation must cover:
+   - the CI XInput loopback against `xusb22`;
+   - Output Check on real PCs;
+   - the latency of the extra user-space hop, measured with the Performance page's driver-call timing;
+   - install and uninstall of usbip-win2 by the user;
+   - whether its driver is production-signed;
+   - anti-cheat behaviour in the games NEXUS users play.
+3. **Don't adopt libvirtualhid** for this purpose: no Xbox 360 output on Windows, plus a paid, source-available driver.
+4. **Trigger for switching:** a Windows update that breaks ViGEmBus, a security advisory against it, or VIIPER passing the evaluation above with latency equal or better.
+
+### Sources (checked 2026-11-20)
+
+- ViGEmBus repository (archived): https://github.com/nefarius/ViGEmBus
+- VIIPER: https://github.com/Alia5/VIIPER and docs https://alia5.github.io/VIIPER/stable ; Rust client https://docs.rs/crate/viiper-client/0.3.0
+- usbip-win2: https://github.com/vadimgrn/usbip-win2 , https://github.com/nefarius/usbip-win2
+- libvirtualhid Windows driver: https://docs.lizardbyte.dev/projects/libvirtualhid/latest/md_docs_2windows-driver.html and https://github.com/lizardByte/libvirtualhid
+- Discussion of VIIPER as a ViGEmBus alternative in another project: https://github.com/Brunovncs/OpenController/issues/1

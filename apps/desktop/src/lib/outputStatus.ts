@@ -1,5 +1,5 @@
 // One place that turns the engine's virtual-controller status into the words
-// shown on the Dashboard and the Virtual Output tab.
+// shown on the Dashboard and the Virtual Controller page.
 
 import type { OutputStatus, VirtualOutputKind } from "../types/engine";
 
@@ -37,7 +37,7 @@ export function outputSummary(o: {
   if (out?.retrying) {
     return { tone: "warn", text: "Reconnecting…", detail: "The virtual controller stopped working. NEXUS is creating it again by itself." };
   }
-  if (!out) return { tone: "neutral", text: "Waiting for your DualSense (USB)", detail: null };
+  if (!out) return { tone: "neutral", text: "Waiting for your controller (USB)", detail: null };
   if (!o.driverReady) return { tone: "neutral", text: "Waiting for ViGEmBus", detail: null };
   return { tone: "neutral", text: "Not connected", detail: null };
 }

@@ -1,7 +1,10 @@
 //! Windows HID backend built directly on SetupAPI, CfgMgr32 and HID.dll.
 //!
-//! * Enumeration opens each HID interface with **zero access rights**
-//!   (query-only). That works even while another process holds the device,
+//! * Enumeration lists HID interfaces without opening them. An interface is
+//!   opened (with **zero access rights**, query-only) only if its path names
+//!   a supported vendor or no vendor at all, and a controller already read
+//!   is not read again while it stays present (`backend::scan_present`).
+//!   Query-only opening works even while another process holds the device,
 //!   and it never changes device state.
 //! * Reading uses overlapped I/O, so a read can time out and be cancelled
 //!   cleanly. That lets reader threads notice stop requests.
@@ -58,11 +61,14 @@ const MAX_ANCESTORS: usize = 32;
 const FEATURE_TIMEOUT_MS: u32 = 1000;
 
 #[derive(Debug, Default)]
-pub struct WindowsHidBackend;
+pub struct WindowsHidBackend {
+    /// Controllers already read, by interface path (see `scan_present`).
+    known: std::sync::Mutex<std::collections::HashMap<String, HidDeviceInfo>>,
+}
 
 impl WindowsHidBackend {
     pub fn new() -> Self {
-        Self
+        Self::default()
     }
 }
 
@@ -397,14 +403,21 @@ impl HidBackend for WindowsHidBackend {
     }
 
     fn enumerate(&self, vendor_ids: &[u16]) -> Result<Vec<HidDeviceInfo>, HidError> {
-        Ok(hid_interfaces()?
+        let present = hid_interfaces()?
             .into_iter()
-            .filter_map(|(path, instance_id, devinst)| {
-                query_device(&path, Some(vendor_ids), instance_id, || {
+            .map(|(path, instance_id, devinst)| (path, (instance_id, devinst)))
+            .collect();
+        let mut known = self.known.lock().unwrap_or_else(|e| e.into_inner());
+        Ok(crate::backend::scan_present(
+            present,
+            vendor_ids,
+            &mut known,
+            |path, (instance_id, devinst)| {
+                query_device(path, Some(vendor_ids), instance_id, || {
                     ancestors_of(devinst)
                 })
-            })
-            .collect())
+            },
+        ))
     }
 
     fn related_interfaces(&self, of: &HidDeviceInfo) -> Result<Vec<HidInterfaceDetails>, HidError> {

@@ -5,7 +5,7 @@
 // (controller-core: device_event_json_shape_matches_frontend_contract).
 
 export type ConnectionType = "usb" | "bluetooth" | "unknown";
-export type ControllerModel = "dualSense" | "dualSenseEdge";
+export type ControllerModel = "dualSense" | "dualSenseEdge" | "dualShock4";
 export type DeviceOrigin = "physical" | "virtual" | "unknown";
 export type VirtualOutputKind = "disabled" | "xbox360" | "dualShock4";
 
@@ -38,7 +38,7 @@ export interface TouchpadState { points: [TouchPoint, TouchPoint]; width: number
 export interface MotionState { gyroRaw: [number, number, number]; accelRaw: [number, number, number]; sensorTimestamp: number }
 export type BatteryStatus = "discharging" | "charging" | "full" | "error" | "unknown";
 export interface BatteryState { percent: number; status: BatteryStatus }
-export type ReportFormat = "unknown" | "dualSenseUsb" | "dualSenseBluetooth" | "dualSenseBluetoothBasic";
+export type ReportFormat = "unknown" | "dualSenseUsb" | "dualSenseBluetooth" | "dualSenseBluetoothBasic" | "dualShock4Usb";
 
 export interface ControllerState {
   leftStick: StickState;
@@ -79,12 +79,20 @@ export interface DeviceSnapshot {
   processed: ControllerState | null;
   /** IDs of macros playing on this controller right now. */
   playingMacros: string[];
+  /** What each active macro is doing on this controller (updated on change). */
+  macroRuns?: MacroRun[];
   /** Index in the profile's layers of the active shift layer, if any. */
   activeLayer: number | null;
   /** Time NEXUS spends per report (processing, macros, output). */
   pipelineLatency: LatencySummary;
+  /** The same time split by stage, in nanoseconds. */
+  stageLatency: StageLatency;
+  /** Spacing of reports and virtual frames, backlog; absent from older builds. */
+  flow?: FlowSummary;
   /** Reports missing per the controller's sequence counter (estimate). */
   sequenceGaps: number;
+  /** Queued reports skipped as stale after a slow driver call (only the newest was processed). */
+  staleReportsSkipped?: number;
   /** Time between input reports since connect (USB stability). */
   reportIntervals: { intervals: number; minUs: number; meanUs: number; maxUs: number; over8ms: number; over50ms: number };
   outputReportsSent: number;
@@ -115,7 +123,36 @@ export interface EngineStatus {
 export interface EngineStats { connects: number; disconnects: number; connectionErrors: number }
 export interface GyroCalibration { bias: [number, number, number]; samples: number; steady: boolean }
 
-export interface LatencySummary { p50Us: number; p99Us: number; maxUs: number; samples: number }
+export interface LatencySummary { p50Us: number; p99Us: number; maxUs: number; samples: number; meanUs?: number; p95Us?: number }
+export interface StageSummary { p50Ns: number; p99Ns: number; maxNs: number; samples: number; meanNs?: number; p95Ns?: number }
+/** How reports and virtual-controller frames flow (see crates/telemetry FlowSummary). */
+export interface FlowSummary {
+  /** Time between input reports (recent 256). */
+  reportGaps: LatencySummary;
+  /** Time between frames sent to the virtual controller (recent 256). */
+  outputGaps: LatencySummary;
+  /** Reports already waiting when NEXUS read them: NEXUS was behind (since connect). */
+  queuedReports: number;
+  /** Most queued reports in a row. */
+  longestBacklog: number;
+  /** Frames identical to the previous one (still sent). */
+  unchangedOutputs: number;
+  outputs: number;
+}
+/** Driver calls slower than a report interval (4 ms) or a noticeable stall (50 ms), since the controller connected. */
+export interface SlowCalls { over4ms: number; over50ms: number; longestNs: number; calls: number }
+export interface StageLatency { input: StageSummary; mapping: StageSummary; macros: StageSummary; output: StageSummary; slowOutput?: SlowCalls }
+
+/** One XInput player slot as a game reads it. */
+export interface XInputPad { buttons: number; leftTrigger: number; rightTrigger: number; thumbLx: number; thumbLy: number; thumbRx: number; thumbRy: number }
+/** Result of reading the virtual Xbox controller back through XInput. */
+export type OutputCheck =
+  | { state: "noController" }
+  | { state: "notXbox"; active: VirtualOutputKind | null }
+  | { state: "slotUnknown" }
+  | { state: "unavailable"; reason: string }
+  | { state: "missing"; slot: number }
+  | { state: "compared"; slot: number; sent: XInputPad; read: XInputPad; differences: string[] };
 
 export type DriverPresence = "installed" | "notInstalled" | "unknown";
 export interface DriverStatus { vigembus: DriverPresence; hidhide: DriverPresence }
@@ -191,11 +228,18 @@ export type MacroButton =
 
 export type PlaybackMode = "once" | "repeatWhileHeld" | "toggle";
 
+/** tap: press, hold `holdMs`, release, wait. hold: press and keep held
+ *  (until a release action or the end). release: let go of held buttons. */
+export type StepKind = "tap" | "hold" | "release";
+
 export interface MacroStep {
   id: string;
   buttons: MacroButton[];
+  /** Press time of a tap (0 for hold and release actions). */
   holdMs: number;
   delayAfterMs: number;
+  /** Absent means "tap" (files from before hold/release existed). */
+  kind?: StepKind;
 }
 
 export interface Macro {
@@ -208,6 +252,10 @@ export interface Macro {
   mode: PlaybackMode;
   repeatDelayMs: number;
   blockTrigger: boolean;
+  /** Hold to activate: the trigger must be held this long first (0 = on press). */
+  activationMs: number;
+  /** Play Once: how many times the sequence plays per press (absent = 1). */
+  repeatCount?: number;
   createdAtMs: number;
   updatedAtMs: number;
 }
@@ -265,6 +313,24 @@ export interface StickConfig {
   sensitivityY: number;
   squareOutput: boolean;
   calibration: StickCalibration;
+  /** Pressing buttons by pushing this stick in a direction. */
+  buttons: StickButtons;
+}
+
+/** Which physical stick drives one of the game's sticks. */
+export type StickSource = "left" | "right" | "off";
+export interface StickRouting { leftOutput: StickSource; rightOutput: StickSource }
+export type StickDirections = "eight" | "four";
+export interface StickButtons {
+  enabled: boolean;
+  up: MacroButton | null; down: MacroButton | null; left: MacroButton | null; right: MacroButton | null;
+  /** 0.1–0.95 of full travel. */
+  thresholdX: number; thresholdY: number;
+  /** How far below the threshold before a button releases (0–0.5). */
+  hysteresis: number;
+  directions: StickDirections;
+  /** Keep sending the stick's movement to the game too. */
+  passthrough: boolean;
 }
 
 export interface StickCalibration { centerX: number; centerY: number; minX: number; maxX: number; minY: number; maxY: number }
@@ -274,6 +340,7 @@ export interface TriggerConfig {
   activation: number; curve: number; rawMin: number; rawMax: number;
 }
 
+export interface ComboRule { buttons: MacroButton[]; sends: MacroButton[]; hideInputs: boolean }
 export interface RemapRule { from: MacroButton; to: MacroButton | null; also?: MacroButton[] }
 
 export type LayerMode = "hold" | "toggle";
@@ -311,11 +378,40 @@ export interface ImportReport { profilesAdded: number; macrosAdded: number; rena
 export interface ProcessingConfig {
   leftStick: StickConfig;
   rightStick: StickConfig;
+  /** Which physical stick the game receives as its left and right stick. */
+  stickRouting: StickRouting;
   leftTrigger: TriggerConfig;
   rightTrigger: TriggerConfig;
   remap: RemapRule[];
   layers: MappingLayer[];
+  /** Holding all of `buttons` presses `sends`. */
+  combos: ComboRule[];
   gyro: GyroConfig;
   touchpad: TouchpadConfig;
   feedback: FeedbackConfig;
 }
+
+// ---- Windows integration --------------------------------------------------
+
+/** What closing and minimising the window do, and whether a sign-in start opens it. */
+export interface WindowBehaviour { closeToTray: boolean; minimizeToTray: boolean; startHidden: boolean }
+export interface StartupStatus {
+  /** Start with Windows can be set here (false outside the Windows app). */
+  supported: boolean;
+  enabled: boolean;
+  /** Switched off in Task Manager › Startup apps. */
+  disabledInWindows: boolean;
+  error: string | null;
+}
+export interface WindowsIntegration { behaviour: WindowBehaviour; startWithWindows: StartupStatus }
+
+// ---- Restore points ---------------------------------------------------------
+
+export type RestoreKind = "manual" | "daily" | "beforeRestore" | "beforeUpdate";
+export interface RestorePoint { id: string; name: string; kind: RestoreKind; modifiedMs: number; bytes: number }
+
+/** Engine: a macro arming (hold to activate) or running, since `sinceMs` (ms since 1970). */
+export interface MacroRun { id: string; state: "arming" | "running"; sinceMs: number }
+
+/** Macro Studio organisation data: pinned macros, profiles each macro is on in. */
+export interface MacroMeta { pinned: string[]; profiles: Record<string, number[]> }

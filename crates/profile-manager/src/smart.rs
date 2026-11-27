@@ -7,6 +7,9 @@ use nexus_input_processing::{GyroActivation, ProcessingConfig, ResponseCurve};
 use rusqlite::{params, OptionalExtension};
 use serde::Serialize;
 
+/// App setting holding the id of the profile NEXUS starts with.
+const DEFAULT_PROFILE_KEY: &str = "default_profile_id";
+
 /// Normalises a game executable name: file name only, lower case, `.exe`.
 pub fn normalize_game(input: &str) -> Result<String, ProfileError> {
     let name = input
@@ -100,6 +103,50 @@ impl ProfileStore {
 
     pub fn set_auto_switch_enabled(&mut self, enabled: bool) -> Result<(), ProfileError> {
         self.set_setting(KEY_AUTO_SWITCH, if enabled { "true" } else { "false" })
+    }
+
+    /// The profile NEXUS starts with, if one is chosen (an app setting, so
+    /// no schema change). `None` if unset or if that profile no longer exists.
+    pub fn default_profile(&self) -> Result<Option<i64>, ProfileError> {
+        let Some(v) = self.get_setting(DEFAULT_PROFILE_KEY)? else {
+            return Ok(None);
+        };
+        let Ok(id) = v.parse::<i64>() else {
+            return Ok(None);
+        };
+        Ok(self
+            .list_profiles()?
+            .iter()
+            .any(|p| p.id == id)
+            .then_some(id))
+    }
+
+    /// Chooses (or with `None`, clears) the profile NEXUS starts with.
+    pub fn set_default_profile(&mut self, id: Option<i64>) -> Result<Option<i64>, ProfileError> {
+        match id {
+            Some(id) => {
+                self.get_profile(id)?;
+                self.set_setting(DEFAULT_PROFILE_KEY, &id.to_string())?;
+            }
+            None => {
+                self.conn.execute(
+                    "DELETE FROM app_settings WHERE key = ?1",
+                    [DEFAULT_PROFILE_KEY],
+                )?;
+            }
+        }
+        self.default_profile()
+    }
+
+    /// At start-up: switches to the default profile if one is chosen.
+    /// Returns the profile that is active afterwards.
+    pub fn activate_default_profile(&mut self) -> Result<Profile, ProfileError> {
+        if let Some(id) = self.default_profile()? {
+            if self.active_profile()?.id != id {
+                return self.set_active_profile(id);
+            }
+        }
+        self.active_profile()
     }
 
     pub fn get_setting(&self, key: &str) -> Result<Option<String>, ProfileError> {

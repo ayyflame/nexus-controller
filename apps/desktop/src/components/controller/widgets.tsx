@@ -1,4 +1,5 @@
-import { useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Icon } from "../Icons";
 import { evaluateCurve, pct } from "../../lib/processing";
 import type { CurvePoint, ResponseCurve, StickConfig } from "../../types/engine";
 
@@ -14,6 +15,8 @@ export function Slider({ label, tip, value, min = 0, max = 1, step = 0.01, forma
         <span className="mono gold small">{format(value)}</span>
       </span>
       <input type="range" className="slider" min={min} max={max} step={step} value={value}
+        // The filled part of the track (display only).
+        style={{ "--fill": `${max > min ? ((value - min) / (max - min)) * 100 : 0}%` } as CSSProperties}
         onChange={(e) => onChange(Number(e.target.value))} aria-label={label} />
     </label>
   );
@@ -23,7 +26,7 @@ const SIZE = 220;
 const R = SIZE / 2 - 10;
 
 /**
- * Stick position: physical input (grey) and processed output (gold), with
+ * Stick position: physical input (grey) and processed output (accent), with
  * the deadzone and outer deadzone drawn to scale.
  */
 export function StickPlot({ config, raw, processed, label }: {
@@ -66,7 +69,11 @@ const G = 240;
 const PAD = 16;
 const SPAN = G - 2 * PAD;
 
-/** Response curve graph. Custom curves can be edited by dragging points. */
+/**
+ * Response curve graph. Custom curves can be edited by dragging points;
+ * a point is removed by right-click, or by selecting it (click or Tab) and
+ * pressing Delete or using "Remove point".
+ */
 export function CurveEditor({ curve, onChange, liveInput }: {
   curve: ResponseCurve;
   onChange: (c: ResponseCurve) => void;
@@ -75,6 +82,10 @@ export function CurveEditor({ curve, onChange, liveInput }: {
 }) {
   const svg = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<number | null>(null);
+  // The point chosen for keyboard removal, and the point to focus after one is removed.
+  const [sel, setSel] = useState<number | null>(null);
+  const pointEls = useRef(new Map<number, SVGCircleElement>());
+  const focusAfter = useRef<number | null>(null);
   const px = (x: number) => PAD + x * SPAN;
   const py = (y: number) => G - PAD - y * SPAN;
   const path = Array.from({ length: 61 }, (_, i) => {
@@ -95,6 +106,20 @@ export function CurveEditor({ curve, onChange, liveInput }: {
 
   const setPoints = (pts: CurvePoint[]) =>
     onChange({ type: "custom", points: [...pts].sort((a, b) => a.x - b.x).slice(0, 8) });
+  // The same removal as right-click; from the keyboard, focus moves to the neighbouring point.
+  const removePoint = (i: number, fromKeyboard: boolean) => {
+    const rest = points.filter((_, j) => j !== i);
+    setPoints(rest);
+    const next = rest.length ? Math.min(i, rest.length - 1) : null;
+    setSel(next);
+    focusAfter.current = fromKeyboard ? next : null;
+  };
+  useEffect(() => {
+    if (focusAfter.current === null) return;
+    pointEls.current.get(focusAfter.current)?.focus();
+    focusAfter.current = null;
+  });
+  const pct = (v: number) => `${Math.round(v * 100)}%`;
 
   return (
     <div className="curve-editor">
@@ -109,7 +134,7 @@ export function CurveEditor({ curve, onChange, liveInput }: {
           if (curve.type !== "custom" || points.length >= 8) return;
           setPoints([...points, toValue(e as unknown as React.PointerEvent)]);
         }}
-        role="img" aria-label="Response curve">
+        role={curve.type === "custom" ? "group" : "img"} aria-label="Response curve">
         <rect x={PAD} y={PAD} width={SPAN} height={SPAN} className="cg-bg" />
         {[0.25, 0.5, 0.75].map((t) => (
           <g key={t}>
@@ -123,16 +148,27 @@ export function CurveEditor({ curve, onChange, liveInput }: {
           <circle cx={px(liveInput)} cy={py(evaluateCurve(curve, liveInput))} r={5} className="cg-live" />
         )}
         {points.map((p, i) => (
-          <circle key={i} cx={px(p.x)} cy={py(p.y)} r={7} className="cg-point"
-            onPointerDown={(e) => { (e.target as Element).setPointerCapture(e.pointerId); setDrag(i); }}
-            onContextMenu={(e) => { e.preventDefault(); setPoints(points.filter((_, j) => j !== i)); }} />
+          <circle key={i} cx={px(p.x)} cy={py(p.y)} r={7} className={`cg-point${sel === i ? " selected" : ""}`}
+            ref={(el) => { if (el) pointEls.current.set(i, el); else pointEls.current.delete(i); }}
+            tabIndex={0} role="button" aria-pressed={sel === i}
+            aria-label={`Curve point ${i + 1}: stick ${pct(p.x)}, output ${pct(p.y)}. Delete removes it.`}
+            onFocus={() => setSel(i)}
+            onKeyDown={(e) => { if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); removePoint(i, true); } }}
+            onPointerDown={(e) => { (e.target as Element).setPointerCapture(e.pointerId); setDrag(i); setSel(i); }}
+            onContextMenu={(e) => { e.preventDefault(); removePoint(i, false); }} />
         ))}
         <text x={PAD} y={G - 2} className="cg-label">Stick</text>
         <text x={G - PAD} y={PAD - 4} className="cg-label end">Output</text>
       </svg>
-      {curve.type === "custom" && (
-        <p className="muted small">Drag points to shape the curve. Double-click to add a point (up to 8), right-click to remove one.</p>
-      )}
+      {curve.type === "custom" && <>
+        <div className="cg-actions">
+          <button type="button" className="btn-ghost small" disabled={sel === null || !points[sel]}
+            onClick={() => { if (sel !== null && points[sel]) removePoint(sel, false); }}>
+            <Icon name="trash" size={13} /> {sel !== null && points[sel] ? `Remove point ${sel + 1}` : "Remove point"}
+          </button>
+        </div>
+        <p className="muted small">Drag points to shape the curve. Double-click to add a point (up to 8). To remove one, right-click it, or select it (click or Tab) and press Delete.</p>
+      </>}
     </div>
   );
 }

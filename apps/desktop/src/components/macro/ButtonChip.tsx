@@ -12,14 +12,14 @@ function Shape({ shape }: { shape: NonNullable<(typeof BUTTONS)[MacroButton]["sh
   );
 }
 
-/** A controller button drawn as a small key cap. */
-export function ButtonChip({ button, size = "md", active = false }: {
-  button: MacroButton; size?: "sm" | "md" | "lg"; active?: boolean;
+/** A controller button drawn as a small key cap. `label` overrides its text (e.g. "Share" on a DualShock 4). */
+export function ButtonChip({ button, size = "md", active = false, label }: {
+  button: MacroButton; size?: "sm" | "md" | "lg"; active?: boolean; label?: string;
 }) {
   const info = BUTTONS[button];
   return (
-    <span className={`chip chip-${size}${active ? " active" : ""}${info.shape ? " round" : ""}`} title={info.name}>
-      {info.shape ? <Shape shape={info.shape} /> : info.short}
+    <span className={`chip chip-${size}${active ? " active" : ""}${info.shape ? " round" : ""}`} title={label ?? info.name}>
+      {info.shape ? <Shape shape={info.shape} /> : label ?? info.short}
     </span>
   );
 }

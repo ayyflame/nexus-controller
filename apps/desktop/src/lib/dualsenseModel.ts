@@ -67,7 +67,7 @@ export function findIslands(pos: ArrayLike<number>, index: ArrayLike<number> | n
 /** How a control moves when used. */
 export type Motion = "press" | "bumper" | "stick" | "trigger";
 
-interface PartSpec {
+export interface PartSpec {
   material: string; centre: V3; tolerance: number; motion: Motion;
   /** Made of a clear cap (the outermost piece, 20 % opaque in the file) over a solid inner piece with the symbol. */
   clearCap?: boolean;
@@ -103,17 +103,45 @@ export const PARTS: Record<MacroButton, PartSpec> = {
 
 const dist = (a: V3, b: V3) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 
-/** The control an island belongs to (closest within tolerance), or null for the shell and other fixed parts. */
-export function classify(material: string, island: { min: V3; max: V3 }): MacroButton | null {
+/**
+ * One controller model file and how NEXUS reads it. Every model is brought
+ * into the same frame (x right, y up, z out of the face, the controller 2
+ * units wide, centred), so camera, lighting, press depth and pivots are
+ * shared between models.
+ */
+export interface ModelSpec {
+  /** Which controller it shows. */
+  model: "dualSense" | "dualShock4";
+  /** Its controls. A control the controller doesn't have (Mute on a DualShock 4) is absent. */
+  parts: Partial<Record<MacroButton, PartSpec>>;
+  /**
+   * How file coordinates (after the file's own node transforms) map into the
+   * shared frame: subtract `centre`, multiply by `scale`. Null: the file's
+   * mesh coordinates are already in it (the DualSense).
+   */
+  normalise: { centre: V3; scale: number } | null;
+  /** Height (z) of a stick's tilt pivot, from the stick's bounding box. */
+  stickPivotZ: (min: V3, max: V3) => number;
+  /** The textures are painted for a white controller, so the Midnight Black finish applies. */
+  finishes: boolean;
+}
+
+/** The control an island of `parts` belongs to (closest within tolerance), or null for the shell and other fixed parts. */
+export function classifyIn(parts: ModelSpec["parts"], material: string, island: { min: V3; max: V3 }): MacroButton | null {
   const c = centreOf(island);
   let best: MacroButton | null = null;
   let bestD = Infinity;
-  for (const [b, spec] of Object.entries(PARTS) as Array<[MacroButton, PartSpec]>) {
+  for (const [b, spec] of Object.entries(parts) as Array<[MacroButton, PartSpec]>) {
     if (spec.material !== material) continue;
     const d = dist(c, spec.centre);
     if (d <= spec.tolerance && d < bestD) { best = b; bestD = d; }
   }
   return best;
+}
+
+/** The DualSense control an island belongs to. */
+export function classify(material: string, island: { min: V3; max: V3 }): MacroButton | null {
+  return classifyIn(PARTS, material, island);
 }
 
 export interface PartFrame {
@@ -125,16 +153,72 @@ export interface PartFrame {
   normal: V3;
 }
 
-/** Pivot, anchor and facing of a control from its bounding box. */
-export function frameOf(b: MacroButton, min: V3, max: V3): PartFrame {
+/** Pivot, anchor and facing of a control of `spec` from its bounding box. */
+export function frameIn(spec: ModelSpec, b: MacroButton, min: V3, max: V3): PartFrame {
   const c = centreOf({ min, max });
-  switch (PARTS[b].motion) {
-    case "stick": return { pivot: [c[0], c[1], 0.12], anchor: [c[0], c[1], max[2]], normal: [0, 0, 1] };
+  switch (spec.parts[b]!.motion) {
+    case "stick": return { pivot: [c[0], c[1], spec.stickPivotZ(min, max)], anchor: [c[0], c[1], max[2]], normal: [0, 0, 1] };
     // Hinged at its top front edge, under the bumper.
     case "trigger": return { pivot: [c[0], max[1] - 0.02, max[2] - 0.02], anchor: [c[0], max[1], c[2]], normal: [0, 1, 0] };
     case "bumper": return { pivot: c, anchor: [c[0], max[1], c[2]], normal: [0, 0.8, 0.6] };
     default: return { pivot: c, anchor: [c[0], c[1], max[2]], normal: [0, 0, 1] };
   }
+}
+
+/** First point where the ray from `from` through `toward` meets one of `tris` (9 numbers per triangle), or null. */
+export function rayHit(tris: ArrayLike<number>, from: V3, toward: V3): V3 | null {
+  const d: V3 = [toward[0] - from[0], toward[1] - from[1], toward[2] - from[2]];
+  const len = Math.hypot(d[0], d[1], d[2]);
+  if (len === 0) return null;
+  d[0] /= len; d[1] /= len; d[2] /= len;
+  let best = Infinity;
+  for (let t = 0; t + 8 < tris.length; t += 9) {
+    // Möller–Trumbore.
+    const e1 = [tris[t + 3]! - tris[t]!, tris[t + 4]! - tris[t + 1]!, tris[t + 5]! - tris[t + 2]!];
+    const e2 = [tris[t + 6]! - tris[t]!, tris[t + 7]! - tris[t + 1]!, tris[t + 8]! - tris[t + 2]!];
+    const h = [d[1] * e2[2]! - d[2] * e2[1]!, d[2] * e2[0]! - d[0] * e2[2]!, d[0] * e2[1]! - d[1] * e2[0]!];
+    const a = e1[0]! * h[0]! + e1[1]! * h[1]! + e1[2]! * h[2]!;
+    if (Math.abs(a) < 1e-12) continue;
+    const f = 1 / a;
+    const sv = [from[0] - tris[t]!, from[1] - tris[t + 1]!, from[2] - tris[t + 2]!];
+    const u = f * (sv[0]! * h[0]! + sv[1]! * h[1]! + sv[2]! * h[2]!);
+    if (u < 0 || u > 1) continue;
+    const q = [sv[1]! * e1[2]! - sv[2]! * e1[1]!, sv[2]! * e1[0]! - sv[0]! * e1[2]!, sv[0]! * e1[1]! - sv[1]! * e1[0]!];
+    const v = f * (d[0] * q[0]! + d[1] * q[1]! + d[2] * q[2]!);
+    if (v < 0 || u + v > 1) continue;
+    const dist = f * (e2[0]! * q[0]! + e2[1]! * q[1]! + e2[2]! * q[2]!);
+    if (dist > 1e-6 && dist < best) best = dist;
+  }
+  return best === Infinity ? null : [from[0] + d[0] * best, from[1] + d[1] * best, from[2] + d[2] * best];
+}
+
+/**
+ * The point a Mapping connector ends on, in model units. Usually the
+ * bounding-box anchor of frameIn. A trigger's top is curved and sits behind
+ * the bumper, so its box corner can be empty space: its anchor is instead
+ * the first point of the trigger itself seen from `eye` (the default camera)
+ * when looking at the top of the blade.
+ */
+export function partAnchor(spec: ModelSpec, b: MacroButton, min: V3, max: V3, tris: ArrayLike<number>, eye: V3): V3 {
+  const f = frameIn(spec, b, min, max);
+  if (spec.parts[b]!.motion !== "trigger") return f.anchor;
+  const aim: V3 = [(min[0] + max[0]) / 2, max[1] - 0.1 * (max[1] - min[1]), (min[2] + max[2]) / 2];
+  return rayHit(tris, eye, aim) ?? f.anchor;
+}
+
+/** The DualSense model as shipped: already in the shared frame, painted white. */
+export const DUALSENSE_SPEC: ModelSpec = {
+  model: "dualSense",
+  parts: PARTS,
+  normalise: null,
+  // Inside the body, below the stick's base.
+  stickPivotZ: () => 0.12,
+  finishes: true,
+};
+
+/** Pivot, anchor and facing of a DualSense control from its bounding box. */
+export function frameOf(b: MacroButton, min: V3, max: V3): PartFrame {
+  return frameIn(DUALSENSE_SPEC, b, min, max);
 }
 
 /** Model units → scene units (the scene is built for a controller 7.2 units wide). */

@@ -46,6 +46,7 @@ fn pubkey() -> Result<String, String> {
 }
 
 fn create(args: &[String]) -> Result<(), String> {
+    let key = pubkey()?;
     let version = need(args, "--version")?;
     let url = need(args, "--url")?;
     let out = need(args, "--out")?;
@@ -58,8 +59,18 @@ fn create(args: &[String]) -> Result<(), String> {
     let sig = String::from_utf8(read(&need(args, "--signature-file")?)?)
         .map_err(|_| "signature is not UTF-8")?;
     let sig = sig.trim().to_owned();
-    let installer = read(&need(args, "--installer")?)?;
-    let comment = signature::verify(&pubkey()?, &installer, &sig, Some(&version))
+    let installer_path = need(args, "--installer")?;
+    let installer_name = std::path::Path::new(&installer_path)
+        .file_name()
+        .map(|f| f.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    if !nexus_updates::manifest::url_names_installer(&url, &installer_name) {
+        return Err(format!(
+            "the download URL {url} doesn't name the signed installer {installer_name}"
+        ));
+    }
+    let installer = read(&installer_path)?;
+    let comment = signature::verify(&key, &installer, &sig, Some(&version))
         .map_err(|e| format!("installer signature check failed: {e}"))?;
 
     let published = match arg(args, "--published") {

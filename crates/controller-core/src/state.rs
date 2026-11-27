@@ -153,7 +153,10 @@ pub struct TouchpadState {
     pub height: u16,
 }
 
-/// Uncalibrated IMU readings exactly as reported by the hardware.
+/// Uncalibrated IMU readings exactly as reported by the hardware. DualSense
+/// and DualShock 4 use the same axes and nominal scale (1024 per °/s,
+/// 8192 per g). `sensor_timestamp` is the controller's own counter: 32-bit
+/// on a DualSense, 16-bit (about 5.33 µs per step) on a DualShock 4.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MotionState {
@@ -192,6 +195,8 @@ pub enum ReportFormat {
     /// DualSense Bluetooth basic report 0x01 sent before the controller is
     /// switched into extended mode. No IMU, touchpad or battery.
     DualSenseBluetoothBasic,
+    /// DualShock 4 USB report 0x01 (64 bytes).
+    DualShock4Usb,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]

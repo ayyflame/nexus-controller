@@ -239,6 +239,10 @@ pub struct LatencySummary {
     pub p99_us: u32,
     pub max_us: u32,
     pub samples: u32,
+    #[serde(default)]
+    pub mean_us: u32,
+    #[serde(default)]
+    pub p95_us: u32,
 }
 
 impl Default for LatencyWindow {
@@ -271,7 +275,197 @@ impl LatencyWindow {
             p99_us: at(0.99),
             max_us: s[s.len() - 1],
             samples: self.len as u32,
+            mean_us: (s.iter().map(|v| u64::from(*v)).sum::<u64>() / s.len() as u64) as u32,
+            p95_us: at(0.95),
         }
+    }
+}
+
+/// Fixed-size window of recent stage durations in **nanoseconds** (the
+/// stages of one report take well under a microsecond to a few microseconds,
+/// too fine for [`LatencyWindow`]). Recording never allocates; values above
+/// ~4.29 s saturate.
+#[derive(Debug)]
+pub struct StageWindow {
+    samples: [u32; LATENCY_WINDOW],
+    len: usize,
+    next: usize,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StageSummary {
+    pub p50_ns: u32,
+    pub p99_ns: u32,
+    pub max_ns: u32,
+    pub samples: u32,
+    #[serde(default)]
+    pub mean_ns: u32,
+    #[serde(default)]
+    pub p95_ns: u32,
+}
+
+impl Default for StageWindow {
+    fn default() -> Self {
+        Self {
+            samples: [0; LATENCY_WINDOW],
+            len: 0,
+            next: 0,
+        }
+    }
+}
+
+impl StageWindow {
+    pub fn record(&mut self, d: Duration) {
+        self.samples[self.next] = d.as_nanos().min(u32::MAX as u128) as u32;
+        self.next = (self.next + 1) % LATENCY_WINDOW;
+        self.len = (self.len + 1).min(LATENCY_WINDOW);
+    }
+
+    pub fn summary(&self) -> StageSummary {
+        if self.len == 0 {
+            return StageSummary::default();
+        }
+        let mut sorted = self.samples; // copy on the stack
+        let s = &mut sorted[..self.len];
+        s.sort_unstable();
+        let at = |q: f64| s[((s.len() - 1) as f64 * q).round() as usize];
+        StageSummary {
+            p50_ns: at(0.5),
+            p99_ns: at(0.99),
+            max_ns: s[s.len() - 1],
+            samples: self.len as u32,
+            mean_ns: (s.iter().map(|v| u64::from(*v)).sum::<u64>() / s.len() as u64) as u32,
+            p95_ns: at(0.95),
+        }
+    }
+}
+
+/// How reports and virtual-controller updates flow, for spotting uneven
+/// input: the spacing of reports and of updates to the virtual controller
+/// (recent 256 each), and whether NEXUS fell behind the controller.
+/// Recording never allocates.
+#[derive(Debug, Default)]
+pub struct FlowStats {
+    report_gaps: LatencyWindow,
+    output_gaps: LatencyWindow,
+    last_report: Option<Instant>,
+    last_output: Option<Instant>,
+    queued: u64,
+    run: u32,
+    longest_run: u32,
+    unchanged: u64,
+    outputs: u64,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FlowSummary {
+    /// Time between input reports (recent 256).
+    pub report_gaps: LatencySummary,
+    /// Time between frames sent to the virtual controller (recent 256).
+    pub output_gaps: LatencySummary,
+    /// Reports that were already waiting when NEXUS asked for the next one,
+    /// i.e. NEXUS was behind the controller (since connect).
+    pub queued_reports: u64,
+    /// Most queued reports in a row: how far NEXUS fell behind at worst.
+    pub longest_backlog: u32,
+    /// Frames sent to the virtual controller that were identical to the one
+    /// before (still sent: the driver ignores repeats, and a repeat delivers
+    /// a frame the driver missed).
+    pub unchanged_outputs: u64,
+    /// All frames sent to the virtual controller.
+    pub outputs: u64,
+}
+
+impl FlowStats {
+    /// A report was read; `queued` if it was already waiting (no wait).
+    pub fn report(&mut self, now: Instant, queued: bool) {
+        if let Some(prev) = self.last_report {
+            self.report_gaps.record(now.saturating_duration_since(prev));
+        }
+        self.last_report = Some(now);
+        if queued {
+            self.queued += 1;
+            self.run += 1;
+            self.longest_run = self.longest_run.max(self.run);
+        } else {
+            self.run = 0;
+        }
+    }
+
+    /// A frame was sent to the virtual controller; `unchanged` if identical to the previous one.
+    pub fn output(&mut self, now: Instant, unchanged: bool) {
+        if let Some(prev) = self.last_output {
+            self.output_gaps.record(now.saturating_duration_since(prev));
+        }
+        self.last_output = Some(now);
+        self.outputs += 1;
+        if unchanged {
+            self.unchanged += 1;
+        }
+    }
+
+    pub fn summary(&self) -> FlowSummary {
+        FlowSummary {
+            report_gaps: self.report_gaps.summary(),
+            output_gaps: self.output_gaps.summary(),
+            queued_reports: self.queued,
+            longest_backlog: self.longest_run,
+            unchanged_outputs: self.unchanged,
+            outputs: self.outputs,
+        }
+    }
+}
+
+/// Where the time of one report goes, measured on the reader thread.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StageLatency {
+    /// From the moment the report was read to the start of processing
+    /// (parsing and hand-over inside the reader thread).
+    pub input: StageSummary,
+    /// Sticks, triggers, remapping, layers, gyro and touchpad.
+    pub mapping: StageSummary,
+    /// Macro playback.
+    pub macros: StageSummary,
+    /// Handing the frame to the virtual controller driver (ViGEmBus call).
+    pub output: StageSummary,
+    /// Driver calls slower than a report interval, since the controller connected.
+    pub slow_output: SlowCalls,
+}
+
+/// A driver call slower than this holds up the next DualSense USB report.
+pub const SLOW_CALL: Duration = Duration::from_millis(4);
+/// A driver call slower than this is a stall a player can notice.
+pub const STALLED_CALL: Duration = Duration::from_millis(50);
+
+/// Counts of slow calls and the longest call, kept for the whole connection
+/// (the 256-sample windows forget a rare spike within a second).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SlowCalls {
+    /// Calls that took 4 ms or longer.
+    pub over_4ms: u64,
+    /// Calls that took 50 ms or longer.
+    pub over_50ms: u64,
+    pub longest_ns: u64,
+    /// All calls counted.
+    pub calls: u64,
+}
+
+impl SlowCalls {
+    pub fn record(&mut self, d: Duration) {
+        self.calls += 1;
+        if d >= SLOW_CALL {
+            self.over_4ms += 1;
+            if d >= STALLED_CALL {
+                self.over_50ms += 1;
+            }
+        }
+        self.longest_ns = self
+            .longest_ns
+            .max(d.as_nanos().min(u64::MAX as u128) as u64);
     }
 }
 
@@ -428,5 +622,77 @@ mod tests {
         assert_eq!(s.mean_us, 92_000 / 7);
         assert_eq!(s.over_8ms, 2);
         assert_eq!(s.over_50ms, 1);
+    }
+}
+
+#[cfg(test)]
+mod stage_tests {
+    use super::*;
+
+    #[test]
+    fn stage_window_keeps_nanoseconds_and_percentiles() {
+        let mut w = StageWindow::default();
+        assert_eq!(w.summary(), StageSummary::default());
+        for ns in 1..=100u64 {
+            w.record(Duration::from_nanos(ns * 10));
+        }
+        let s = w.summary();
+        assert_eq!(s.samples, 100);
+        assert_eq!(s.max_ns, 1000);
+        assert!((490..=510).contains(&s.p50_ns), "{s:?}");
+        assert!((980..=1000).contains(&s.p99_ns), "{s:?}");
+        // Old samples roll out of the fixed window.
+        for _ in 0..LATENCY_WINDOW {
+            w.record(Duration::from_nanos(7));
+        }
+        assert_eq!(w.summary().max_ns, 7);
+        // Absurd values saturate instead of wrapping.
+        w.record(Duration::from_secs(100));
+        assert_eq!(w.summary().max_ns, u32::MAX);
+    }
+}
+
+#[cfg(test)]
+mod flow_tests {
+    use super::*;
+
+    #[test]
+    fn summaries_include_mean_and_95th_percentile() {
+        let mut w = LatencyWindow::default();
+        for us in 1..=100u64 {
+            w.record(Duration::from_micros(us));
+        }
+        let s = w.summary();
+        assert_eq!((s.mean_us, s.max_us), (50, 100));
+        assert!((94..=96).contains(&s.p95_us), "{s:?}");
+        let mut st = StageWindow::default();
+        for ns in 1..=100u64 {
+            st.record(Duration::from_nanos(ns));
+        }
+        let s = st.summary();
+        assert_eq!(s.mean_ns, 50);
+        assert!((94..=96).contains(&s.p95_ns), "{s:?}");
+    }
+
+    #[test]
+    fn flow_measures_report_and_frame_spacing_backlog_and_repeats() {
+        let t0 = Instant::now();
+        let ms = |n: u64| t0 + Duration::from_millis(n);
+        let mut f = FlowStats::default();
+        // Reports every 4 ms; the third and fourth were already waiting.
+        for (i, queued) in [false, false, true, true, false, true].iter().enumerate() {
+            f.report(ms(4 * i as u64), *queued);
+            f.output(ms(4 * i as u64) + Duration::from_micros(200), i == 1);
+        }
+        let s = f.summary();
+        assert_eq!(s.report_gaps.samples, 5);
+        assert_eq!((s.report_gaps.p50_us, s.report_gaps.max_us), (4000, 4000));
+        assert_eq!(s.output_gaps.p50_us, 4000);
+        assert_eq!(
+            (s.queued_reports, s.longest_backlog),
+            (3, 2),
+            "two in a row at worst"
+        );
+        assert_eq!((s.unchanged_outputs, s.outputs), (1, 6));
     }
 }

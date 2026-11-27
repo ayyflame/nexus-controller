@@ -9,7 +9,7 @@ DualSense (USB)  →  processing  →  remaps / layers  →  macros  →  virtua
 ```
 
 - NEXUS reads the DualSense about 250 times a second. Every report is processed and sent on; none is dropped or merged.
-- The virtual controller is created by **ViGEmBus**, an optional third-party driver you install yourself (Controller › Virtual Output). NEXUS never installs or bundles drivers.
+- The virtual controller is created by **ViGEmBus**, an optional third-party driver you install yourself (Virtual Controller). NEXUS never installs or bundles drivers.
 - Games see a standard **"Controller (XBOX 360 For Windows)"**. Nothing is injected into games and no game process is touched.
 
 ## What games receive
@@ -23,7 +23,7 @@ DualSense (USB)  →  processing  →  remaps / layers  →  macros  →  virtua
 | Left / right stick | Left / right stick, −32768…32767 | Up is positive, as XInput expects. After your deadzone, curve and sensitivity |
 | D-pad | D-pad | Diagonals are two directions together |
 | Create / Options | Back / Start | |
-| PS | Guide | Windows hides Guide from games; it opens the Xbox Game Bar. Disable it under Controller › Mapping if unwanted |
+| PS | Guide | Windows hides Guide from games; it opens the Xbox Game Bar. Disable it under Mapping if unwanted |
 | Touchpad click, Mute | not sent | An Xbox 360 controller has no such buttons. Remap them to an Xbox button to use them |
 | Touchpad position, gyro, adaptive triggers, lightbar | not sent | Not part of an Xbox 360 controller. Gyro and touchpad can drive sticks or buttons through NEXUS's own settings |
 | Remaps, shift layers, macros | Applied before the game sees anything | A macro's presses are added to what you physically hold |
@@ -52,14 +52,14 @@ That check runs on a throwaway GitHub virtual machine, the only place a driver i
 
 ## Status in NEXUS
 
-Controller › Virtual Output › *Virtual controller now* and the Dashboard show:
+Virtual Controller › *Virtual controller now* and the Dashboard show:
 
 - **Xbox 360 connected · Games see it as player 1.**
 - **Connected as player 2 (or later):** another Xbox-type controller holds the earlier slot. Many games only listen to player 1. Unplug the other controller, then turn the output off and on.
 - **Reconnecting…:** the virtual controller stopped working and NEXUS is creating it again by itself (1 s, then doubling up to 30 s between tries).
 - **Waiting for your DualSense / Waiting for ViGEmBus / Off:** why there is no virtual controller.
 
-Check it in Windows: Win + R, `joy.cpl`, *Controller (XBOX 360 For Windows)* › Properties.
+Check it in Windows: Win + R, `joy.cpl`, *Controller (XBOX 360 For Windows)* › Properties. Or in NEXUS: **Live Viewer › Output Check** reads the virtual controller back through XInput, the API games use, and compares every button and axis with what NEXUS sent.
 
 ## No stuck buttons
 
@@ -86,4 +86,4 @@ A neutral frame (nothing pressed, sticks centred) is sent before the virtual con
 - **Online games and anti-cheat.** Some anti-cheat systems block or penalise virtual controllers or macros. NEXUS does nothing to hide from them and must not be used where a game's rules forbid it.
 - **ViGEmBus** was retired by its developer in 2023. It works on current Windows 10 and 11, but a future Windows update could break it. NEXUS keeps it behind one replaceable module.
 - **Windows Server** has no Xbox 360 controller driver, so the virtual controller cannot be created there.
-- **Driver timing on your PC is unmeasured.** Sending one update to the driver normally takes tens of microseconds, and it happens on NEXUS's input thread. The CI machine was too noisy to judge this. Check **Performance › NEXUS processing time** while a game runs: the 99th percentile and maximum include the driver call. Values of several milliseconds there would mean the driver is slowing input and should be reported.
+- **Driver timing on your PC is unmeasured.** Sending one update to the driver normally takes tens of microseconds, and it happens on NEXUS's input thread. The CI machine was too noisy to judge this. Check **Performance › 2 · Processing in NEXUS › Total** while a game runs: the 99th percentile and maximum include the driver call, which part 3 also shows on its own. Values of several milliseconds there would mean the driver is slowing input and should be reported.

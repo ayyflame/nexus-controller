@@ -251,3 +251,29 @@ test("every control is detected from live state", () => {
   assert.ok(seen.has("south"));
   assert.equal(mergeSeen(seen, stateOf()), seen, "unchanged set is reused (no re-render)");
 });
+
+test("a DualShock 4 test has no Mute step and calls Create Share", () => {
+  const ds4 = startTest("dualShock4");
+  assert.equal(ds4.steps.length, STEPS.length - 1);
+  assert.ok(!ds4.steps.some((s) => s.checks.some((c) => c.id === "mute")), "no mute button to press");
+  const system = ds4.steps.find((s) => s.id === "system")!;
+  assert.equal(system.title, "Share, Options and PS");
+  assert.ok(!("extra" in ds4.results));
+  // Every remaining step can pass, so the whole test can be completed.
+  let t = goTo(ds4, ds4.steps.indexOf(system));
+  for (const b of ["select", "start", "home"] as const) t = run(t, [stateOf({ buttons: { [b]: true } }), stateOf()]);
+  assert.equal(t.results.system, "pass");
+  assert.equal(goTo(t, ds4.steps.length).finished, true);
+  // The DualSense keeps every step.
+  assert.equal(startTest("dualSense").steps.length, STEPS.length);
+  assert.equal(startTest().steps, STEPS);
+});
+
+test("the detected-controls list follows the model", async () => {
+  const { CONTROLS, controlsFor } = await import("./diagDetected.ts");
+  const ds4 = controlsFor("dualShock4");
+  assert.equal(ds4.length, CONTROLS.length - 1);
+  assert.ok(!ds4.some((c) => c.id === "mute"));
+  assert.equal(ds4.find((c) => c.id === "select")!.label, "Share");
+  assert.equal(controlsFor("dualSense"), CONTROLS);
+});

@@ -31,6 +31,10 @@ pub enum ReportError {
     },
     #[error("checksum mismatch: report says 0x{reported:08X}, computed 0x{computed:08X}")]
     ChecksumMismatch { reported: u32, computed: u32 },
+    /// The report has the right ID and length but contradicts its own
+    /// format (for example an impossible count field).
+    #[error("malformed report 0x{report_id:02X}: {reason}")]
+    Malformed { report_id: u8, reason: &'static str },
 }
 
 /// Stateful decoder from raw reports to normalized state. One per session.

@@ -2,14 +2,20 @@
 
 Sidebar › **Live Viewer**. Read-only: it shows what NEXUS receives from the DualSense (USB) and never changes mappings, calibration, profiles or macros. It consumes the controller state the engine already publishes to the UI (about 60 updates a second). It never polls the controller itself. Closing it doesn't affect controller processing, macros or the virtual Xbox controller.
 
+## Header
+
+The header names the monitored controller (model, connection, and which one when two are connected; the selector below the title switches) and says whether its input is live: *Live input*, *Input slower than usual*, *Input stopped* or *Waiting for input*. Only that state is announced to screen readers, not every update.
+
+The tabs work with the keyboard: one Tab stop, the arrow keys move between tabs, Home and End jump to the ends.
+
 ## Tabs
 
 | Tab | What it shows | Source |
 |---|---|---|
-| **Live** | The controller picture with pressed buttons, stick and trigger movement and touches (your photo, if set; otherwise the drawn controller), plus what is sent to the game. Marks for remapped, macro, disabled and layer/gyro buttons; click a button for its mapping. The **active shift layer**. Analog values (raw bytes, values, sent to game). **Detected this session**: every control lights while used and gets a tick once seen | Engine: physical input, processed output, active layer |
+| **Live** | The 3D controller with pressed buttons, stick and trigger movement and touches; a switch shows either your controller or what is sent to the game (one 3D view at a time). Marks for remapped, macro, disabled and layer/gyro buttons; click a button for its mapping. The **active shift layer**. Analog values (raw bytes, values, sent to game). **Detected this session**: every control lights while used and gets a check mark once seen | Engine: physical input, processed output, active layer |
 | **Sticks & Triggers** | Per stick: X/Y raw and normalised, distance from centre, the profile's deadzone on the plot, the value sent to the game, and a **full-range test** (four edges, eight directions, furthest reach). Per trigger: raw and %, the value sent to the game, the lowest and highest values seen, **fully released (≤ 2)** and **fully pressed (≥ 253)**, and a note when travel is incomplete | Engine |
 | **Motion** | Gyroscope X/Y/Z and accelerometer X/Y/Z, as raw counts and in °/s and g. **Tilt** (forward/back, left/right) from gravity, with a level, and the sensor timestamp. If a report carries no motion data, it says why | DualSense report |
-| **Health** | Name, model, connection, vendor/product ID, report format, time connected, last report, last unreadable report. Input freshness (stale input is flagged after 250 ms without a report), report rate, reports received, unreadable reports, dropped reports, time between reports, late reports, NEXUS processing time, battery. **Connection events** | Each value is labelled *measured*, *from controller* or *estimate* |
+| **Health** | Name, model, connection, USB ID (vendor:product), report format, time connected, last report, last unreadable report. Input freshness (stale input is flagged after 250 ms without a report), report rate, reports received, unreadable reports, dropped reports, time between reports, late reports, NEXUS processing time, battery. **Connection events** | Each value is labelled *measured*, *from controller* or *estimate* |
 | **Controller Test** | A guided ten-step test: face buttons, D-pad, bumpers, triggers, stick clicks, left stick full range, right stick full range, touchpad, Create/Options/PS, Mute. Each control is **pass**, **fail** or **not tested**, with Retry, Back/Skip, Mark as failed, and a summary | Engine; nothing is changed |
 | **Drift Test** | Leave the controller untouched for 5, 10 or 30 s. It reports the average resting position, the centre offset, the maximum deviation, jitter and drift (first second against last second), compared with a reference radius you set (by default the profile's deadzone). There is no "defective" verdict | Engine (raw, before any deadzone) |
 
@@ -51,4 +57,3 @@ Sidebar › **Live Viewer**. Read-only: it shows what NEXUS receives from the Du
 | LV12 | Controller Test while the virtual Xbox controller is on (`joy.cpl` open) | Presses still reach `joy.cpl`; nothing in your profile changes |
 | LV13 | Drift Test, 10 s per stick, not touching the controller | Valid result (about 600 samples); values in % recorded; repeat once and compare |
 | LV14 | Close the Live Viewer during a Repeat While Held macro | The macro and the virtual controller keep working |
-| LV15 | Photo mode (your photo set) | Overlays still align on the Live tab |

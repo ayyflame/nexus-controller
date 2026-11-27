@@ -1,5 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { Icon } from "../Icons";
 import { useEngine, usePrimaryDevice } from "../../hooks/useEngine";
+import { useShownModel } from "../../hooks/useShownModel";
 import { engineApi, errorMessage } from "../../lib/engine";
 import { connectionLabel, modelLabel } from "../../lib/format";
 import { BUTTONS } from "../../lib/macros";
@@ -36,7 +38,7 @@ export function ButtonSelect({ value, onChange, noneLabel, label, exclude = [] }
 export function Unverified({ children }: { children?: ReactNode }) {
   return (
     <div className="notice dev small">
-      <strong>Not yet verified with a real DualSense.</strong> {children}
+      <strong>Not yet verified with a real DualSense or DualShock 4.</strong> {children}
     </div>
   );
 }
@@ -190,7 +192,7 @@ export function GyroTab({ config, onChange }: { config: ProcessingConfig; onChan
           </button>
           {cal && <p className="small">{cal}</p>}
         </Panel>
-        <Unverified>Gyro axes and scale follow the published DualSense layout; use Invert if a direction feels reversed.</Unverified>
+        <Unverified>Gyro axes and scale follow the published DualSense and DualShock 4 layouts (the same for both); use Invert if a direction feels reversed.</Unverified>
       </div>
     </div>
   );
@@ -210,7 +212,8 @@ export function TouchpadTab({ config, onChange }: { config: ProcessingConfig; on
   const set = (patch: Partial<typeof t>) => onChange({ ...config, touchpad: { ...t, ...patch } });
   const [zone, setZone] = useState(0);
   const tp = device?.input?.touchpad;
-  const W = 480, H = 270;
+  // Drawn in the shape of the controller's touchpad: 1920 x 1080 on a DualSense, 1920 x 942 on a DualShock 4.
+  const W = 480, H = useShownModel(device?.input) === "dualShock4" ? Math.round((W * 942) / 1920) : 270;
   const zones = ZONE_NAMES[t.layout];
   const rects = t.layout === "leftRight"
     ? [[0, 0, W / 2, H], [W / 2, 0, W / 2, H]]
@@ -266,7 +269,7 @@ export function TouchpadTab({ config, onChange }: { config: ProcessingConfig; on
               min={20} max={500} step={10} format={(v) => `${v} ms`} onChange={(swipePressMs) => set({ swipePressMs })} />
           </Advanced>
         </Panel>
-        <Unverified>Touch coordinates follow the DualSense touch report (1920 × 1080).</Unverified>
+        <Unverified>Touch coordinates follow the controller's touch report (DualSense 1920 × 1080, DualShock 4 1920 × 942).</Unverified>
       </div>
     </div>
   );
@@ -329,7 +332,7 @@ export function LayersPanel({ config, onChange }: { config: ProcessingConfig; on
             <button className="btn-secondary" onClick={() => {
               const activator = ALL_BUTTONS.find((b) => !used.includes(b) && b !== "home") ?? "leftShoulder";
               setLayers([...layers, { name: `Layer ${layers.length + 1}`, activator, mode: "hold", remap: [] }]);
-            }}>＋ Add layer</button>
+            }}><Icon name="plus" size={14} /> Add layer</button>
           )}
           {(layers.length > 0 || config.remap.length > 0) && (
             <button className="btn-ghost" onClick={() => setConfirmReset(true)}>Restore default mapping</button>
@@ -382,7 +385,7 @@ export function LightingTab({ config, onChange }: { config: ProcessingConfig; on
   return (
     <div className="two-col">
       <Panel title="Lightbar">
-        <p className="muted small">These settings control your physical DualSense. They are separate from the virtual Xbox / DualShock controller games see.</p>
+        <p className="muted small">These settings control your physical controller. They are separate from the virtual Xbox / DualShock controller games see.</p>
         <Switch checked={f.lightbarEnabled} onChange={(lightbarEnabled) => set({ lightbarEnabled })}
           label="Let NEXUS set the lightbar" tip="Off leaves the controller's own light alone" />
         <div className="lightbar-preview" style={{ background: preview ? `rgb(${preview.join(",")})` : undefined }}
@@ -404,7 +407,7 @@ export function LightingTab({ config, onChange }: { config: ProcessingConfig; on
         )}
       </Panel>
       <Panel title="Vibration">
-        <Slider label="Vibration strength" tip="Scales vibration NEXUS sends to your DualSense" value={f.rumbleIntensity}
+        <Slider label="Vibration strength" tip="Scales vibration NEXUS sends to your controller" value={f.rumbleIntensity}
           onChange={(rumbleIntensity) => set({ rumbleIntensity })} />
         <button className="btn-secondary" disabled={!device} onClick={async () => {
           setMsg(null);
@@ -415,7 +418,7 @@ export function LightingTab({ config, onChange }: { config: ProcessingConfig; on
         <div className="feature-row"><strong>Adaptive triggers</strong><span className="badge dev">Not available</span>
           <span className="muted small">Trigger effects aren't publicly documented well enough to implement reliably yet.</span></div>
       </Panel>
-      <div className="span-2"><Unverified>Lightbar, player lights and vibration use the DualSense output report from the Linux driver. Rumble uses the original vibration mode, which may feel weaker on newer controller firmware.</Unverified></div>
+      <div className="span-2"><Unverified>Lightbar, player lights and vibration use the controller's output report from the Linux driver (a DualShock 4 has no player lights). Rumble uses the original vibration mode, which may feel weaker on newer controller firmware.</Unverified></div>
     </div>
   );
 }

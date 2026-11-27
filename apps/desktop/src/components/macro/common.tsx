@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FocusEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { Icon } from "../Icons";
 import type { ValidationIssue } from "../../types/engine";
 import { msFieldCommit } from "../../lib/macroTiming";
 
@@ -21,7 +22,7 @@ export function Advanced({ children, title = "Advanced settings" }: { children: 
   return (
     <div className={`advanced${open ? " open" : ""}`}>
       <button type="button" className="advanced-toggle" onClick={() => setOpen(!open)} aria-expanded={open}>
-        <span className="chev" aria-hidden="true">›</span> {title}
+        <span className="chev" aria-hidden="true"><Icon name="chevronRight" size={14} /></span> {title}
       </button>
       {open && <div className="advanced-body">{children}</div>}
     </div>

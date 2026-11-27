@@ -9,6 +9,10 @@ use serde::{Deserialize, Serialize};
 
 pub const MAX_CURVE_POINTS: usize = 8;
 pub const MAX_LAYERS: usize = 4;
+/// Combinations per profile, buttons per combination, and buttons a combination presses.
+pub const MAX_COMBOS: usize = 8;
+pub const MAX_COMBO_BUTTONS: usize = 3;
+pub const MAX_COMBO_SENDS: usize = 3;
 pub const MAX_EXTRA_ACTIONS: usize = 3;
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -16,6 +20,8 @@ pub const MAX_EXTRA_ACTIONS: usize = 3;
 pub struct ProcessingConfig {
     pub left_stick: StickConfig,
     pub right_stick: StickConfig,
+    /// Which physical stick the game receives as its left and right stick.
+    pub stick_routing: StickRouting,
     pub left_trigger: TriggerConfig,
     pub right_trigger: TriggerConfig,
     /// Physical button → output button (`None` = disabled). Buttons not
@@ -23,6 +29,8 @@ pub struct ProcessingConfig {
     pub remap: Vec<RemapRule>,
     /// Alternate layouts active while a button is held (or toggled).
     pub layers: Vec<MappingLayer>,
+    /// Button combinations: holding several buttons together presses others.
+    pub combos: Vec<ComboRule>,
     pub gyro: GyroConfig,
     pub touchpad: TouchpadConfig,
     /// Lightbar, player LEDs and vibration of the physical DualSense.
@@ -166,6 +174,115 @@ pub struct StickConfig {
     /// full range on diagonals). Overrides `circular`.
     pub square_output: bool,
     pub calibration: StickCalibration,
+    /// Pressing buttons by pushing this stick in a direction.
+    pub buttons: StickButtons,
+}
+
+/// Which physical stick drives one of the game's sticks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum StickSource {
+    Left,
+    Right,
+    /// The game's stick stays centred.
+    Off,
+}
+
+/// Stick swapping. Each physical stick keeps its own deadzone, curve and
+/// calibration (those describe the physical stick); only where its movement
+/// goes changes. Gyro is added to the game's right stick after routing.
+/// Stick clicks (L3/R3) are buttons and are not moved (remap them instead).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct StickRouting {
+    /// The physical stick sent as the game's left stick.
+    pub left_output: StickSource,
+    /// The physical stick sent as the game's right stick.
+    pub right_output: StickSource,
+}
+
+impl Default for StickRouting {
+    fn default() -> Self {
+        Self {
+            left_output: StickSource::Left,
+            right_output: StickSource::Right,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum StickDirections {
+    /// Up/down and left/right independently, so diagonals press two buttons.
+    #[default]
+    Eight,
+    /// One direction at a time: the stronger one, and the one already held
+    /// wins until it is released (no flicker on diagonals).
+    Four,
+}
+
+/// Stick-to-button mapping for one physical stick. Thresholds apply to the
+/// stick's processed position (after calibration, deadzone, curve, invert
+/// and sensitivity), the same values the Live Viewer shows as "processed".
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct StickButtons {
+    pub enabled: bool,
+    pub up: Option<Button>,
+    pub down: Option<Button>,
+    pub left: Option<Button>,
+    pub right: Option<Button>,
+    /// How far left/right (0.1–0.95 of full travel) presses a button.
+    pub threshold_x: f32,
+    /// How far up/down presses a button.
+    pub threshold_y: f32,
+    /// How far back below the threshold the stick must return before the
+    /// button releases (0–0.5), so a stick resting near the threshold
+    /// doesn't chatter.
+    pub hysteresis: f32,
+    pub directions: StickDirections,
+    /// Keep sending the stick's movement to the game as well. Off: the
+    /// stick only presses buttons and its output stays centred.
+    pub passthrough: bool,
+}
+
+impl Default for StickButtons {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            up: None,
+            down: None,
+            left: None,
+            right: None,
+            threshold_x: 0.5,
+            threshold_y: 0.5,
+            hysteresis: 0.1,
+            directions: StickDirections::Eight,
+            passthrough: false,
+        }
+    }
+}
+
+impl StickButtons {
+    fn sanitized(&self) -> Self {
+        let d = Self::default();
+        let threshold_x = clamp(self.threshold_x, 0.1, 0.95, d.threshold_x);
+        let threshold_y = clamp(self.threshold_y, 0.1, 0.95, d.threshold_y);
+        // The release point must stay above the centre.
+        let hysteresis = clamp(self.hysteresis, 0.0, 0.5, d.hysteresis)
+            .min(threshold_x.min(threshold_y) - 0.05)
+            .max(0.0);
+        Self {
+            threshold_x,
+            threshold_y,
+            hysteresis,
+            ..*self
+        }
+    }
+
+    pub fn any_direction(&self) -> bool {
+        self.up.is_some() || self.down.is_some() || self.left.is_some() || self.right.is_some()
+    }
 }
 
 impl Default for StickConfig {
@@ -184,6 +301,7 @@ impl Default for StickConfig {
             sensitivity_y: 1.0,
             square_output: false,
             calibration: StickCalibration::default(),
+            buttons: StickButtons::default(),
         }
     }
 }
@@ -246,6 +364,25 @@ impl RemapRule {
             also: Vec::new(),
         }
     }
+}
+
+/// Holding all of `buttons` together presses `sends` (e.g. L1 + R1 → Triangle).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComboRule {
+    /// 2 or 3 physical buttons held at the same time.
+    pub buttons: Vec<Button>,
+    /// 1 to 3 buttons pressed while the combination is held.
+    pub sends: Vec<Button>,
+    /// Hide the combination's own buttons from games while it is used (they
+    /// stay hidden until each is released, so letting go of one doesn't leak
+    /// a press of the other).
+    #[serde(default = "yes")]
+    pub hide_inputs: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -452,6 +589,7 @@ impl StickConfig {
                 min_y: clamp(c.min_y, -1.0, -0.2, dc.min_y),
                 max_y: clamp(c.max_y, 0.2, 1.0, dc.max_y),
             },
+            buttons: self.buttons.sanitized(),
         }
     }
 }
@@ -525,6 +663,28 @@ impl ProcessingConfig {
                 remap: sanitize_rules(&l.remap),
             })
             .collect();
+        // Combinations: 2–3 distinct buttons, 1–3 distinct outputs, no two with
+        // the same buttons (the first wins), at most MAX_COMBOS.
+        let mut combos: Vec<ComboRule> = Vec::new();
+        for c in &self.combos {
+            let mut buttons = c.buttons.clone();
+            buttons.sort_by_key(|b| *b as usize);
+            buttons.dedup();
+            let mut sends = c.sends.clone();
+            sends.dedup();
+            sends.truncate(MAX_COMBO_SENDS);
+            if !(2..=MAX_COMBO_BUTTONS).contains(&buttons.len()) || sends.is_empty() {
+                continue;
+            }
+            if combos.iter().any(|x| x.buttons == buttons) || combos.len() >= MAX_COMBOS {
+                continue;
+            }
+            combos.push(ComboRule {
+                buttons,
+                sends,
+                hide_inputs: c.hide_inputs,
+            });
+        }
         let g = &self.gyro;
         let dg = GyroConfig::default();
         let gyro = GyroConfig {
@@ -560,10 +720,12 @@ impl ProcessingConfig {
         Self {
             left_stick: self.left_stick.sanitized(),
             right_stick: self.right_stick.sanitized(),
+            stick_routing: self.stick_routing,
             left_trigger: self.left_trigger.sanitized(),
             right_trigger: self.right_trigger.sanitized(),
             remap: sanitize_rules(&self.remap),
             layers,
+            combos,
             gyro,
             touchpad,
             feedback,
@@ -624,6 +786,24 @@ pub fn find_conflicts(c: &ProcessingConfig, macro_triggers: &[Button]) -> Vec<Co
                 l.activator, l.name
             ));
         }
+    }
+    for (name, s) in [("Left", &c.left_stick), ("Right", &c.right_stick)] {
+        if s.buttons.enabled && !s.buttons.any_direction() {
+            push(format!(
+                "{name} stick buttons are on, but no direction has a button."
+            ));
+        }
+    }
+    let r = c.stick_routing;
+    if r.left_output == r.right_output && r.left_output != StickSource::Off {
+        push(format!(
+            "Both of the game's sticks follow the {} stick.",
+            if r.left_output == StickSource::Left {
+                "left"
+            } else {
+                "right"
+            }
+        ));
     }
     if c.gyro.enabled && c.gyro.activation != GyroActivation::Always {
         match c.gyro.button {

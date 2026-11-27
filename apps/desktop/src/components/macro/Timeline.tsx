@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { formatMs } from "../../lib/macros";
+import { Icon } from "../Icons";
+import { BUTTONS, formatMs, heldBefore, kindOf } from "../../lib/macros";
 import type { MacroStep } from "../../types/engine";
 import { ButtonCombo } from "./ButtonChip";
 
@@ -30,15 +31,19 @@ export function Timeline({ steps, selectedId, selection = [], onSelect, onMove, 
     );
   }
 
+  const held = heldBefore(steps);
   return (
     <div className="timeline" role="list" aria-label="Macro sequence">
       {steps.map((s, i) => {
         const isPlaying = playing?.step === i;
+        const kind = kindOf(s);
+        // Buttons a hold action keeps down while this action runs.
+        const under = held[i]!.filter((b) => !s.buttons.includes(b));
         return (
           <div key={s.id} className="tl-item" role="listitem">
             <button
               type="button"
-              className={`tl-block${selectedId === s.id ? " selected" : ""}${selection.includes(s.id) && selectedId !== s.id ? " multi" : ""}${isPlaying && playing?.pressed ? " playing" : ""}${dropAt === i && dragFrom !== null && dragFrom !== i ? " drop-target" : ""}`}
+              className={`tl-block tl-block-${kind}${selectedId === s.id ? " selected" : ""}${selection.includes(s.id) && selectedId !== s.id ? " multi" : ""}${isPlaying && playing?.pressed ? " playing" : ""}${dropAt === i && dragFrom !== null && dragFrom !== i ? " drop-target" : ""}`}
               onClick={(e) => onSelect(s.id, e.shiftKey ? "range" : e.ctrlKey || e.metaKey ? "toggle" : "single")}
               draggable
               onDragStart={(e) => { setDragFrom(i); e.dataTransfer.effectAllowed = "move"; }}
@@ -55,17 +60,22 @@ export function Timeline({ steps, selectedId, selection = [], onSelect, onMove, 
             >
               <span className="tl-index">{i + 1}</span>
               <ButtonCombo buttons={s.buttons} active={isPlaying && playing?.pressed} />
-              <span className="tl-hold">
-                <span className="tl-hold-bar" style={{ width: `${Math.min(100, 12 + Math.log10(s.holdMs) * 22)}%` }} />
-                Press {formatMs(s.holdMs)}
-              </span>
-              <span className="tl-release muted small">then release</span>
+              {kind === "tap" && <>
+                <span className="tl-hold">
+                  <span className="tl-hold-bar" style={{ width: `${Math.min(100, 12 + Math.log10(Math.max(1, s.holdMs)) * 22)}%` }} />
+                  Press {formatMs(s.holdMs)}
+                </span>
+                <span className="tl-release muted small">then release</span>
+              </>}
+              {kind === "hold" && <span className="tl-kind">Press &amp; keep held <Icon name="chevronRight" size={12} /></span>}
+              {kind === "release" && <span className="tl-kind"><Icon name="chevronLeft" size={12} /> Release</span>}
+              {under.length > 0 && <span className="tl-under" title="Still held by an earlier action">{under.map((b) => BUTTONS[b].name).join(" + ")} held</span>}
             </button>
             {(i < steps.length - 1 || s.delayAfterMs > 0) && (
               <span className={`tl-wait${isPlaying && !playing?.pressed ? " playing" : ""}${riskyWaits?.has(i) ? " risky" : ""}`}
                 data-tip={riskyWaits?.has(i) ? "Too short: the same button is pressed again, so a game may see one long press" : "Wait before the next action"}>
                 <span className="tl-wait-line" />
-                <span className="tl-wait-label">{riskyWaits?.has(i) ? "⚠ " : ""}wait {formatMs(s.delayAfterMs)}</span>
+                <span className="tl-wait-label">{riskyWaits?.has(i) && <Icon name="alert" size={11} label="Too short" />} wait {formatMs(s.delayAfterMs)}</span>
               </span>
             )}
           </div>

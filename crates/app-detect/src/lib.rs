@@ -23,13 +23,53 @@ pub enum Foreground {
 
 /// Returns the program owning the foreground window.
 pub fn foreground() -> Foreground {
-    #[cfg(windows)]
-    {
-        windows::foreground()
+    ForegroundWatcher::default().current()
+}
+
+/// Remembers which program owns the foreground window, so asking twice a
+/// second does not open a handle to that program (usually the game) every
+/// time. The program is looked up again only when the foreground window or
+/// its process changes; finding the window and its process ID opens nothing.
+#[derive(Debug, Default)]
+pub struct ForegroundWatcher {
+    last: Option<((usize, u32), Foreground)>,
+}
+
+impl ForegroundWatcher {
+    pub fn current(&mut self) -> Foreground {
+        #[cfg(windows)]
+        {
+            match windows::foreground_window() {
+                None => self.resolve(None, || Foreground::Nothing),
+                Some((_, 0)) => Foreground::Unknown,
+                Some(key) => self.resolve(Some(key), || windows::executable_of(key.1)),
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            Foreground::Unknown
+        }
     }
-    #[cfg(not(windows))]
-    {
-        Foreground::Unknown
+
+    /// `key` is (window, process ID); `lookup` names the program.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    fn resolve(
+        &mut self,
+        key: Option<(usize, u32)>,
+        lookup: impl FnOnce() -> Foreground,
+    ) -> Foreground {
+        let Some(key) = key else {
+            self.last = None;
+            return lookup();
+        };
+        match &self.last {
+            Some((k, fg)) if *k == key => fg.clone(),
+            _ => {
+                let fg = lookup();
+                self.last = Some((key, fg.clone()));
+                fg
+            }
+        }
     }
 }
 
@@ -50,19 +90,26 @@ mod windows {
         GetForegroundWindow, GetWindowThreadProcessId,
     };
 
-    pub fn foreground() -> Foreground {
-        // SAFETY: plain Win32 queries with valid out-pointers; the process
-        // handle is closed before returning.
+    /// The foreground window and its process ID. Opens nothing.
+    pub fn foreground_window() -> Option<(usize, u32)> {
+        // SAFETY: plain Win32 queries with a valid out-pointer.
         unsafe {
             let hwnd = GetForegroundWindow();
             if hwnd.is_null() {
-                return Foreground::Nothing;
+                return None;
             }
             let mut pid = 0u32;
             GetWindowThreadProcessId(hwnd, &mut pid);
-            if pid == 0 {
-                return Foreground::Unknown;
-            }
+            Some((hwnd as usize, pid))
+        }
+    }
+
+    /// The executable file name of a process (query-only handle, closed
+    /// before returning).
+    pub fn executable_of(pid: u32) -> Foreground {
+        // SAFETY: plain Win32 queries with valid out-pointers; the process
+        // handle is closed before returning.
+        unsafe {
             let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
             if process.is_null() {
                 return Foreground::Unknown;
@@ -171,6 +218,99 @@ impl AutoSwitcher {
     }
 }
 
+/// Windows' own shell programs: never offered as games.
+const SHELL_PROGRAMS: [&str; 9] = [
+    "explorer.exe",
+    "searchhost.exe",
+    "searchapp.exe",
+    "shellexperiencehost.exe",
+    "startmenuexperiencehost.exe",
+    "applicationframehost.exe",
+    "lockapp.exe",
+    "textinputhost.exe",
+    "taskmgr.exe",
+];
+
+/// Programs that were recently in the foreground, newest first, so a game
+/// can be linked to a profile by picking it instead of typing its file name.
+/// Kept in memory only (never saved or sent anywhere).
+#[derive(Debug)]
+pub struct RecentPrograms {
+    items: Vec<String>,
+    ignore: Vec<String>,
+    capacity: usize,
+}
+
+impl RecentPrograms {
+    pub fn new(capacity: usize, ignore: &[&str]) -> Self {
+        Self {
+            items: Vec::with_capacity(capacity),
+            ignore: ignore.iter().map(|s| s.to_lowercase()).collect(),
+            capacity,
+        }
+    }
+
+    pub fn record(&mut self, foreground: &Foreground) {
+        let Foreground::Executable(exe) = foreground else {
+            return;
+        };
+        if exe.is_empty()
+            || self.ignore.contains(exe)
+            || SHELL_PROGRAMS.contains(&exe.as_str())
+            || self.items.first() == Some(exe)
+        {
+            return;
+        }
+        self.items.retain(|e| e != exe);
+        self.items.insert(0, exe.clone());
+        self.items.truncate(self.capacity);
+    }
+
+    pub fn list(&self) -> Vec<String> {
+        self.items.clone()
+    }
+}
+
+#[cfg(test)]
+mod recent_tests {
+    use super::*;
+
+    fn exe(s: &str) -> Foreground {
+        Foreground::Executable(s.into())
+    }
+
+    #[test]
+    fn newest_first_without_duplicates_and_bounded() {
+        let mut r = RecentPrograms::new(3, &["nexus-desktop.exe"]);
+        for e in [
+            "cod.exe",
+            "discord.exe",
+            "cod.exe",
+            "chrome.exe",
+            "steam.exe",
+        ] {
+            r.record(&exe(e));
+        }
+        assert_eq!(r.list(), ["steam.exe", "chrome.exe", "cod.exe"]);
+    }
+
+    #[test]
+    fn nexus_the_windows_shell_and_unknown_programs_are_never_listed() {
+        let mut r = RecentPrograms::new(5, &["nexus-desktop.exe"]);
+        for f in [
+            exe("nexus-desktop.exe"),
+            exe("explorer.exe"),
+            exe("taskmgr.exe"),
+            Foreground::Unknown,
+            Foreground::Nothing,
+            exe(""),
+        ] {
+            r.record(&f);
+        }
+        assert!(r.list().is_empty());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -276,6 +416,71 @@ mod tests {
     }
 
     #[test]
+    fn closing_the_game_returns_to_the_profile_used_before() {
+        let mut sim = Sim::new();
+        assert_eq!(
+            sim.focus(exe("game.exe"), 1500),
+            vec![GAME],
+            "game launched"
+        );
+        // The game exits: no window in front for a moment, then the desktop.
+        assert_eq!(sim.focus(Foreground::Nothing, 1500), vec![HOME]);
+        assert!(
+            sim.focus(exe("explorer.exe"), 1500).is_empty(),
+            "already home"
+        );
+        // Launching it again switches again.
+        assert_eq!(sim.focus(exe("game.exe"), 1500), vec![GAME]);
+    }
+
+    #[test]
+    fn a_game_unlinked_while_it_is_in_front_hands_back_the_previous_profile() {
+        let mut s = AutoSwitcher::new(Duration::from_millis(1000), &[]);
+        let t = Instant::now();
+        let linked = |e: &str| (e == "game.exe").then_some(GAME);
+        let none = |_: &str| None;
+        let mut active = HOME;
+        for ms in [0, 500, 1000, 1500] {
+            if let Some(p) = s.update(
+                t + Duration::from_millis(ms),
+                exe("game.exe"),
+                active,
+                linked,
+            ) {
+                active = p;
+            }
+        }
+        assert_eq!(active, GAME);
+        // The link is removed (or its profile deleted) while still playing.
+        let back = s.update(
+            t + Duration::from_millis(2000),
+            exe("game.exe"),
+            active,
+            none,
+        );
+        assert_eq!(
+            back,
+            Some(HOME),
+            "the game no longer has a profile: back to the previous one"
+        );
+    }
+
+    #[test]
+    fn two_linked_games_alternating_quickly_do_not_flap() {
+        let mut sim = Sim::new();
+        assert_eq!(sim.focus(exe("game.exe"), 1500), vec![GAME]);
+        // Alt-tabbing between two linked games every half second: neither stays
+        // in front long enough, so nothing switches.
+        for _ in 0..4 {
+            assert!(sim.focus(exe("racer.exe"), 500).is_empty());
+            assert!(sim.focus(exe("game.exe"), 500).is_empty());
+        }
+        assert_eq!(sim.active, GAME);
+        // Settling on the other game switches once.
+        assert_eq!(sim.focus(exe("racer.exe"), 1500), vec![3]);
+    }
+
+    #[test]
     fn already_on_the_game_profile_and_reset() {
         let mut sim = Sim::new();
         sim.active = GAME;
@@ -289,5 +494,68 @@ mod tests {
         );
         sim.s.reset();
         assert_eq!(sim.focus(exe("racer.exe"), 1500), vec![3]);
+    }
+}
+
+#[cfg(test)]
+mod watcher_tests {
+    use super::*;
+    use std::cell::Cell;
+
+    fn exe(name: &str) -> Foreground {
+        Foreground::Executable(name.into())
+    }
+
+    #[test]
+    fn the_game_is_looked_up_once_while_it_stays_in_front() {
+        let mut w = ForegroundWatcher::default();
+        let lookups = Cell::new(0);
+        let game = |name: &'static str| {
+            let lookups = &lookups;
+            move || {
+                lookups.set(lookups.get() + 1);
+                exe(name)
+            }
+        };
+        // Ten minutes of polling twice a second with the game in front.
+        for _ in 0..1200 {
+            assert_eq!(
+                w.resolve(Some((0x10, 4242)), game("cod.exe")),
+                exe("cod.exe")
+            );
+        }
+        assert_eq!(lookups.get(), 1, "one handle opened, not 1200");
+        // Alt-tab to another window, then back: one lookup each.
+        assert_eq!(
+            w.resolve(Some((0x20, 77)), game("discord.exe")),
+            exe("discord.exe")
+        );
+        assert_eq!(
+            w.resolve(Some((0x10, 4242)), game("cod.exe")),
+            exe("cod.exe")
+        );
+        assert_eq!(lookups.get(), 3);
+    }
+
+    #[test]
+    fn a_new_process_behind_the_same_window_handle_is_looked_up_again() {
+        let mut w = ForegroundWatcher::default();
+        assert_eq!(w.resolve(Some((0x10, 1)), || exe("a.exe")), exe("a.exe"));
+        assert_eq!(w.resolve(Some((0x10, 2)), || exe("b.exe")), exe("b.exe"));
+        assert_eq!(w.resolve(Some((0x11, 2)), || exe("c.exe")), exe("c.exe"));
+    }
+
+    #[test]
+    fn no_foreground_window_is_never_cached() {
+        let mut w = ForegroundWatcher::default();
+        assert_eq!(w.resolve(Some((0x10, 1)), || exe("a.exe")), exe("a.exe"));
+        assert_eq!(w.resolve(None, || Foreground::Nothing), Foreground::Nothing);
+        // The same window coming back is looked up again (the cache was cleared).
+        let looked = Cell::new(false);
+        w.resolve(Some((0x10, 1)), || {
+            looked.set(true);
+            exe("a.exe")
+        });
+        assert!(looked.get());
     }
 }

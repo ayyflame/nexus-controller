@@ -8,7 +8,7 @@
 | **Neutral report before every removal** (output switched, physical unplug, NEXUS exit) | Implemented and tested |
 | Translation to Xbox 360 (XUSB) and DualShock 4 reports | Implemented and tested (`translate.rs`) |
 | **Experimental ViGEmBus backend, Xbox 360 only** (`crates/virtual-controller/src/vigem.rs`) | Implemented. Unit-tested through a mock backend; **not yet verified on Windows hardware** |
-| Consent switch "Use the experimental virtual controller" (Controller › Virtual Output) | Implemented. Off by default; stored as an app setting (no database migration) |
+| Consent switch "Use the experimental virtual controller" (Virtual Controller) | Implemented. Off by default; stored as an app setting (no database migration) |
 | DualShock 4 output | Not enabled in this beta |
 | HidHide (optional, user-configured) | Guided setup only: NEXUS shows the steps and its program path, never installs or configures HidHide. See [`hidhide-setup.md`](hidhide-setup.md). |
 
@@ -32,7 +32,7 @@
 
 1. Open <https://github.com/nefarius/ViGEmBus/releases> and download **ViGEmBus 1.22.0** (`ViGEmBus_1.22.0_x64_x86_arm64.exe`).
 2. Run it and approve the Windows administrator prompt. This is the driver's installer; NEXUS itself never needs admin rights.
-3. In NEXUS: Controller › Virtual Output › **Check again**. Turn on **Use the experimental virtual controller**, then choose **Xbox 360**.
+3. In NEXUS: Virtual Controller › **Check drivers again**. Turn on **Use the experimental virtual controller**, then choose **Xbox 360**.
 4. **To remove:** Windows Settings › Apps › Installed apps › *Nefarius Virtual Gamepad Emulation Bus Driver* › Uninstall. NEXUS keeps working; games simply no longer see a virtual controller.
 
 **Game compatibility:** none is claimed. Only titles recorded in the compatibility report have been tested. This beta must not be used to automate play in online games whose rules prohibit macros or third-party input tools, and nothing in NEXUS attempts to hide from anti-cheat systems.

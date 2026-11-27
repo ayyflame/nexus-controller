@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SignPath artifact configuration for NEXUS release installers.
+  Paste into the SignPath project (Artifact configurations › New) when the
+  project exists; this copy in the repository is the reference.
+
+  The workflow uploads one GitHub artifact ("unsigned-installers", a ZIP)
+  containing exactly the NSIS setup and the MSI. SignPath signs:
+    - the NSIS setup .exe (what users download and the updater runs);
+    - the MSI, after signing nexus-desktop.exe inside it.
+  The app inside the NSIS setup can't be re-signed by SignPath (NSIS archives
+  aren't a format it opens); see docs/code-signing.md.
+
+  Check element names against SignPath's artifact configuration reference
+  (https://docs.signpath.io/artifact-configuration/reference) when creating it.
+-->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <zip-file>
+    <pe-file path="NEXUS_*_x64-setup.exe">
+      <authenticode-sign />
+    </pe-file>
+    <msi-file path="NEXUS_*_x64_en-US.msi">
+      <pe-file path="nexus-desktop.exe">
+        <authenticode-sign />
+      </pe-file>
+      <authenticode-sign />
+    </msi-file>
+  </zip-file>
+</artifact-configuration>

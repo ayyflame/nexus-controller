@@ -3,7 +3,7 @@
 // validates (crates/macro-engine/src/model.rs), so edited timing can never
 // produce a macro that fails to save or plays wrongly.
 
-import { LIMITS } from "./macros.ts";
+import { LIMITS, kindOf, lengthMs, totalDuration } from "./macros.ts";
 import type { MacroStep, PlaybackMode } from "../types/engine";
 
 export const clampHold = (ms: number) =>
@@ -18,7 +18,7 @@ export function startTimes(steps: MacroStep[]): number[] {
   let t = 0;
   for (const s of steps) {
     out.push(t);
-    t += s.holdMs + s.delayAfterMs;
+    t += lengthMs(s);
   }
   return out;
 }
@@ -46,7 +46,8 @@ export function setTiming(
     sel.has(s.id)
       ? {
           ...s,
-          holdMs: t.holdMs === undefined ? s.holdMs : clampHold(t.holdMs),
+          // Hold and release actions have no press time of their own.
+          holdMs: t.holdMs === undefined || kindOf(s) !== "tap" ? s.holdMs : clampHold(t.holdMs),
           delayAfterMs: t.delayAfterMs === undefined ? s.delayAfterMs : clampDelay(t.delayAfterMs),
         }
       : s,
@@ -59,7 +60,7 @@ export function scaleTiming(steps: MacroStep[], ids: readonly string[], percent:
   const f = Math.max(1, Math.min(1000, Number.isFinite(percent) ? percent : 100)) / 100;
   const sel = new Set(ids);
   return steps.map((s) =>
-    sel.has(s.id) ? { ...s, holdMs: clampHold(s.holdMs * f), delayAfterMs: clampDelay(s.delayAfterMs * f) } : s,
+    sel.has(s.id) ? { ...s, holdMs: kindOf(s) === "tap" ? clampHold(s.holdMs * f) : s.holdMs, delayAfterMs: clampDelay(s.delayAfterMs * f) } : s,
   );
 }
 
@@ -80,7 +81,10 @@ export interface MergeRisk {
   buttons: MacroStep["buttons"];
 }
 
-const shared = (a: MacroStep, b: MacroStep) => a.buttons.filter((x) => b.buttons.includes(x));
+// A gap matters only when the first action lets go (tap or release) and the
+// second presses again (tap or hold).
+const shared = (a: MacroStep, b: MacroStep) =>
+  kindOf(a) === "hold" || kindOf(b) === "release" ? [] : a.buttons.filter((x) => b.buttons.includes(x));
 
 export function mergeRisks(steps: MacroStep[], mode: PlaybackMode, repeatDelayMs: number): MergeRisk[] {
   const out: MergeRisk[] = [];
@@ -103,11 +107,19 @@ export function mergeRisks(steps: MacroStep[], mode: PlaybackMode, repeatDelayMs
 
 /** Where a preview is after `elapsedMs`. Looping modes repeat the sequence
  *  with the pause between repeats, exactly like the engine. */
-export function previewAt(steps: MacroStep[], elapsedMs: number, loopPauseMs: number | null) {
-  const total = steps.reduce((t, s) => t + s.holdMs + s.delayAfterMs, 0);
-  if (loopPauseMs === null) return { cycleMs: elapsedMs, done: elapsedMs >= total };
+export function previewAt(steps: MacroStep[], elapsedMs: number, loopPauseMs: number | null, passes = 1, pauseMs = 0) {
+  const total = totalDuration(steps);
+  if (loopPauseMs === null) {
+    if (passes <= 1) return { cycleMs: elapsedMs, done: elapsedMs >= total, pass: 0 };
+    // Play Once with a repeat count: `passes` passes with the pause between them.
+    const cycle = Math.max(1, total + pauseMs);
+    const pass = Math.floor(elapsedMs / cycle);
+    const inPass = elapsedMs - pass * cycle;
+    const done = pass >= passes || (pass === passes - 1 && inPass >= total);
+    return { cycleMs: inPass, done, pass };
+  }
   const cycle = Math.max(1, total + loopPauseMs);
-  return { cycleMs: elapsedMs % cycle, done: false };
+  return { cycleMs: elapsedMs % cycle, done: false, pass: Math.floor(elapsedMs / cycle) };
 }
 
 /** Parses a millisecond field. Returns the value to store, or null to revert

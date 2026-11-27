@@ -83,18 +83,22 @@ fn macro_r3() -> Macro {
                 buttons: vec![MacroButton::North],
                 hold_ms: 40,
                 delay_after_ms: 40,
+                kind: nexus_macro_engine::StepKind::Tap,
             },
             MacroStep {
                 id: "b".into(),
                 buttons: vec![MacroButton::North],
                 hold_ms: 40,
                 delay_after_ms: 40,
+                kind: nexus_macro_engine::StepKind::Tap,
             },
         ],
         trigger: Some(MacroButton::RightStick),
         mode: PlaybackMode::RepeatWhileHeld,
         repeat_delay_ms: 40,
         block_trigger: true,
+        activation_ms: 0,
+        repeat_count: 1,
         created_at_ms: 0,
         updated_at_ms: 0,
     }
@@ -140,7 +144,7 @@ fn pct(mut v: Vec<u64>) -> (u64, u64, u64, u64) {
 #[test]
 #[ignore]
 fn hotpath_benchmark() {
-    let (_e, mut h, stamp) = handler();
+    let (e, mut h, stamp) = handler();
     let raw = held_report();
     let mut parser = DualSenseParser::new(ConnectionType::Usb);
     // Released first, so the held trigger is a fresh press and the macro plays.
@@ -151,8 +155,11 @@ fn hotpath_benchmark() {
     }
     let n = 200_000;
     let (mut to_submit, mut total) = (Vec::with_capacity(n), Vec::with_capacity(n));
+    let mut parse = Vec::with_capacity(n);
     for _ in 0..n {
+        let p0 = epoch().elapsed().as_nanos() as u64;
         let parsed = parser.parse(&raw);
+        parse.push(epoch().elapsed().as_nanos() as u64 - p0);
         let start = epoch().elapsed().as_nanos() as u64;
         h.on_report(&raw, parsed);
         let end = epoch().elapsed().as_nanos() as u64;
@@ -164,7 +171,21 @@ fn hotpath_benchmark() {
             h.on_report(&raw, parser.parse(&raw));
         }
     });
+    // The DualShock 4 parser on a comparable report (touch data present).
+    let mut ds4 = nexus_dualshock4::DualShock4Parser::new();
+    let mut ds4_report = nexus_dualshock4::synthetic::Report::neutral();
+    ds4_report.touch_count = 1;
+    let ds4_raw = ds4_report.usb_report();
+    let mut ds4_parse = Vec::with_capacity(n);
+    for _ in 0..n {
+        let p0 = epoch().elapsed().as_nanos() as u64;
+        let parsed = ds4.parse(&ds4_raw);
+        ds4_parse.push(epoch().elapsed().as_nanos() as u64 - p0);
+        std::hint::black_box(parsed.ok());
+    }
     for (name, v) in [
+        ("HID report parse", parse),
+        ("HID report parse (DualShock 4)", ds4_parse),
         ("report entry -> virtual submit", to_submit),
         ("whole handler", total),
     ] {
@@ -175,6 +196,18 @@ fn hotpath_benchmark() {
         "HOTPATH allocations per report: {:.2}",
         allocs as f64 / 1000.0
     );
+    // The engine's own per-stage windows (last 256 reports), as shown in the app.
+    let st = e.status().devices[0].stage_latency;
+    for (name, x) in [
+        ("stage: mapping", st.mapping),
+        ("stage: macros", st.macros),
+        ("stage: virtual output call", st.output),
+    ] {
+        println!(
+            "HOTPATH {name:<31} p50 {:>6} ns  p99 {:>6} ns  max {:>8} ns",
+            x.p50_ns, x.p99_ns, x.max_ns
+        );
+    }
 }
 
 #[test]
@@ -202,6 +235,114 @@ fn steady_state_reports_make_no_heap_allocations() {
         allocs, 0,
         "per-report path must not allocate (was 6 per report)"
     );
+}
+
+#[test]
+fn dualshock4_steady_state_reports_make_no_heap_allocations() {
+    use nexus_dualshock4::synthetic::{button, Report};
+    let (e, _, stamp) = handler();
+    let ds4 = ConnectedDevice {
+        model: ControllerModel::DualShock4,
+        product_id: nexus_dualshock4::PRODUCT_ID_DUALSHOCK4_V2,
+        output_report_len: 32,
+        ..device()
+    };
+    let factory: OutputBackendFactory = {
+        let s = stamp.clone();
+        Arc::new(move || {
+            Box::new(TimestampPad {
+                last_submit_ns: s.clone(),
+            })
+        })
+    };
+    let mut h = new_session_handler(&e.shared, &factory, &ds4);
+    let mut parser = nexus_dualshock4::DualShock4Parser::new();
+    let idle = Report::neutral().usb_report();
+    let mut held = Report::neutral().press(button::R3); // the macro trigger
+    held.touch_count = 1;
+    held.lx = 10;
+    let raw = held.usb_report();
+    h.on_report(&idle, parser.parse(&idle));
+    for _ in 0..300 {
+        h.on_report(&raw, parser.parse(&raw));
+    }
+    let before = stamp.load(Ordering::Acquire);
+    let ((), allocs) = count_allocs(|| {
+        for _ in 0..1000 {
+            let parsed = parser.parse(&raw);
+            h.on_report(&raw, parsed);
+        }
+    });
+    assert!(
+        stamp.load(Ordering::Acquire) > before,
+        "reports reached the virtual pad"
+    );
+    assert_eq!(
+        allocs, 0,
+        "the DualShock 4 path must not allocate per report"
+    );
+}
+
+#[test]
+fn stick_swapping_and_stick_buttons_make_no_heap_allocations() {
+    use nexus_controller_core::Button;
+    use nexus_input_processing::{ProcessingConfig, StickButtons, StickDirections, StickSource};
+    let (e, _, stamp) = handler();
+    let mut c = ProcessingConfig::default();
+    c.stick_routing.left_output = StickSource::Right;
+    c.stick_routing.right_output = StickSource::Left;
+    c.left_stick.buttons = StickButtons {
+        enabled: true,
+        up: Some(Button::DpadUp),
+        down: Some(Button::DpadDown),
+        left: Some(Button::DpadLeft),
+        right: Some(Button::RightTrigger),
+        directions: StickDirections::Four,
+        passthrough: true,
+        ..StickButtons::default()
+    };
+    e.set_processing(c);
+    let factory: OutputBackendFactory = {
+        let s = stamp.clone();
+        Arc::new(move || {
+            Box::new(TimestampPad {
+                last_submit_ns: s.clone(),
+            })
+        })
+    };
+    let mut h = new_session_handler(&e.shared, &factory, &device());
+    // The left stick sweeps through every direction and the centre.
+    let reports: Vec<Vec<u8>> = [
+        (128, 0),
+        (255, 0),
+        (255, 128),
+        (255, 255),
+        (0, 255),
+        (0, 0),
+        (128, 128),
+    ]
+    .iter()
+    .map(|&(lx, ly)| {
+        let mut p = Payload::neutral();
+        p.lx = lx;
+        p.ly = ly;
+        p.rx = 200;
+        p.usb_report()
+    })
+    .collect();
+    let mut parser = DualSenseParser::new(ConnectionType::Usb);
+    for r in reports.iter().cycle().take(300) {
+        h.on_report(r, parser.parse(r));
+    }
+    let before = stamp.load(Ordering::Acquire);
+    let ((), allocs) = count_allocs(|| {
+        for r in reports.iter().cycle().take(1000) {
+            let parsed = parser.parse(r);
+            h.on_report(r, parsed);
+        }
+    });
+    assert!(stamp.load(Ordering::Acquire) > before);
+    assert_eq!(allocs, 0, "stick mapping must not allocate per report");
 }
 
 /// A pad that, at submit time, records how many raw reports the history

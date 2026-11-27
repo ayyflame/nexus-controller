@@ -4,7 +4,7 @@ import {
   AT_REST, MAX_TILT, TRIGGER_SWING, VIEWS, ZOOM, facesCamera, fitRadius, orbitBetween, orbitToOffset, stickPose, triggerAngle,
   visualFrom, visualKey,
 } from "./controller3d.ts";
-import { parseFinish, parseViewMode } from "./controllerViewMode.ts";
+import { parseFinish } from "./controllerViewMode.ts";
 import { stateOf } from "./diagFixtures.ts";
 import type { ControllerState } from "../types/engine";
 
@@ -95,10 +95,31 @@ test("leader lines only for controls facing the camera", () => {
   assert.equal(facesCamera(face, [0, 0, -10]), false, "rear view hides face-button lines");
 });
 
-test("view preferences: 3D and Midnight Black unless chosen otherwise", () => {
-  assert.equal(parseViewMode(null), "3d");
-  assert.equal(parseViewMode("flat"), "flat");
-  assert.equal(parseViewMode("junk"), "3d");
+test("view preference: Midnight Black unless chosen otherwise", () => {
   assert.equal(parseFinish(null), "black");
   assert.equal(parseFinish("white"), "white");
+});
+
+test("the model follows the controller and stays after an unplug", async () => {
+  const { modelFor } = await import("./controller3d.ts");
+  // The state says which controller it came from.
+  assert.equal(modelFor("dualShock4Usb", null, "dualSense"), "dualShock4");
+  assert.equal(modelFor("dualSenseUsb", "dualShock4", "dualShock4"), "dualSense");
+  assert.equal(modelFor("dualSenseBluetooth", null, "dualShock4"), "dualSense");
+  // No input yet, or a preview that doesn't say: the connected controller.
+  assert.equal(modelFor("unknown", "dualShock4", "dualSense"), "dualShock4");
+  assert.equal(modelFor(null, "dualSenseEdge", "dualShock4"), "dualSense", "an Edge is shown as a DualSense");
+  // Nothing connected: the last model stays (with the usual badge); first start shows the DualSense.
+  assert.equal(modelFor(null, null, "dualShock4"), "dualShock4");
+  assert.equal(modelFor(undefined, undefined, "dualSense"), "dualSense");
+});
+
+test("a DualShock 4 state lights the same controls, with no Mute", () => {
+  const s = state((x) => {
+    Object.assign(x.buttons, { south: true, select: true, home: true, touchpad: true, mute: false });
+    x.format = "dualShock4Usb";
+  });
+  const v = visualFrom(s, true);
+  assert.ok(v.lit.south && v.lit.select && v.lit.home && v.lit.touchpad);
+  assert.equal(v.lit.mute, false);
 });

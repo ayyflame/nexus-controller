@@ -1,4 +1,4 @@
-// Rules for the Mapping screen (Controller › Mapping): where each button's
+// Rules for the Mapping screen (Mapping page): where each button's
 // card sits around the controller picture, what the card says a game
 // receives, and the remap edits. Pure, so they are unit-tested; the screen
 // only renders them. The edits produce exactly the RemapRule shapes the
@@ -6,16 +6,34 @@
 
 import type { ButtonMapping } from "./buttonMapping";
 import type { MacroButton, ProcessingConfig, RemapRule, VirtualOutputKind } from "../types/engine";
+import type { ViewModel } from "./controller3d.ts";
 
-/** Cards around the picture, in reading order per side (matches the DualSense layout). */
+/**
+ * Cards around the picture, in order along each side. The order follows
+ * where each control appears on screen, so connectors don't cross each
+ * other or pass over another control: seen from the front and above, a
+ * trigger sits just inside and behind its bumper (L1, L2, Touchpad, R2, R1);
+ * on each side the outer D-pad arm / face button comes before the inner one;
+ * Mute sits below the PS button.
+ */
 export const CALLOUTS: Record<"top" | "left" | "right" | "bottom", MacroButton[]> = {
-  top: ["leftTrigger", "leftShoulder", "touchpad", "rightShoulder", "rightTrigger"],
-  left: ["select", "dpadUp", "dpadRight", "dpadLeft", "dpadDown", "leftStick"],
-  right: ["start", "north", "west", "east", "south", "rightStick"],
+  top: ["leftShoulder", "leftTrigger", "touchpad", "rightTrigger", "rightShoulder"],
+  left: ["select", "dpadUp", "dpadLeft", "dpadRight", "dpadDown", "leftStick"],
+  right: ["start", "north", "east", "west", "south", "rightStick"],
   bottom: ["home", "mute"],
 };
 
 export const CALLOUT_BUTTONS: MacroButton[] = [...CALLOUTS.top, ...CALLOUTS.left, ...CALLOUTS.right, ...CALLOUTS.bottom];
+
+/** The cards for the controller shown: a DualShock 4 has no Mute button (its layout is otherwise the same). */
+export function calloutsFor(model: ViewModel): typeof CALLOUTS {
+  return model === "dualShock4" ? { ...CALLOUTS, bottom: CALLOUTS.bottom.filter((b) => b !== "mute") } : CALLOUTS;
+}
+
+/** A card's name on the controller shown: Share on a DualShock 4 is Create on a DualSense. */
+export function shortName(button: MacroButton, model: ViewModel): string {
+  return model === "dualShock4" && button === "select" ? "Share" : SHORT_NAMES[button];
+}
 
 /** Short PlayStation names for the cards. */
 export const SHORT_NAMES: Record<MacroButton, string> = {
@@ -127,19 +145,87 @@ export function redoRemap(h: RemapHistory, current: RemapRule[]): { history: Rem
 
 export interface Point { x: number; y: number }
 export interface Box { left: number; top: number; width: number; height: number }
+export type Side = keyof typeof CALLOUTS;
+
+/** Distance a connector runs straight out of its card before turning towards the control. */
+export const STUB = 10;
+/** Keeps the connector away from the card's rounded corners. */
+const INSET = 9;
+
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
 /**
- * Leader line from a card to its button. The line leaves the card on the
- * side facing the controller and ends at the centre of the button.
+ * Connector from a card to its control: it leaves the card's edge facing
+ * the controller at `along` (a position on that edge; by default the point
+ * closest to the control), runs `STUB` px straight out, then goes straight
+ * to the control's anchor. Returns the polyline's points, card end first;
+ * the last point is exactly the anchor.
  */
-export function leaderLine(side: keyof typeof CALLOUTS, card: Box, button: Box): { from: Point; to: Point } {
-  const to = { x: button.left + button.width / 2, y: button.top + button.height / 2 };
-  const midX = card.left + card.width / 2;
-  const midY = card.top + card.height / 2;
-  const from =
-    side === "left" ? { x: card.left + card.width, y: midY }
-      : side === "right" ? { x: card.left, y: midY }
-        : side === "top" ? { x: midX, y: card.top + card.height }
-          : { x: midX, y: card.top };
-  return { from, to };
+export function leaderRoute(side: Side, card: Box, anchor: Point, along?: number): Point[] {
+  const right = card.left + card.width, bottom = card.top + card.height;
+  if (side === "left" || side === "right") {
+    const y = clamp(along ?? anchor.y, card.top + INSET, bottom - INSET);
+    const x = side === "left" ? right : card.left;
+    const out = side === "left" ? x + STUB : x - STUB;
+    return [{ x, y }, { x: out, y }, anchor];
+  }
+  const x = clamp(along ?? anchor.x, card.left + INSET, right - INSET);
+  const y = side === "top" ? bottom : card.top;
+  const out = side === "top" ? y + STUB : y - STUB;
+  return [{ x, y }, { x, y: out }, anchor];
+}
+
+/** Does the segment a→b pass through the box (shrunk by `pad`)? */
+export function segmentHitsBox(a: Point, b: Point, box: Box, pad = 1): boolean {
+  const x0 = box.left + pad, x1 = box.left + box.width - pad, y0 = box.top + pad, y1 = box.top + box.height - pad;
+  if (x1 <= x0 || y1 <= y0) return false;
+  // Liang–Barsky clipping: the segment hits the box if some part of it survives.
+  let t0 = 0, t1 = 1;
+  const dx = b.x - a.x, dy = b.y - a.y;
+  for (const [p, q] of [[-dx, a.x - x0], [dx, x1 - a.x], [-dy, a.y - y0], [dy, y1 - a.y]] as Array<[number, number]>) {
+    if (p === 0) { if (q < 0) return false; continue; }
+    const r = q / p;
+    if (p < 0) { if (r > t1) return false; if (r > t0) t0 = r; } else { if (r < t0) return false; if (r < t1) t1 = r; }
+  }
+  return t0 < t1;
+}
+
+/** Does a polyline pass through any of the boxes? */
+export function routeHitsBoxes(route: Point[], boxes: Box[]): boolean {
+  for (let i = 0; i + 1 < route.length; i++) {
+    for (const b of boxes) if (segmentHitsBox(route[i]!, route[i + 1]!, b)) return true;
+  }
+  return false;
+}
+
+function segmentsCross(a: Point, b: Point, c: Point, d: Point): boolean {
+  const o = (p: Point, q: Point, r: Point) => Math.sign((q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x));
+  return o(a, b, c) * o(a, b, d) < 0 && o(c, d, a) * o(c, d, b) < 0;
+}
+
+/** Do two polylines cross each other (touching end points don't count)? */
+export function routesCross(r1: Point[], r2: Point[]): boolean {
+  for (let i = 0; i + 1 < r1.length; i++) {
+    for (let j = 0; j + 1 < r2.length; j++) if (segmentsCross(r1[i]!, r1[i + 1]!, r2[j]!, r2[j + 1]!)) return true;
+  }
+  return false;
+}
+
+/**
+ * The connector for one card: the most direct route that doesn't pass
+ * through another card. Tries the point of the facing edge nearest the
+ * control first, then other points along that edge; if every route is
+ * blocked, the direct one is used.
+ */
+export function chooseRoute(side: Side, card: Box, anchor: Point, obstacles: Box[]): Point[] {
+  const direct = leaderRoute(side, card, anchor);
+  if (!routeHitsBoxes(direct.slice(1), obstacles)) return direct;
+  const vertical = side === "left" || side === "right";
+  const lo = vertical ? card.top : card.left, len = vertical ? card.height : card.width;
+  const tries = [0.5, 0.15, 0.85, 0, 1].map((f) => lo + f * len);
+  for (const along of tries) {
+    const r = leaderRoute(side, card, anchor, along);
+    if (!routeHitsBoxes(r.slice(1), obstacles)) return r;
+  }
+  return direct;
 }

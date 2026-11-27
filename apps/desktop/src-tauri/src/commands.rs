@@ -6,7 +6,7 @@ use nexus_controller_core::VirtualOutputKind;
 use nexus_engine::{EngineStatus, HidDiagnostic};
 use nexus_input_processing::ProcessingConfig;
 use nexus_macro_engine::{Macro, RecordingResult, ValidationIssue};
-use nexus_profile_manager::{Profile, ProfileError, ProfileStore};
+use nexus_profile_manager::{MacroMeta, Profile, ProfileError, ProfileMeta, ProfileStore};
 use nexus_telemetry::{LogEntry, RawReport};
 use serde::Serialize;
 use tauri::State;
@@ -89,6 +89,16 @@ pub fn get_status(state: State<'_, AppState>) -> EngineStatus {
     state.engine.status()
 }
 
+/// Reads the virtual Xbox 360 controller back through XInput and compares it
+/// with what NEXUS sent (Live Viewer › Output Check). Read-only.
+#[tauri::command]
+pub fn check_virtual_output(state: State<'_, AppState>) -> nexus_engine::output_check::OutputCheck {
+    nexus_engine::output_check::check_output(
+        &state.engine.status(),
+        nexus_virtual_controller::xinput::read_slot,
+    )
+}
+
 #[tauri::command]
 pub fn get_event_log(state: State<'_, AppState>, limit: Option<usize>) -> Vec<LogEntry> {
     state.engine.recent_log(limit.unwrap_or(200).min(MAX_LIMIT))
@@ -168,12 +178,16 @@ pub(crate) fn apply_profile(
     store: &ProfileStore,
     profile: &Profile,
 ) -> CmdResult<()> {
+    // Read everything first, so a store error leaves the engine untouched.
+    let macros = store.list_macros_for(profile.id).map_err(profile_error)?;
     state
         .engine
         .set_output_mode(effective_output(store, profile.virtual_output));
-    state.engine.set_processing(profile.processing.clone());
-    let macros = store.list_macros_for(profile.id).map_err(profile_error)?;
-    state.engine.set_macros(macros);
+    // Settings and macros as one change: no report is processed with half of
+    // the switch. Toggles start off; held buttons carry over.
+    state
+        .engine
+        .switch_profile(profile.processing.clone(), macros);
     Ok(())
 }
 
@@ -185,10 +199,125 @@ pub fn set_active_profile(state: State<'_, AppState>, id: i64) -> CmdResult<Prof
     Ok(profile)
 }
 
+/// The profile NEXUS starts with (`None`: whichever was used last).
 #[tauri::command]
-pub fn create_profile(state: State<'_, AppState>, name: String) -> CmdResult<Profile> {
+pub fn get_default_profile(state: State<'_, AppState>) -> CmdResult<Option<i64>> {
+    let store = state.store.lock().map_err(|_| "profile store poisoned")?;
+    store.default_profile().map_err(profile_error)
+}
+
+#[tauri::command]
+pub fn set_default_profile(state: State<'_, AppState>, id: Option<i64>) -> CmdResult<Option<i64>> {
     let mut store = state.store.lock().map_err(|_| "profile store poisoned")?;
-    store.create_profile(&name).map_err(profile_error)
+    store.set_default_profile(id).map_err(profile_error)
+}
+
+// ---- Windows integration ----------------------------------------------------
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WindowsIntegration {
+    pub behaviour: crate::background::WindowBehaviour,
+    pub start_with_windows: crate::startup::StartupStatus,
+}
+
+fn startup_status() -> crate::startup::StartupStatus {
+    #[cfg(windows)]
+    {
+        crate::startup::status(&crate::startup::Registry::nexus())
+    }
+    #[cfg(not(windows))]
+    {
+        crate::startup::StartupStatus::default()
+    }
+}
+
+fn integration(state: &AppState) -> WindowsIntegration {
+    WindowsIntegration {
+        behaviour: *state.behaviour.lock().unwrap_or_else(|e| e.into_inner()),
+        start_with_windows: startup_status(),
+    }
+}
+
+#[tauri::command]
+pub fn get_windows_integration(state: State<'_, AppState>) -> WindowsIntegration {
+    integration(&state)
+}
+
+#[tauri::command]
+pub fn set_window_behaviour(
+    state: State<'_, AppState>,
+    behaviour: crate::background::WindowBehaviour,
+) -> CmdResult<WindowsIntegration> {
+    {
+        let mut store = state.store.lock().map_err(|_| "profile store poisoned")?;
+        store
+            .set_setting(crate::background::SETTINGS_KEY, &behaviour.to_saved())
+            .map_err(profile_error)?;
+    }
+    *state.behaviour.lock().unwrap_or_else(|e| e.into_inner()) = behaviour;
+    Ok(integration(&state))
+}
+
+#[tauri::command]
+pub fn set_start_with_windows(
+    state: State<'_, AppState>,
+    enabled: bool,
+) -> CmdResult<WindowsIntegration> {
+    #[cfg(windows)]
+    {
+        let exe = std::env::current_exe()
+            .map_err(|e| format!("Could not find the NEXUS program file: {e}"))?;
+        crate::startup::set_enabled(&mut crate::startup::Registry::nexus(), &exe, enabled)?;
+        // Kept with the profiles, so a reinstall that removed the entry puts it back.
+        let mut store = state.store.lock().map_err(|_| "profile store poisoned")?;
+        store
+            .set_setting(
+                crate::startup::PREFERENCE_KEY,
+                if enabled { "true" } else { "false" },
+            )
+            .map_err(profile_error)?;
+        drop(store);
+        Ok(integration(&state))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (enabled, state);
+        Err("Start with Windows is only available on Windows.".into())
+    }
+}
+
+/// Creates a profile: blank (default settings), or a full copy of
+/// `copy_from` (settings, virtual output, macro choices; not its games).
+#[tauri::command]
+pub fn create_profile(
+    state: State<'_, AppState>,
+    name: String,
+    copy_from: Option<i64>,
+) -> CmdResult<Profile> {
+    let mut store = state.store.lock().map_err(|_| "profile store poisoned")?;
+    match copy_from {
+        Some(id) => store.duplicate_profile_named(id, Some(&name)),
+        None => store.create_profile(&name),
+    }
+    .map_err(profile_error)
+}
+
+/// Pinned profiles, last-used times, the start-up and the protected profile.
+#[tauri::command]
+pub fn get_profile_meta(state: State<'_, AppState>) -> CmdResult<ProfileMeta> {
+    let store = state.store.lock().map_err(|_| "profile store poisoned")?;
+    store.profile_meta().map_err(profile_error)
+}
+
+#[tauri::command]
+pub fn set_profile_pinned(
+    state: State<'_, AppState>,
+    id: i64,
+    pinned: bool,
+) -> CmdResult<ProfileMeta> {
+    let mut store = state.store.lock().map_err(|_| "profile store poisoned")?;
+    store.set_profile_pinned(id, pinned).map_err(profile_error)
 }
 
 #[tauri::command]
@@ -214,13 +343,23 @@ pub fn delete_profile(state: State<'_, AppState>, id: i64) -> CmdResult<Profile>
 
 /// Saves stick/trigger/remap settings to the active profile and applies them.
 #[tauri::command]
-pub fn set_processing(state: State<'_, AppState>, config: ProcessingConfig) -> CmdResult<Profile> {
+pub fn set_processing(
+    state: State<'_, AppState>,
+    config: ProcessingConfig,
+    profile_id: Option<i64>,
+) -> CmdResult<Profile> {
     let mut store = state.store.lock().map_err(|_| "profile store poisoned")?;
     let active = store.active_profile().map_err(profile_error)?;
+    // Saved to the profile the edit was made in. If the active profile changed
+    // meanwhile (a game was focused, or the user switched), the edit must not
+    // overwrite the new profile's settings, and the engine keeps the new ones.
+    let target = profile_id.unwrap_or(active.id);
     let profile = store
-        .set_processing(active.id, &config)
+        .set_processing(target, &config)
         .map_err(profile_error)?;
-    state.engine.set_processing(profile.processing.clone());
+    if target == active.id {
+        state.engine.set_processing(profile.processing.clone());
+    }
     Ok(profile)
 }
 
@@ -409,6 +548,17 @@ pub fn set_profile_games(
     store.set_profile_games(id, &games).map_err(profile_error)
 }
 
+/// Programs recently in the foreground (newest first), to link a game to a
+/// profile by picking it. Empty where game detection isn't supported.
+#[tauri::command]
+pub fn recent_programs(state: State<'_, AppState>) -> Vec<String> {
+    state
+        .game_watch
+        .get()
+        .map(|w| w.recent())
+        .unwrap_or_default()
+}
+
 #[tauri::command]
 pub fn get_auto_switch(state: State<'_, AppState>) -> bool {
     state.auto_switch.load(Ordering::Acquire)
@@ -570,6 +720,88 @@ pub fn create_backup(app: tauri::AppHandle, state: State<'_, AppState>) -> CmdRe
         return Err("Couldn't write the backup file to Documents\\NEXUS\\Backups.".into());
     }
     Ok(ExportResult { path, json })
+}
+
+/// Where restore points live: NEXUS's own copies, then manual backups.
+fn restore_dirs(app: &tauri::AppHandle, state: &AppState) -> Vec<std::path::PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(d) = state.data_dir.as_ref() {
+        dirs.push(d.join("backups"));
+    }
+    if let Some(d) = exports_dir(app, "Backups") {
+        dirs.push(d);
+    }
+    dirs
+}
+
+/// Every backup NEXUS made (daily, before a restore, before an update, and
+/// manual ones), newest first.
+#[tauri::command]
+pub fn list_restore_points(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Vec<crate::restore::RestorePoint> {
+    crate::restore::list(&restore_dirs(&app, &state))
+}
+
+/// A restore point as a configuration file, for the normal preview and
+/// replace flow (which saves a safety copy first).
+#[tauri::command]
+pub fn read_restore_point(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> CmdResult<String> {
+    Ok(crate::restore::read(
+        &restore_dirs(&app, &state),
+        &id,
+        env!("CARGO_PKG_VERSION"),
+    )?)
+}
+
+/// Exports the chosen macros (no profiles) to Documents\\NEXUS\\Exports.
+#[tauri::command]
+pub fn export_macro(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    ids: Vec<String>,
+) -> CmdResult<ExportResult> {
+    let store = state.store.lock().map_err(|_| "profile store poisoned")?;
+    let bundle = store
+        .export_macros_bundle(&ids, env!("CARGO_PKG_VERSION"))
+        .map_err(profile_error)?;
+    let json = serde_json::to_string_pretty(&bundle)?;
+    let label = match bundle.macros.as_slice() {
+        [one] => one
+            .name
+            .chars()
+            .filter(|c| c.is_alphanumeric() || *c == ' ')
+            .collect::<String>(),
+        _ => "macros".into(),
+    };
+    let path = write_file(
+        exports_dir(&app, "Exports"),
+        &format!("{} {}.nexus.json", label.trim(), stamp()),
+        &json,
+    );
+    Ok(ExportResult { path, json })
+}
+
+/// Pinned macros and the profiles each macro is on in.
+#[tauri::command]
+pub fn get_macro_meta(state: State<'_, AppState>) -> CmdResult<MacroMeta> {
+    let store = state.store.lock().map_err(|_| "profile store poisoned")?;
+    store.macro_meta().map_err(profile_error)
+}
+
+#[tauri::command]
+pub fn set_macro_pinned(
+    state: State<'_, AppState>,
+    id: String,
+    pinned: bool,
+) -> CmdResult<MacroMeta> {
+    let mut store = state.store.lock().map_err(|_| "profile store poisoned")?;
+    store.set_macro_pinned(&id, pinned).map_err(profile_error)
 }
 
 /// Exports the whole macro library (no profiles) to Documents\\NEXUS\\Exports.
@@ -757,7 +989,7 @@ pub async fn inspector_export(app: tauri::AppHandle) -> CmdResult<ExportResult> 
         "version": 1,
         "appVersion": env!("CARGO_PKG_VERSION"),
         "createdAt": stamp(),
-        "note": "Raw DualSense USB input reports recorded by the NEXUS Report Inspector. Serial numbers are not included.",
+        "note": "Raw controller USB input reports (DualSense or DualShock 4) recorded by the NEXUS Report Inspector. Serial numbers are not included.",
         "device": device,
         "interfaces": interfaces.unwrap_or_default(),
         "data": session.export(),

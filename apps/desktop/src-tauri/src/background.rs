@@ -1,0 +1,236 @@
+//! Running in the background: what closing and minimising the window do, and
+//! whether the window opens when Windows starts NEXUS at sign-in.
+//!
+//! The controller engine never depends on the window. Hidden or not, NEXUS
+//! keeps reading the DualSense and driving the virtual controller; only the
+//! UI's status stream pauses while nobody can see it. Quitting (tray › Quit,
+//! or closing the window with "close to tray" off) stops the engine, which
+//! releases every button and removes the virtual controller.
+
+use serde::{Deserialize, Serialize};
+
+/// Key in the profile database's `app_settings` table (JSON value).
+pub const SETTINGS_KEY: &str = "window_behaviour";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct WindowBehaviour {
+    /// The close button hides NEXUS to the tray instead of quitting, so the
+    /// virtual controller stays available to games.
+    pub close_to_tray: bool,
+    /// Minimising hides NEXUS to the tray (no taskbar button).
+    pub minimize_to_tray: bool,
+    /// When Windows starts NEXUS at sign-in, start in the tray without
+    /// opening the window.
+    pub start_hidden: bool,
+}
+
+impl Default for WindowBehaviour {
+    fn default() -> Self {
+        Self {
+            close_to_tray: true,
+            minimize_to_tray: false,
+            start_hidden: true,
+        }
+    }
+}
+
+impl WindowBehaviour {
+    /// Settings saved by this or an older version; anything unreadable
+    /// falls back to the defaults rather than failing start-up.
+    pub fn from_saved(saved: Option<&str>) -> Self {
+        saved
+            .and_then(|s| serde_json::from_str(s).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn to_saved(self) -> String {
+        serde_json::to_string(&self).expect("plain struct serialises")
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CloseAction {
+    HideToTray,
+    Quit,
+}
+
+pub fn on_close(b: WindowBehaviour) -> CloseAction {
+    if b.close_to_tray {
+        CloseAction::HideToTray
+    } else {
+        CloseAction::Quit
+    }
+}
+
+/// The window was just minimised: hide it to the tray?
+pub fn hide_when_minimised(b: WindowBehaviour, minimised: bool) -> bool {
+    minimised && b.minimize_to_tray
+}
+
+/// Should the window open at launch?
+pub fn show_at_launch(b: WindowBehaviour, started_at_sign_in: bool) -> bool {
+    !(started_at_sign_in && b.start_hidden)
+}
+
+/// The tray icon could not be created: nothing may hide the window, or
+/// NEXUS would keep running with no way to reach it. Applied for this run
+/// only (not saved), so the user's choice returns once the tray works.
+pub fn without_tray() -> WindowBehaviour {
+    WindowBehaviour {
+        close_to_tray: false,
+        minimize_to_tray: false,
+        start_hidden: false,
+    }
+}
+
+/// A second copy of NEXUS was started. NEXUS runs once (two copies would
+/// fight over the DualSense and create two virtual controllers), so the
+/// running copy shows its window instead, unless the second start came from
+/// Windows at sign-in.
+pub fn show_on_second_launch(started_at_sign_in: bool) -> bool {
+    !started_at_sign_in
+}
+
+/// What happened to the main window, reduced to what matters here.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WindowChange {
+    /// The close button (or Alt+F4).
+    CloseRequested,
+    /// Minimised (`false`) or shown at a real size again (`true`).
+    Visibility(bool),
+}
+
+/// What NEXUS does about it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WindowResponse {
+    /// Let the window close (NEXUS quits and releases the controller).
+    Close,
+    /// Keep NEXUS running: cancel the close and hide to the tray.
+    HideToTray,
+    /// Pause (`false`) or resume (`true`) the UI status stream.
+    StatusStream(bool),
+}
+
+pub fn respond(b: WindowBehaviour, change: WindowChange) -> WindowResponse {
+    match change {
+        WindowChange::CloseRequested => match on_close(b) {
+            CloseAction::HideToTray => WindowResponse::HideToTray,
+            CloseAction::Quit => WindowResponse::Close,
+        },
+        WindowChange::Visibility(visible) if hide_when_minimised(b, !visible) => {
+            WindowResponse::HideToTray
+        }
+        WindowChange::Visibility(visible) => WindowResponse::StatusStream(visible),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn defaults_keep_games_working_when_the_window_is_closed() {
+        let b = WindowBehaviour::default();
+        assert_eq!(on_close(b), CloseAction::HideToTray);
+        assert!(
+            !hide_when_minimised(b, true),
+            "minimise stays a normal minimise"
+        );
+        assert!(!show_at_launch(b, true), "sign-in start stays in the tray");
+        assert!(show_at_launch(b, false), "a normal start opens the window");
+    }
+
+    #[test]
+    fn every_behaviour_can_be_switched() {
+        let b = WindowBehaviour {
+            close_to_tray: false,
+            minimize_to_tray: true,
+            start_hidden: false,
+        };
+        assert_eq!(on_close(b), CloseAction::Quit);
+        assert!(hide_when_minimised(b, true));
+        assert!(!hide_when_minimised(b, false), "restoring never hides");
+        assert!(show_at_launch(b, true));
+    }
+
+    #[test]
+    fn saved_settings_round_trip_and_bad_ones_fall_back() {
+        let b = WindowBehaviour {
+            close_to_tray: false,
+            minimize_to_tray: true,
+            start_hidden: false,
+        };
+        assert_eq!(WindowBehaviour::from_saved(Some(&b.to_saved())), b);
+        assert_eq!(
+            WindowBehaviour::from_saved(None),
+            WindowBehaviour::default()
+        );
+        assert_eq!(
+            WindowBehaviour::from_saved(Some("not json")),
+            WindowBehaviour::default()
+        );
+        // A setting added later keeps its default for older saved values.
+        assert_eq!(
+            WindowBehaviour::from_saved(Some(r#"{"closeToTray":false}"#)),
+            WindowBehaviour {
+                close_to_tray: false,
+                ..Default::default()
+            }
+        );
+    }
+
+    #[test]
+    fn window_events_hide_close_or_pause_as_configured() {
+        use WindowChange::*;
+        use WindowResponse::*;
+        let d = WindowBehaviour::default();
+        assert_eq!(respond(d, CloseRequested), HideToTray);
+        assert_eq!(
+            respond(d, Visibility(false)),
+            StatusStream(false),
+            "minimise: taskbar, stream paused"
+        );
+        assert_eq!(
+            respond(d, Visibility(true)),
+            StatusStream(true),
+            "restore: stream resumes"
+        );
+        let tray = WindowBehaviour {
+            close_to_tray: false,
+            minimize_to_tray: true,
+            ..d
+        };
+        assert_eq!(respond(tray, CloseRequested), Close);
+        assert_eq!(respond(tray, Visibility(false)), HideToTray);
+        assert_eq!(
+            respond(tray, Visibility(true)),
+            StatusStream(true),
+            "restoring never hides"
+        );
+    }
+
+    #[test]
+    fn without_a_tray_icon_nothing_can_hide_the_window() {
+        let b = without_tray();
+        assert!(
+            show_at_launch(b, true),
+            "even a sign-in start opens the window"
+        );
+        assert_eq!(
+            respond(b, WindowChange::CloseRequested),
+            WindowResponse::Close
+        );
+        assert_eq!(
+            respond(b, WindowChange::Visibility(false)),
+            WindowResponse::StatusStream(false),
+            "minimise stays on the taskbar"
+        );
+    }
+
+    #[test]
+    fn a_second_start_shows_the_running_copy_unless_it_came_from_sign_in() {
+        assert!(show_on_second_launch(false));
+        assert!(!show_on_second_launch(true));
+    }
+}

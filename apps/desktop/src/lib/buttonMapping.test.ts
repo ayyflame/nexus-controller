@@ -15,7 +15,7 @@ function macro(id: string, trigger: MacroButton | null, extra: Partial<Macro> = 
   return {
     id, name: `Macro ${id}`, description: "", enabled: true,
     steps: [{ id: "s", buttons: ["south"], holdMs: 50, delayAfterMs: 50 }],
-    trigger, mode: "repeatWhileHeld", repeatDelayMs: 0, blockTrigger: true, createdAtMs: 0, updatedAtMs: 0, ...extra,
+    trigger, mode: "repeatWhileHeld", repeatDelayMs: 0, blockTrigger: true, activationMs: 0, createdAtMs: 0, updatedAtMs: 0, ...extra,
   };
 }
 

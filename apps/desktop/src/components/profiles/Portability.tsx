@@ -1,22 +1,29 @@
 import { useEffect, useRef, useState } from "react";
+import { Icon } from "../Icons";
 import { engineApi, errorMessage } from "../../lib/engine";
-import type { ExportResult, ImportMode, ImportPreview, ImportReport, Profile, ProfileTemplate } from "../../types/engine";
+import { pickable } from "../../lib/games";
+import { restoreLabel, visiblePoints } from "../../lib/restorePoints";
+import type { ExportResult, ImportMode, ImportPreview, ImportReport, Profile, RestorePoint } from "../../types/engine";
 import { ConfirmDialog, Switch } from "../macro/common";
 
 /** Game executables that switch to a profile. */
 export function GamesEditor({ profile, onSaved }: { profile: Profile; onSaved: (p: Profile) => void }) {
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [recent, setRecent] = useState<string[]>([]);
   const save = async (games: string[]) => {
     setError(null);
     try { onSaved(await engineApi.setProfileGames(profile.id, games)); setText(""); } catch (e) { setError(errorMessage(e)); }
   };
+  const refresh = () => { engineApi.recentPrograms().then(setRecent, () => setRecent([])); };
+  useEffect(refresh, []);
+  const offered = pickable(recent, profile.games);
   return (
     <div className="games">
       <div className="row gap-sm wrap">
         {profile.games.map((g) => (
           <span key={g} className="game-chip">{g}
-            <button aria-label={`Remove ${g}`} onClick={() => void save(profile.games.filter((x) => x !== g))}>✕</button>
+            <button aria-label={`Remove ${g}`} onClick={() => void save(profile.games.filter((x) => x !== g))}><Icon name="x" size={12} /></button>
           </span>
         ))}
         <form className="row gap-sm" onSubmit={(e) => { e.preventDefault(); if (text.trim()) void save([...profile.games, text]); }}>
@@ -24,6 +31,11 @@ export function GamesEditor({ profile, onSaved }: { profile: Profile; onSaved: (
             onChange={(e) => setText(e.target.value)} aria-label="Game program name" />
           <button className="btn-ghost" disabled={!text.trim()}>Add</button>
         </form>
+        <select className="select" aria-label="Add a recently used program" value=""
+          onFocus={refresh} onChange={(e) => { if (e.target.value) void save([...profile.games, e.target.value]); }}>
+          <option value="">{offered.length ? "Pick a recently used program…" : "Start the game once, then pick it here"}</option>
+          {offered.map((p) => <option key={p} value={p}>{p}</option>)}
+        </select>
       </div>
       {error && <p className="small err-text">{error}</p>}
     </div>
@@ -38,38 +50,6 @@ export function AutoSwitchToggle() {
     <Switch checked={on} label={on ? "Switch profiles automatically for games" : "Automatic switching off"}
       tip="When a game listed on a profile is in front, NEXUS switches to that profile and switches back when you leave the game"
       onChange={async (v) => { await engineApi.setAutoSwitch(v); setOn(v); }} />
-  );
-}
-
-export function TemplatePicker({ onCreated }: { onCreated: (p: Profile) => void }) {
-  const [templates, setTemplates] = useState<ProfileTemplate[]>([]);
-  const [chosen, setChosen] = useState<ProfileTemplate | null>(null);
-  const [name, setName] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => { engineApi.listTemplates().then(setTemplates).catch(() => setTemplates([])); }, []);
-  return (
-    <div className="templates">
-      <div className="template-grid">
-        {templates.map((t) => (
-          <button key={t.id} className={`template-card${chosen?.id === t.id ? " selected" : ""}`}
-            onClick={() => { setChosen(t); setName(t.name); }}>
-            <strong>{t.name}</strong><span className="muted small">{t.description}</span>
-          </button>
-        ))}
-      </div>
-      {chosen && (
-        <form className="row gap" onSubmit={async (e) => {
-          e.preventDefault(); setError(null);
-          try { onCreated(await engineApi.createProfileFromTemplate(name, chosen.id)); setChosen(null); }
-          catch (err) { setError(errorMessage(err)); }
-        }}>
-          <input className="text-input" value={name} maxLength={40} onChange={(e) => setName(e.target.value)} aria-label="New profile name" />
-          <button className="btn-primary" disabled={!name.trim()}>Create “{chosen.name}” profile</button>
-          <button type="button" className="btn-ghost" onClick={() => setChosen(null)}>Cancel</button>
-        </form>
-      )}
-      {error && <p className="small err-text">{error}</p>}
-    </div>
   );
 }
 
@@ -107,20 +87,46 @@ export function PortabilityPanel({ onChanged }: { onChanged: () => void }) {
     if (!pending) return;
     const p = pending; setPending(null);
     try { setReport(await engineApi.importConfig(p.json, p.mode)); onChanged(); } catch (e) { setError(errorMessage(e)); }
+    loadPoints();
   };
+  const [points, setPoints] = useState<RestorePoint[]>([]);
+  const [showAll, setShowAll] = useState(false);
+  const loadPoints = () => { engineApi.listRestorePoints().then(setPoints, () => setPoints([])); };
+  useEffect(loadPoints, []);
+  const restoreFrom = async (point: RestorePoint) => {
+    setError(null); setReport(null);
+    try {
+      const json = await engineApi.readRestorePoint(point.id);
+      setPending({ json, preview: await engineApi.previewImport(json, "replace"), mode: "replace" });
+    } catch (e) { setError(errorMessage(e)); }
+  };
+  const { shown, more } = visiblePoints(points, showAll ? points.length : 5);
 
   return (
     <section className="card panel">
       <h2>Backup and transfer</h2>
       <p className="muted small">Files are saved in your Documents\NEXUS folder. Importing adds to your setup and never overwrites anything; restoring a backup replaces everything (after NEXUS saves a safety copy).</p>
       <div className="row gap wrap">
-        <button className="btn-secondary" onClick={async () => { try { setExported(await engineApi.exportConfig([], true)); } catch (e) { setError(errorMessage(e)); } }}>Export all profiles</button>
-        <button className="btn-secondary" onClick={async () => { try { setExported(await engineApi.exportMacros()); } catch (e) { setError(errorMessage(e)); } }}>Export macros</button>
-        <button className="btn-secondary" onClick={() => pick("add")}>Import file…</button>
+        <button className="btn-secondary" onClick={async () => { try { setExported(await engineApi.exportConfig([], true)); } catch (e) { setError(errorMessage(e)); } }}><Icon name="download" size={15} /> Export all profiles</button>
+        <button className="btn-secondary" onClick={async () => { try { setExported(await engineApi.exportMacros()); } catch (e) { setError(errorMessage(e)); } }}><Icon name="download" size={15} /> Export macros</button>
+        <button className="btn-secondary" onClick={() => pick("add")}><Icon name="upload" size={15} /> Import file…</button>
         <span className="divider" />
-        <button className="btn-secondary" onClick={async () => { try { setExported(await engineApi.createBackup()); } catch (e) { setError(errorMessage(e)); } }}>Create backup</button>
+        <button className="btn-secondary" onClick={async () => { try { setExported(await engineApi.createBackup()); } catch (e) { setError(errorMessage(e)); } }}><Icon name="shield" size={15} /> Create backup</button>
         <button className="btn-ghost danger" onClick={() => pick("replace")}>Restore backup…</button>
       </div>
+      <h3 className="restore-head">Restore points</h3>
+      <p className="muted small">NEXUS keeps a backup every day (the last 14 days), before every restore and before every update. Restoring one replaces your current profiles and macros, after saving a safety copy of them.</p>
+      {points.length === 0 ? <p className="small muted">No restore points yet.</p> : (
+        <ul className="restore-list">
+          {shown.map((p) => (
+            <li key={p.id} className="restore-item">
+              <span><b>{restoreLabel(p)}</b> <span className="muted small">{new Date(p.modifiedMs).toLocaleString()}</span></span>
+              <button className="btn-ghost" onClick={() => void restoreFrom(p)}>Restore…</button>
+            </li>
+          ))}
+          {more > 0 && <li><button className="btn-ghost" onClick={() => setShowAll(true)}>Show {more} more</button></li>}
+        </ul>
+      )}
       <input ref={fileRef} type="file" accept=".json,application/json" hidden onChange={(e) => void onFile(e.target.files?.[0])} />
       {exported && <ExportNotice result={exported} onClose={() => setExported(null)} />}
       {error && <div className="notice error">{error}</div>}

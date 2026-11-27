@@ -13,13 +13,16 @@
     "windows": [
       {
         "label": "main",
+        "create": false,
         "title": "NEXUS Controller Engine",
         "width": 1360,
         "height": 860,
         "minWidth": 1100,
         "minHeight": 700,
         "center": true,
-        "backgroundColor": "#111214"
+        "visible": false,
+        "theme": "Dark",
+        "backgroundColor": "#0e0f12"
       }
     ],
     "security": {
@@ -46,7 +49,16 @@
       "nsis": {
         "installMode": "currentUser",
         "installerIcon": "icons/icon.ico",
-        "displayLanguageSelector": false
+        "displayLanguageSelector": false,
+        "installerHooks": "windows/hooks.nsh"
+      },
+      "wix": {
+        "fragmentPaths": [
+          "windows/startup-cleanup.wxs"
+        ],
+        "componentGroupRefs": [
+          "NexusStartupCleanup"
+        ]
       }
     },
     "publisher": "NEXUS",

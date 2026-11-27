@@ -1,32 +1,34 @@
 # Builds the NEXUS Windows x64 installers and, for published releases,
-# publishes a signed automatic update.
+# signs them and publishes a signed automatic update.
 #
 # Triggers:
-#   - Manually (Actions tab → "Windows release build" → Run workflow): runs the
-#     tests and uploads the installers as a workflow artifact. Nothing is signed
-#     for updates and nothing is published. These builds have no update server
-#     configured, so they never check for updates.
-#   - Publishing a GitHub Release whose tag is v<version> (e.g. v0.1.1):
-#       1. checks the tag matches the version in the source, and that the
-#          signing and hosting secrets exist (fails otherwise)
+#   - Manually (Actions tab → "Windows release build" → Run workflow), or a push
+#     to main that changes the app: a development build. Runs the tests, builds
+#     unsigned installers, runs the installer checks and the release dry run,
+#     and uploads the installers as a workflow artifact (main also refreshes the
+#     README's "Latest build"). Nothing is signed, nothing is published, and the
+#     build has no update address, so it never checks for updates.
+#   - A release: a push to main that adds or changes release-notes/v<version>.md
+#     for an unreleased version, or publishing a GitHub Release v<version>:
+#       1. checks the version, that the commit is on main, and that updates AND
+#          Authenticode signing are fully configured (scripts/check-release-config.ps1)
 #       2. runs all tests
-#       3. builds with the update server and public key embedded, and signs
-#          the updater artifacts with the private key from GitHub secrets
-#       4. generates latest.json, verifying the signature against the public key
-#          and refusing versions that are not newer than the published one
-#       5. uploads the installer, then latest.json, to the update host and
-#          verifies the published files from their public URLs
-#       6. attaches the installers to the GitHub Release
-#     A release marked "pre-release" gets signed installers attached but is not
-#     published to the Stable update channel.
+#       3. builds with the update address and PUBLIC key embedded; signs with
+#          Trusted Signing/PFX during the build, or with SignPath afterwards
+#       4. refuses unless every file has a valid, timestamped signature from the
+#          expected signer
+#       5. creates the updater signature over the final installer; generates
+#          latest.json, refusing a URL that doesn't name that installer, a
+#          signature that doesn't verify, or a version that isn't newer
+#       6. uploads the installer, then latest.json, and checks the published
+#          files from their public URLs are byte-for-byte what was signed
+#       7. creates or completes the GitHub Release
+#     A release marked "pre-release" is signed and attached but not published
+#     to the Stable update channel.
 #
-# Pushing a tag alone no longer builds a release. Publish a GitHub Release
-# instead (it creates the tag), so exactly one signed build exists per
-# version. See docs/releasing.md.
-#
-# Tauri updater signatures are separate from Windows Authenticode code signing.
-# The installers are not Authenticode-signed, so Windows SmartScreen may still
-# warn. No drivers are bundled or installed.
+# Updater signatures (Tauri) are separate from Authenticode code signing; see
+# docs/code-signing.md and docs/release-setup-checklist.md. No drivers are
+# bundled or installed.
 
 name: Windows release build
 
@@ -52,6 +54,16 @@ on:
 
 permissions:
   contents: write # needed only to attach installers to a release
+  actions: read # SignPath reads this run's job details and downloads the unsigned artifact
+  id-token: write # build provenance attestation (Sigstore)
+  attestations: write
+
+# Every tool that shapes the release binaries is pinned, so a build of the
+# same commit uses the same compiler, Node, Tauri CLI (package-lock.json),
+# crates (Cargo.lock) and actions (commit SHAs). See docs/releasing.md.
+env:
+  RUST_TOOLCHAIN: "1.100.0"
+  NODE_VERSION: "22.23.5"
 
 concurrency:
   group: windows-release-${{ github.ref }}
@@ -61,13 +73,15 @@ jobs:
   build:
     name: Build Windows x64 installer
     runs-on: windows-latest
-    timeout-minutes: 60
+    # A build takes about 15 minutes; a release can also wait up to 30 minutes
+    # for the SignPath approval.
+    timeout-minutes: 90
     env:
       CARGO_TERM_COLOR: always
 
     steps:
       - name: Check out
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Decide build type and check release prerequisites
         id: mode
@@ -77,15 +91,33 @@ jobs:
           TAG: ${{ github.event.release.tag_name }}
           PRERELEASE: ${{ github.event.release.prerelease }}
           RELEASE_BODY: ${{ github.event.release.body }}
-          HAS_SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
-          HAS_SIGNING_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD != '' }}
-          HAS_S3_KEY_ID: ${{ secrets.UPDATE_S3_ACCESS_KEY_ID != '' }}
-          HAS_S3_SECRET: ${{ secrets.UPDATE_S3_SECRET_ACCESS_KEY != '' }}
-          PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}
-          S3_ENDPOINT: ${{ vars.UPDATE_S3_ENDPOINT }}
-          S3_BUCKET: ${{ vars.UPDATE_S3_BUCKET }}
-          PUBLIC_BASE: ${{ vars.UPDATE_PUBLIC_BASE_URL }}
+          # Everything a release needs, checked by scripts/check-release-config.ps1
+          # (which prints only names of what's missing, never values).
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          UPDATE_S3_ACCESS_KEY_ID: ${{ secrets.UPDATE_S3_ACCESS_KEY_ID }}
+          UPDATE_S3_SECRET_ACCESS_KEY: ${{ secrets.UPDATE_S3_SECRET_ACCESS_KEY }}
+          TAURI_UPDATER_PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}
+          UPDATE_S3_ENDPOINT: ${{ vars.UPDATE_S3_ENDPOINT }}
+          UPDATE_S3_BUCKET: ${{ vars.UPDATE_S3_BUCKET }}
+          UPDATE_PUBLIC_BASE_URL: ${{ vars.UPDATE_PUBLIC_BASE_URL }}
+          NEXUS_SIGN_PROVIDER: ${{ vars.NEXUS_SIGN_PROVIDER }}
+          NEXUS_SIGN_TIMESTAMP_URL: ${{ vars.NEXUS_SIGN_TIMESTAMP_URL }}
+          NEXUS_SIGN_EXPECTED_SUBJECT: ${{ vars.NEXUS_SIGN_EXPECTED_SUBJECT }}
+          NEXUS_SIGN_PFX_BASE64: ${{ secrets.NEXUS_SIGN_PFX_BASE64 }}
+          NEXUS_SIGN_PFX_PASSWORD: ${{ secrets.NEXUS_SIGN_PFX_PASSWORD }}
+          NEXUS_TS_ENDPOINT: ${{ vars.NEXUS_TS_ENDPOINT }}
+          NEXUS_TS_ACCOUNT: ${{ vars.NEXUS_TS_ACCOUNT }}
+          NEXUS_TS_PROFILE: ${{ vars.NEXUS_TS_PROFILE }}
+          AZURE_TENANT_ID: ${{ secrets.NEXUS_TS_AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.NEXUS_TS_AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.NEXUS_TS_AZURE_CLIENT_SECRET }}
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+          SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          SIGNPATH_PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          SIGNPATH_SIGNING_POLICY_SLUG: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
           PUSHED_COMMITS: ${{ toJSON(github.event.commits) }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           # Every place the version is recorded must agree.
           $conf = (Get-Content apps/desktop/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
@@ -134,20 +166,15 @@ jobs:
           if ($tag -ne "v$conf") {
             throw "Release tag '$tag' does not match the source version $conf (expected v$conf)."
           }
-          $missing = @()
-          if ($env:HAS_SIGNING_KEY -ne 'true') { $missing += 'secret TAURI_SIGNING_PRIVATE_KEY' }
-          if ($env:HAS_SIGNING_PASSWORD -ne 'true') { $missing += 'secret TAURI_SIGNING_PRIVATE_KEY_PASSWORD' }
-          if ($env:HAS_S3_KEY_ID -ne 'true') { $missing += 'secret UPDATE_S3_ACCESS_KEY_ID' }
-          if ($env:HAS_S3_SECRET -ne 'true') { $missing += 'secret UPDATE_S3_SECRET_ACCESS_KEY' }
-          if (-not $env:PUBKEY) { $missing += 'variable TAURI_UPDATER_PUBKEY' }
-          if (-not $env:S3_ENDPOINT) { $missing += 'variable UPDATE_S3_ENDPOINT' }
-          if (-not $env:S3_BUCKET) { $missing += 'variable UPDATE_S3_BUCKET' }
-          if (-not $env:PUBLIC_BASE) { $missing += 'variable UPDATE_PUBLIC_BASE_URL' }
-          if ($missing.Count -gt 0) {
-            throw "Release $tag cannot be built: missing $($missing -join ', '). See docs/updater-setup.md."
-          }
-          if (-not $env:PUBLIC_BASE.StartsWith('https://')) { throw "UPDATE_PUBLIC_BASE_URL must start with https://" }
-          if (-not $env:S3_ENDPOINT.StartsWith('https://')) { throw "UPDATE_S3_ENDPOINT must start with https://" }
+          # Only reviewed code is signed (CODE_SIGNING_POLICY.md): the release
+          # commit must be on main (identical to, or an ancestor of, its tip).
+          $cmp = gh api "repos/$($env:GITHUB_REPOSITORY)/compare/main...$($env:GITHUB_SHA)" --jq .status
+          if ($LASTEXITCODE -ne 0) { throw "Could not check that $($env:GITHUB_SHA) is on main." }
+          if ($cmp -notin @('identical', 'behind')) { throw "Release $tag is built from a commit that isn't on main ($cmp). Merge it to main first." }
+
+          # Signing AND updates must be fully configured, or nothing is built.
+          ./scripts/check-release-config.ps1
+          if ($LASTEXITCODE -ne 0) { throw "Release $tag cannot be built: the release configuration is incomplete (listed above)." }
 
           "release=true" >> $env:GITHUB_OUTPUT
           if ($env:PRERELEASE -eq 'true') {
@@ -158,19 +185,20 @@ jobs:
           }
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 22
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: apps/desktop/package-lock.json
 
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: x86_64-pc-windows-msvc
 
       - name: Cache Rust build
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
 
       - name: Install frontend dependencies
         working-directory: apps/desktop
@@ -203,17 +231,52 @@ jobs:
         working-directory: apps/desktop
         shell: pwsh
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}
           PUBLIC_BASE: ${{ vars.UPDATE_PUBLIC_BASE_URL }}
+          # Authenticode signing (docs/code-signing.md); required for releases.
+          NEXUS_SIGN_PROVIDER: ${{ vars.NEXUS_SIGN_PROVIDER }}
+          NEXUS_SIGN_TIMESTAMP_URL: ${{ vars.NEXUS_SIGN_TIMESTAMP_URL }}
+          NEXUS_SIGN_PFX_BASE64: ${{ secrets.NEXUS_SIGN_PFX_BASE64 }}
+          NEXUS_SIGN_PFX_PASSWORD: ${{ secrets.NEXUS_SIGN_PFX_PASSWORD }}
+          NEXUS_TS_ENDPOINT: ${{ vars.NEXUS_TS_ENDPOINT }}
+          NEXUS_TS_ACCOUNT: ${{ vars.NEXUS_TS_ACCOUNT }}
+          NEXUS_TS_PROFILE: ${{ vars.NEXUS_TS_PROFILE }}
+          AZURE_TENANT_ID: ${{ secrets.NEXUS_TS_AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.NEXUS_TS_AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.NEXUS_TS_AZURE_CLIENT_SECRET }}
         run: |
           $base = $env:PUBLIC_BASE.TrimEnd('/')
           # Embeds the update endpoint and the PUBLIC key in this build only.
-          @{
-            bundle = @{ createUpdaterArtifacts = $true }
+          # The updater signature is made later, over the FINAL (Authenticode-
+          # signed) installer, so Tauri doesn't create it here.
+          $conf = @{
+            bundle = @{ createUpdaterArtifacts = $false }
             plugins = @{ updater = @{ pubkey = $env:PUBKEY.Trim(); endpoints = @("$base/stable/latest.json") } }
-          } | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 release.conf.json
+          }
+          if ($env:NEXUS_SIGN_PROVIDER -eq 'signpath') {
+            Write-Host "Authenticode signing: SignPath (after the build, on the uploaded installers)"
+          } elseif ($env:NEXUS_SIGN_PROVIDER) {
+            # Signed inside the build (Tauri signs the app after each per-installer
+            # patch, then the installers). Credentials go to the runner's temp folder only.
+            if ($env:NEXUS_SIGN_PROVIDER -eq 'pfx') {
+              $pfx = Join-Path $env:RUNNER_TEMP 'nexus-sign.pfx'
+              [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:NEXUS_SIGN_PFX_BASE64))
+              $env:NEXUS_SIGN_PFX_PATH = $pfx
+            } elseif ($env:NEXUS_SIGN_PROVIDER -eq 'trusted-signing') {
+              $pkg = Join-Path $env:RUNNER_TEMP 'ts'
+              nuget install Microsoft.Trusted.Signing.Client -OutputDirectory $pkg -NonInteractive | Out-Null
+              $env:NEXUS_TS_DLIB = (Get-ChildItem $pkg -Recurse -Filter Azure.CodeSigning.Dlib.dll | Where-Object { $_.FullName -match 'x64' } | Select-Object -First 1).FullName
+              $env:NEXUS_TS_METADATA = Join-Path $env:RUNNER_TEMP 'ts-metadata.json'
+              @{ Endpoint = $env:NEXUS_TS_ENDPOINT; CodeSigningAccountName = $env:NEXUS_TS_ACCOUNT; CertificateProfileName = $env:NEXUS_TS_PROFILE } |
+                ConvertTo-Json | Set-Content -Encoding utf8 $env:NEXUS_TS_METADATA
+            } else { throw "Unknown NEXUS_SIGN_PROVIDER '$($env:NEXUS_SIGN_PROVIDER)'" }
+            $script = (Resolve-Path ../../scripts/sign-windows.ps1).Path
+            $conf.bundle.windows = @{ signCommand = "pwsh -NoProfile -File `"$script`" %1" }
+            Write-Host "Authenticode signing: $($env:NEXUS_SIGN_PROVIDER)"
+          } else {
+            throw "Releases must be Authenticode-signed (the configuration check should have stopped this)."
+          }
+          $conf | ConvertTo-Json -Depth 6 | Set-Content -Encoding utf8 release.conf.json
           npx tauri build --config release.conf.json
           if ($LASTEXITCODE -ne 0) { throw "tauri build failed" }
 
@@ -227,22 +290,263 @@ jobs:
           $out = New-Item -ItemType Directory -Force -Path installers
           Copy-Item target/release/bundle/nsis/*.exe $out
           Copy-Item target/release/bundle/msi/*.msi $out
-          Get-ChildItem $out -File | ForEach-Object {
-            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
-            "$hash  $($_.Name)" | Add-Content (Join-Path $out "SHA256SUMS.txt")
-          }
           Get-ChildItem $out | Format-Table Name, Length
           $exe = (Get-ChildItem $out -Filter *-setup.exe | Select-Object -First 1).Name
           if ($exe -notlike "*_$($env:VERSION)_x64-setup.exe") { throw "Unexpected installer name $exe for version $($env:VERSION)" }
           "exe=$exe" >> $env:GITHUB_OUTPUT
-          if ($env:RELEASE -eq 'true') {
-            # The updater uses only the NSIS installer and its signature.
-            $sig = "target/release/bundle/nsis/$exe.sig"
-            if (-not (Test-Path $sig)) { throw "Updater signature $sig was not generated" }
-            New-Item -ItemType Directory -Force -Path updater | Out-Null
-            Copy-Item "target/release/bundle/nsis/$exe" updater/
-            Copy-Item $sig updater/
+
+      - name: Upload the unsigned installers for SignPath (release, SignPath only)
+        id: unsigned
+        if: steps.mode.outputs.release == 'true' && vars.NEXUS_SIGN_PROVIDER == 'signpath'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: unsigned-installers
+          path: |
+            installers/*.exe
+            installers/*.msi
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Sign the installers with SignPath (release, SignPath only)
+        # SignPath fetches the artifact from this workflow run itself (origin
+        # verification) and signs per the project's artifact configuration:
+        # the setup .exe, and the .msi with the app inside it (docs/code-signing.md).
+        if: steps.mode.outputs.release == 'true' && vars.NEXUS_SIGN_PROVIDER == 'signpath'
+        uses: signpath/github-action-submit-signing-request@ced31329c0317e779dad2eec2a7c3bb46ea1343e # v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
+          github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          # Time to approve the request in SignPath (the default is 10 minutes).
+          wait-for-completion-timeout-in-seconds: 1800
+          output-artifact-directory: signed-installers
+
+      - name: Use the SignPath-signed installers (release, SignPath only)
+        if: steps.mode.outputs.release == 'true' && vars.NEXUS_SIGN_PROVIDER == 'signpath'
+        shell: pwsh
+        run: |
+          $signed = Get-ChildItem signed-installers -Recurse -Include *.exe, *.msi
+          if ($signed.Count -lt 2) { throw "SignPath returned $($signed.Count) files; expected the setup .exe and the .msi" }
+          foreach ($f in $signed) { Copy-Item $f.FullName (Join-Path installers $f.Name) -Force }
+
+      - name: Require valid Authenticode signatures (release)
+        if: steps.mode.outputs.release == 'true'
+        shell: pwsh
+        env:
+          PROVIDER: ${{ vars.NEXUS_SIGN_PROVIDER }}
+          # The signer every file must carry. SignPath Foundation's certificate is
+          # issued to "SignPath Foundation"; for Trusted Signing or a certificate,
+          # set the variable to the subject's name (e.g. your validated name).
+          EXPECTED_SIGNER: ${{ vars.NEXUS_SIGN_EXPECTED_SUBJECT }}
+        run: |
+          $expected = $env:EXPECTED_SIGNER
+          if (-not $expected -and $env:PROVIDER -eq 'signpath') { $expected = 'SignPath Foundation' }
+          if (-not $expected) { throw "Set the variable NEXUS_SIGN_EXPECTED_SUBJECT to the name in your signing certificate." }
+          $files = @(Get-ChildItem installers -Include *.exe, *.msi -Recurse)
+          # Signed inside the build, the app binary itself is checked too.
+          if ($env:PROVIDER -ne 'signpath') { $files += Get-Item target/release/nexus-desktop.exe }
+          $bad = @()
+          foreach ($f in $files) {
+            $sig = Get-AuthenticodeSignature $f.FullName
+            $subject = "$($sig.SignerCertificate.Subject)"
+            $stamped = $null -ne $sig.TimeStamperCertificate
+            Write-Host ("{0,-12} {1}  signer: {2}  timestamped: {3}" -f $sig.Status, $f.Name, $subject, $stamped)
+            # Valid (chain trusted), from the expected signer, and timestamped
+            # (so it stays valid after the certificate expires).
+            if ($sig.Status -ne 'Valid' -or -not $subject.Contains($expected) -or -not $stamped) { $bad += $f.Name }
           }
+          if ($bad.Count -gt 0) { throw "Not validly signed by '$expected' with a timestamp, release stopped: $($bad -join ', ')" }
+
+      - name: Create the updater signature over the final installer (release)
+        if: steps.mode.outputs.release == 'true'
+        working-directory: apps/desktop
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          EXE: ${{ steps.collect.outputs.exe }}
+        run: |
+          $installer = Resolve-Path "../../installers/$($env:EXE)"
+          npx tauri signer sign "$installer"
+          if ($LASTEXITCODE -ne 0) { throw "Creating the updater signature failed" }
+          New-Item -ItemType Directory -Force -Path ../../updater | Out-Null
+          Copy-Item "$installer" ../../updater/
+          Move-Item "$installer.sig" "../../updater/$($env:EXE).sig"
+
+      - name: Checksums and build information
+        shell: pwsh
+        env:
+          RELEASE: ${{ steps.mode.outputs.release }}
+        run: |
+          # After any signing, so the checksums are of the files users get.
+          $out = 'installers'
+          Remove-Item (Join-Path $out SHA256SUMS.txt) -ErrorAction SilentlyContinue
+          Get-ChildItem $out -File -Include *.exe, *.msi -Recurse | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+            "$hash  $($_.Name)" | Add-Content (Join-Path $out "SHA256SUMS.txt")
+          }
+          # -AsHashtable: package-lock.json has a "" key (the root package).
+          $tauri = (Get-Content apps/desktop/package-lock.json -Raw | ConvertFrom-Json -AsHashtable).packages['node_modules/@tauri-apps/cli'].version
+          @(
+            "commit: $($env:GITHUB_SHA)",
+            "workflow run: $($env:GITHUB_SERVER_URL)/$($env:GITHUB_REPOSITORY)/actions/runs/$($env:GITHUB_RUN_ID)",
+            "release build: $($env:RELEASE)",
+            "rustc: $(rustc --version)",
+            "cargo: $(cargo --version)",
+            "node: $(node --version)",
+            "tauri-cli: $tauri",
+            "runner: $($env:ImageOS) $($env:ImageVersion)"
+          ) | Set-Content (Join-Path $out build-info.txt)
+          Get-Content (Join-Path $out build-info.txt)
+          Get-Content (Join-Path $out SHA256SUMS.txt)
+
+      - name: Verify install, update and uninstall (this test machine only)
+        # Installs the NSIS build per user, starts NEXUS twice (one copy must
+        # remain), updates over it, uninstalls while it runs, and checks the
+        # startup entry is removed and profiles are kept; then the MSI
+        # uninstall. See scripts/installer-check.ps1.
+        shell: pwsh
+        run: ./scripts/installer-check.ps1 -Installers installers
+
+      - name: Report Authenticode signature status
+        # Development builds are not signed (NotSigned); releases were checked above.
+        shell: pwsh
+        run: |
+          foreach ($f in @(Get-Item target/release/nexus-desktop.exe) + @(Get-ChildItem installers -Include *.exe, *.msi -Recurse)) {
+            Write-Host ("{0,-12} {1}" -f (Get-AuthenticodeSignature $f.FullName).Status, $f.Name)
+          }
+
+      - name: Signing hook self-test (throwaway certificate, this machine only)
+        # Proves scripts/sign-windows.ps1 signs an exe and an installer, using a
+        # self-signed certificate created and trusted nowhere but here. It says
+        # nothing about real signing, which needs a real certificate.
+        shell: pwsh
+        run: |
+          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=NEXUS signing self-test' -CertStoreLocation Cert:\CurrentUser\My -NotAfter (Get-Date).AddDays(1)
+          $pass = [guid]::NewGuid().ToString('N')
+          "::add-mask::$pass"
+          $pfx = Join-Path $env:RUNNER_TEMP 'selftest.pfx'
+          Export-PfxCertificate -Cert $cert -FilePath $pfx -Password (ConvertTo-SecureString $pass -AsPlainText -Force) | Out-Null
+          $work = New-Item -ItemType Directory -Force -Path (Join-Path $env:RUNNER_TEMP 'sign-selftest')
+          Copy-Item target/release/nexus-desktop.exe $work
+          Copy-Item (Get-ChildItem installers -Filter *-setup.exe | Select-Object -First 1).FullName (Join-Path $work 'setup.exe')
+          $env:NEXUS_SIGN_PROVIDER = 'pfx'; $env:NEXUS_SIGN_PFX_PATH = $pfx; $env:NEXUS_SIGN_PFX_PASSWORD = $pass
+          foreach ($f in Get-ChildItem $work -Filter *.exe) {
+            ./scripts/sign-windows.ps1 $f.FullName
+            $sig = Get-AuthenticodeSignature $f.FullName
+            if ($sig.SignerCertificate.Subject -ne 'CN=NEXUS signing self-test') { throw "$($f.Name) was not signed by the hook ($($sig.Status))" }
+            Write-Host "$($f.Name): signed by $($sig.SignerCertificate.Subject) (status $($sig.Status): untrusted on purpose)"
+          }
+          Remove-Item $cert.PSPath, $pfx -Force
+
+      - name: Release pipeline dry run (throwaway keys, this machine only)
+        # Runs the release's own checks with throwaway values, so they are
+        # tested on every build: the configuration check refuses an empty and
+        # an incomplete setup and accepts a complete one; the updater signature
+        # is made with `tauri signer sign`; make-manifest builds latest.json for
+        # the right URL and installer and rejects a tampered installer. Nothing
+        # here is a real key, certificate or host, and nothing is published.
+        if: steps.mode.outputs.release != 'true'
+        shell: pwsh
+        env:
+          EXE: ${{ steps.collect.outputs.exe }}
+          VERSION: ${{ steps.mode.outputs.version }}
+        run: |
+          $work = New-Item -ItemType Directory -Force -Path (Join-Path $env:RUNNER_TEMP 'release-dry-run')
+          $pass = [guid]::NewGuid().ToString('N')
+          "::add-mask::$pass"
+          Push-Location apps/desktop
+          npx tauri signer generate --ci -f -p $pass -w (Join-Path $work 'throwaway.key') | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "key generation failed" }
+          Pop-Location
+          $priv = (Get-Content (Join-Path $work 'throwaway.key') -Raw).Trim()
+          $pub = (Get-Content (Join-Path $work 'throwaway.key.pub') -Raw).Trim()
+
+          # 1. Configuration check: empty → refused; complete (dummy values) → accepted, per provider.
+          $names = 'TAURI_SIGNING_PRIVATE_KEY','TAURI_SIGNING_PRIVATE_KEY_PASSWORD','TAURI_UPDATER_PUBKEY','UPDATE_PUBLIC_BASE_URL','UPDATE_S3_ENDPOINT','UPDATE_S3_BUCKET','UPDATE_S3_ACCESS_KEY_ID','UPDATE_S3_SECRET_ACCESS_KEY','NEXUS_SIGN_PROVIDER','NEXUS_SIGN_TIMESTAMP_URL','NEXUS_SIGN_EXPECTED_SUBJECT','NEXUS_SIGN_PFX_BASE64','NEXUS_SIGN_PFX_PASSWORD','NEXUS_TS_ENDPOINT','NEXUS_TS_ACCOUNT','NEXUS_TS_PROFILE','AZURE_TENANT_ID','AZURE_CLIENT_ID','AZURE_CLIENT_SECRET','SIGNPATH_API_TOKEN','SIGNPATH_ORGANIZATION_ID','SIGNPATH_PROJECT_SLUG','SIGNPATH_SIGNING_POLICY_SLUG'
+          function Clear-Config { foreach ($n in $names) { Remove-Item "Env:$n" -ErrorAction SilentlyContinue } }
+          function Expect([string]$what, [int]$code) {
+            ./scripts/check-release-config.ps1 -Quiet
+            if ($LASTEXITCODE -ne $code) { throw "configuration check: $what (exit $LASTEXITCODE, expected $code)" }
+            Write-Host "  ok   configuration check: $what"
+          }
+          Clear-Config
+          Expect 'nothing configured is refused' 1
+          $env:TAURI_SIGNING_PRIVATE_KEY = $priv; $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = $pass; $env:TAURI_UPDATER_PUBKEY = $pub
+          $env:UPDATE_PUBLIC_BASE_URL = 'https://updates.invalid'; $env:UPDATE_S3_ENDPOINT = 'https://storage.invalid'; $env:UPDATE_S3_BUCKET = 'nexus-updates'
+          $env:UPDATE_S3_ACCESS_KEY_ID = 'dummy'; $env:UPDATE_S3_SECRET_ACCESS_KEY = 'dummy'
+          Expect 'updates without signing are refused' 1
+          $env:NEXUS_SIGN_PROVIDER = 'signpath'
+          Expect 'SignPath without its token and IDs is refused' 1
+          $env:SIGNPATH_API_TOKEN = 'dummy'; $env:SIGNPATH_ORGANIZATION_ID = '00000000-0000-0000-0000-000000000000'
+          $env:SIGNPATH_PROJECT_SLUG = 'nexus'; $env:SIGNPATH_SIGNING_POLICY_SLUG = 'release-signing'
+          Expect 'complete SignPath + updates configuration is accepted' 0
+          $env:UPDATE_PUBLIC_BASE_URL = 'http://updates.invalid'
+          Expect 'a plain-HTTP update host is refused' 1
+          $env:UPDATE_PUBLIC_BASE_URL = 'https://updates.invalid'; $env:TAURI_UPDATER_PUBKEY = 'not-a-key'
+          Expect 'a malformed public key is refused' 1
+          $env:TAURI_UPDATER_PUBKEY = $pub; $env:NEXUS_SIGN_PROVIDER = 'trusted-signing'
+          Expect 'Trusted Signing without its values is refused' 1
+          $env:NEXUS_TS_ENDPOINT = 'https://eus.codesigning.azure.net'; $env:NEXUS_TS_ACCOUNT = 'a'; $env:NEXUS_TS_PROFILE = 'p'
+          $env:AZURE_TENANT_ID = 'dummy'; $env:AZURE_CLIENT_ID = 'dummy'; $env:AZURE_CLIENT_SECRET = 'dummy'
+          Expect 'Trusted Signing without the expected signer name is refused' 1
+          $env:NEXUS_SIGN_EXPECTED_SUBJECT = 'Dummy Publisher'
+          Expect 'complete Trusted Signing configuration is accepted' 0
+          Clear-Config
+
+          # 2. Updater signature over the final installer, then latest.json.
+          $installer = Join-Path $work $env:EXE
+          Copy-Item "installers/$($env:EXE)" $installer
+          Push-Location apps/desktop
+          $env:TAURI_SIGNING_PRIVATE_KEY = $priv; $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = $pass
+          npx tauri signer sign "$installer"
+          if ($LASTEXITCODE -ne 0) { throw "tauri signer sign failed" }
+          Remove-Item Env:TAURI_SIGNING_PRIVATE_KEY, Env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+          Pop-Location
+          "Dry-run release notes." | Set-Content (Join-Path $work notes.md)
+          $env:TAURI_UPDATER_PUBKEY = $pub
+          $url = "https://updates.invalid/stable/$($env:VERSION)/$($env:EXE)"
+          cargo run --locked --release -p nexus-updates --bin make-manifest -- create --version $env:VERSION `
+            --notes-file (Join-Path $work notes.md) --url $url --installer $installer `
+            --signature-file "$installer.sig" --out (Join-Path $work latest.json)
+          if ($LASTEXITCODE -ne 0) { throw "make-manifest create failed" }
+          $m = Get-Content (Join-Path $work latest.json) -Raw | ConvertFrom-Json
+          if ($m.platforms.'windows-x86_64-nsis'.url -ne $url) { throw "latest.json points at $($m.platforms.'windows-x86_64-nsis'.url)" }
+          if ($m.platforms.'windows-x86_64-nsis'.signature -ne (Get-Content "$installer.sig" -Raw).Trim()) { throw "latest.json carries a different signature" }
+          Write-Host "  ok   latest.json references $url with the installer's signature"
+          cargo run --locked --release -p nexus-updates --bin make-manifest -- verify --manifest (Join-Path $work latest.json) --installer $installer --expect-version $env:VERSION
+          if ($LASTEXITCODE -ne 0) { throw "make-manifest verify failed" }
+          Write-Host "  ok   the published manifest verifies against the installer"
+
+          # 3. A different installer under the right name, or a manifest naming another file, is refused.
+          $wrongUrl = "https://updates.invalid/stable/$($env:VERSION)/Other_$($env:VERSION)_x64-setup.exe"
+          cargo run --locked --release -p nexus-updates --bin make-manifest -- create --version $env:VERSION `
+            --notes-file (Join-Path $work notes.md) --url $wrongUrl --installer $installer `
+            --signature-file "$installer.sig" --out (Join-Path $work wrong.json) 2>&1 | Out-Null
+          if ($LASTEXITCODE -eq 0) { throw "make-manifest accepted a URL naming a different file" }
+          Write-Host "  ok   a URL naming a different installer is refused"
+          $bytes = [IO.File]::ReadAllBytes($installer); $bytes[$bytes.Length - 1] = $bytes[$bytes.Length - 1] -bxor 0xFF
+          [IO.File]::WriteAllBytes($installer, $bytes)
+          cargo run --locked --release -p nexus-updates --bin make-manifest -- verify --manifest (Join-Path $work latest.json) --installer $installer 2>&1 | Out-Null
+          if ($LASTEXITCODE -eq 0) { throw "a tampered installer verified" }
+          Write-Host "  ok   a tampered installer is rejected"
+          Remove-Item $work -Recurse -Force
+          # The last command failed on purpose; every check above passed.
+          exit 0
+
+      - name: Record build provenance
+        # A signed statement (GitHub + Sigstore) of which commit and workflow
+        # run produced each file. Anyone can check a download with:
+        #   gh attestation verify <file> --repo ayyflame/nexus-controller
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: |
+            installers/*.exe
+            installers/*.msi
 
       - name: Verify the app binary has no VC++ runtime dependency
         shell: pwsh
@@ -255,7 +559,7 @@ jobs:
           if ($deps -match "VCRUNTIME|MSVCP") { throw "nexus-desktop.exe depends on the VC++ runtime DLLs" }
 
       - name: Upload installers as workflow artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: NEXUS-windows-x64
           path: installers/
@@ -354,6 +658,7 @@ jobs:
         shell: pwsh
         env:
           VERSION: ${{ steps.mode.outputs.version }}
+          EXE: ${{ steps.collect.outputs.exe }}
           TAURI_UPDATER_PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}
           PUBLIC_BASE: ${{ vars.UPDATE_PUBLIC_BASE_URL }}
         run: |
@@ -362,8 +667,14 @@ jobs:
           curl.exe -fsSL --retry 5 --retry-delay 10 --retry-all-errors -o check/latest.json "$base/stable/latest.json"
           if ($LASTEXITCODE -ne 0) { throw "Published latest.json is not reachable at $base/stable/latest.json" }
           $url = (Get-Content check/latest.json -Raw | ConvertFrom-Json).platforms.'windows-x86_64-nsis'.url
+          $expectedUrl = "$base/stable/$($env:VERSION)/$($env:EXE)"
+          if ($url -ne $expectedUrl) { throw "Published latest.json points at $url, expected $expectedUrl" }
           curl.exe -fsSL --retry 5 --retry-delay 10 --retry-all-errors -o check/installer.exe $url
           if ($LASTEXITCODE -ne 0) { throw "Published installer is not reachable at $url" }
+          # Byte for byte the installer that was Authenticode- and updater-signed here.
+          if ((Get-FileHash check/installer.exe).Hash -ne (Get-FileHash "updater/$($env:EXE)").Hash) {
+            throw "The installer at $url is not the one this run signed"
+          }
           cargo run --locked --release -p nexus-updates --bin make-manifest -- verify `
             --manifest check/latest.json --installer check/installer.exe --expect-version $env:VERSION
           if ($LASTEXITCODE -ne 0) { throw "Published update failed verification" }

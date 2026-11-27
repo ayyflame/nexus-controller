@@ -1,0 +1,294 @@
+/* Controller pages: Mapping workspace, Sticks, Triggers, Motion, Touchpad,
+ * Lighting & Haptics (components/controller/*), and the 3D view. */
+
+/* ---- Tuning page layout ------------------------------------------------ */
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); align-items: start; }
+.span-2 { grid-column: 1 / -1; }
+.tune-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: var(--sp-3); align-items: start; }
+.tune-controls, .tune-preview { display: flex; flex-direction: column; gap: var(--sp-3); }
+.tune-preview { position: sticky; top: 12px; }
+.settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); align-items: start; }
+
+/* Sliders */
+.slider-field { display: flex; flex-direction: column; gap: 4px; padding: 2px 0; }
+.slider-head { display: flex; justify-content: space-between; align-items: baseline; }
+.slider-head .mono { color: var(--text); font-size: var(--fs-small); }
+.slider-head .gold { color: var(--accent-bright); }
+
+/* Stick position plot */
+.stick-plot { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.stick-plot figcaption { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: var(--fs-small); }
+.sp-bg { fill: var(--surface-inset); stroke: var(--border); }
+.sp-ring { fill: none; stroke: #343943; stroke-width: 1.5; }
+.sp-axis { stroke: #22262c; }
+.sp-outer { fill: none; stroke: var(--accent-line); stroke-dasharray: 4 4; }
+.sp-deadzone { fill: rgba(239, 94, 94, 0.14); stroke: rgba(239, 94, 94, 0.45); }
+.sp-raw { fill: var(--graphic-muted); }
+.sp-out { fill: var(--accent-bright); filter: drop-shadow(0 0 5px rgba(76, 141, 255, 0.6)); }
+.legend { display: inline-flex; align-items: center; gap: 6px; color: var(--text-dim); font-size: var(--fs-xs); }
+.legend i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+.dot-raw { background: var(--graphic-muted); } .dot-out { background: var(--accent-bright); }
+
+/* Curve editor */
+.curve-editor { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.curve-editor svg.editable { cursor: crosshair; touch-action: none; }
+.cg-bg { fill: var(--surface-inset); stroke: var(--border); }
+.cg-grid { stroke: #1f2328; }
+.cg-diag { stroke: #30343b; stroke-dasharray: 4 4; }
+.cg-curve { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-linejoin: round; }
+.cg-point { fill: var(--bg); stroke: var(--accent-bright); stroke-width: 2; cursor: grab; }
+.cg-point:hover { fill: var(--accent); }
+.cg-point:focus { outline: none; }
+.cg-point.selected, .cg-point:focus-visible { fill: var(--accent); stroke: #fff; stroke-width: 2.5; }
+.cg-actions { display: flex; justify-content: center; }
+.cg-live { fill: var(--ok); }
+.cg-label { fill: var(--text-faint); font-size: 10px; }
+.cg-label.end { text-anchor: end; }
+
+/* Trigger meter */
+.trigger-meter { display: flex; flex-direction: column; gap: 5px; }
+.tm-head { display: flex; justify-content: space-between; font-size: var(--fs-small); }
+.tm-track { position: relative; height: 8px; border-radius: 4px; background: var(--surface-4); overflow: hidden; }
+.tm-track.out { height: 5px; }
+.tm-dead { position: absolute; inset: 0 auto 0 0; background: rgba(239, 94, 94, 0.25); }
+.tm-sat { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--accent-bright); }
+.tm-raw { position: absolute; inset: 0 auto 0 0; background: var(--graphic-muted); opacity: 0.75; }
+.tm-out { height: 100%; background: var(--accent); }
+
+/* Stick to buttons */
+.stick-dirs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; margin: 10px 0; }
+.stick-dir { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-radius: var(--radius); border: 1px solid transparent; transition: border-color var(--t-fast), background var(--t-fast); }
+.stick-dir.on { border-color: var(--accent); background: var(--accent-wash); }
+
+/* Feature rows (Lighting & Haptics, Motion) */
+.feature-row { display: grid; grid-template-columns: 180px auto 1fr; gap: var(--sp-3); align-items: center; padding: 10px 12px; border-radius: var(--radius); background: var(--surface-inset); border: 1px solid var(--border); }
+.lightbar-preview { height: 26px; border-radius: 13px; border: 1px solid var(--border-strong); display: grid; place-items: center; font-size: var(--fs-xs); color: var(--text-faint); box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.4); transition: background 200ms; }
+.player-leds { display: flex; gap: 10px; }
+.led { width: 26px; height: 8px; border-radius: 4px; border: 1px solid var(--border-strong); background: var(--surface-3); cursor: pointer; transition: background var(--t-fast), box-shadow var(--t-fast); }
+.led.on { background: #f5f7ff; box-shadow: 0 0 10px rgba(255, 255, 255, 0.55); }
+
+/* Several controllers connected */
+.device-selector { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+.device-selector button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 10px 14px; border-radius: var(--radius); background: var(--surface-1); border: 1px solid var(--border); color: var(--text); cursor: pointer; font: inherit; transition: border-color var(--t-fast), background var(--t-fast); }
+.device-selector button:hover { border-color: var(--border-strong); }
+.device-selector button.selected { border-color: var(--accent); background: var(--accent-wash); }
+
+.wizard-inline { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; padding: 10px 12px; border-radius: var(--radius); background: var(--surface-inset); border: 1px dashed var(--border-strong); }
+
+/* Touchpad zones */
+.touch-editor { width: 100%; max-width: 520px; border-radius: 16px; background: var(--surface-inset); border: 1px solid var(--border-strong); }
+.tz rect { fill: #1b1e23; stroke: #363b44; stroke-width: 1.5; cursor: pointer; transition: fill var(--t-fast), stroke var(--t-fast); }
+.tz:hover rect { stroke: var(--accent); }
+.tz.selected rect { fill: var(--surface-accent); stroke: var(--accent-bright); stroke-width: 2; }
+.tz text { fill: var(--text-dim); font: 600 14px var(--font); text-anchor: middle; pointer-events: none; }
+.tz text.tz-btn { fill: var(--accent-bright); font-size: var(--fs-body); }
+.tz-touch { fill: var(--ok); opacity: 0.85; }
+
+/* ---- Remap rows, rules, layers, combos -------------------------------- */
+.remap-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-2); }
+.remap-row { display: grid; grid-template-columns: auto 1fr auto 170px 150px; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--radius); background: var(--surface-inset); border: 1px solid var(--border); transition: border-color var(--t-fast); }
+.remap-row.changed { border-color: var(--accent-line); }
+.remap-row.lit { border-color: var(--ok); }
+.remap-name { font-size: var(--fs-body); }
+.rule-list { display: flex; flex-direction: column; gap: 6px; margin-top: var(--sp-2); }
+.rule-row { display: grid; grid-template-columns: auto auto 1fr 1fr auto; gap: var(--sp-2); align-items: center; }
+.layer-card { padding: var(--sp-3); border-radius: var(--radius); background: var(--surface-inset); border: 1px solid var(--border); display: flex; flex-direction: column; gap: var(--sp-2); }
+.layer-name { max-width: 180px; }
+.conflicts { margin: 6px 0 0; padding-left: 18px; }
+.combo-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); padding: 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-inset); margin-top: var(--sp-2); }
+.combo-row.invalid { border-color: var(--warn-line); }
+.combo-slots { display: inline-flex; flex-wrap: wrap; gap: 6px; flex: 0 1 auto; }
+.combo-slots .select { min-width: 130px; width: auto; }
+.combo-label { color: var(--text-dim); font-size: var(--fs-body); }
+.combo-arrow { color: var(--text-faint); }
+.combo-hide { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-small); color: var(--text-dim); margin-left: auto; }
+.combo-problem { width: 100%; margin: 0; }
+
+/* Legend of the controller marks */
+.controller-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: var(--fs-xs); color: var(--text-dim); margin-top: 6px; }
+.controller-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.controller-legend i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; border: 1.5px solid var(--bg); }
+.controller-legend .l-pressed { background: var(--mark-pressed); border-radius: 3px; }
+.controller-legend .l-selected { background: transparent; border: 2px solid var(--accent-bright); border-radius: 3px; }
+.controller-legend .l-remapped { background: var(--mark-remapped); }
+.controller-legend .l-macro { background: var(--mark-macro); }
+.controller-legend .l-disabled { background: var(--mark-disabled); }
+.controller-legend .l-special { background: var(--bg); border: 2px solid var(--mark-remapped); }
+.mapping-card { border: 1px solid rgba(46, 196, 214, 0.4); border-radius: var(--radius); padding: 10px 14px; margin-top: 10px; background: rgba(46, 196, 214, 0.05); }
+.mapping-card h4 { margin: 0 0 6px; color: #7fdbe6; font-size: var(--fs-body); }
+.mapping-card ul { margin: 0; padding-left: 18px; font-size: var(--fs-body); }
+.mapping-card li { margin: 2px 0; }
+.mapping-card .mapping-kind { font-size: var(--fs-xs); margin-left: 8px; color: var(--text-dim); }
+
+/* ---- Mapping workspace ------------------------------------------------- */
+.mapping-page { max-width: 1480px; }
+.map-workspace { display: flex; flex-direction: column; gap: var(--sp-3); }
+.map-info { margin: 0; }
+.map-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px 16px; flex-wrap: wrap; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-1); }
+.map-toolbar-info, .map-toolbar-actions { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+.map-toolbar .segmented { margin: 0; }
+.map-pill {
+  display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 11px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--text); font-size: var(--fs-small); white-space: nowrap;
+}
+.map-pill svg { color: var(--accent-bright); }
+.map-pill-link { cursor: pointer; color: var(--text-dim); font: inherit; font-size: var(--fs-small); transition: border-color var(--t-fast), color var(--t-fast); }
+.map-pill-link:hover { color: var(--text); border-color: var(--border-strong); }
+
+.mapping { display: flex; flex-direction: column; gap: var(--sp-3); }
+/* Cards around the controller: top band, a column on each side, bottom band.
+   The connectors are an SVG layer above the controller (so no line is hidden
+   behind it) and below the cards. */
+.mapping-stage {
+  position: relative; display: grid; gap: 10px 26px; align-items: center;
+  grid-template-columns: minmax(124px, 158px) minmax(0, 1fr) minmax(124px, 158px);
+  grid-template-areas: "top top top" "left pad right" "bottom bottom bottom";
+  padding: var(--sp-4); border: 1px solid var(--border); border-radius: var(--radius-lg);
+  background: radial-gradient(ellipse 60% 55% at 50% 48%, rgba(76, 141, 255, 0.05), transparent 70%), var(--surface-inset);
+}
+.mapping-lines { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; z-index: 2; }
+.mapping-lines polyline { fill: none; stroke-linejoin: round; stroke-linecap: round; }
+/* A dark halo under each line keeps it visible over the light parts of the controller. */
+.mapping-lines .halo { stroke: rgba(8, 9, 11, 0.55); stroke-width: 3; }
+.mapping-lines .wire { stroke: rgba(196, 202, 212, 0.45); stroke-width: 1; }
+.mapping-lines .tip { fill: #cfd3da; stroke: rgba(8, 9, 11, 0.8); stroke-width: 1.2; }
+.mapping-lines .hot .wire { stroke: rgba(232, 234, 238, 0.9); stroke-width: 1.2; }
+.mapping-lines .hot .tip { fill: #fff; }
+.mapping-lines .selected .halo { stroke-width: 3.6; stroke: rgba(8, 9, 11, 0.7); }
+.mapping-lines .selected .wire { stroke: var(--accent-bright); stroke-width: 1.7; }
+.mapping-lines .selected .tip { fill: var(--accent-bright); stroke: #0b1a33; }
+.mapping-lines .selected .ring { fill: rgba(76, 141, 255, 0.14); stroke: var(--accent-bright); stroke-width: 1.5; }
+/* Control on the far side of the 3D model (view turned): dashed, hollow end. */
+.mapping-lines .hidden-side .wire { stroke-dasharray: 3 3; }
+.mapping-lines .hidden-side .tip { fill: none; stroke: rgba(196, 202, 212, 0.8); }
+.mapping-lines .hidden-side.selected .tip { stroke: var(--accent-bright); }
+
+.map-top { grid-area: top; display: grid; grid-template-columns: repeat(5, minmax(0, 150px)); justify-content: center; gap: 6px 14px; position: relative; z-index: 3; }
+.map-side { display: flex; flex-direction: column; gap: 6px; position: relative; z-index: 3; }
+.map-left { grid-area: left; }
+.map-right { grid-area: right; }
+.map-bottom { grid-area: bottom; display: grid; grid-template-columns: repeat(3, minmax(0, 150px)); justify-content: center; gap: 6px 14px; position: relative; z-index: 3; }
+.map-visual { grid-area: pad; position: relative; z-index: 1; min-width: 0; }
+/* Wide enough that the model fills the view (lib/controller3d fitRadius). */
+.map-visual > .c3d { max-width: none; min-height: 300px; aspect-ratio: 3 / 2; max-height: 62vh; background: none; }
+/* The view buttons live in the workspace toolbar (portal), styled as a toolbar group there. */
+.map-view-tools:empty { display: none; }
+.map-view-tools .c3d-toolbar { position: static; background: var(--surface-2); backdrop-filter: none; border-color: var(--border); }
+.map-view-tools .c3d-toolbar button { height: 24px; }
+/* Hints over the picture would sit under the connectors; the toolbar pill says whether a controller is connected. */
+.map-visual .c3d-hint, .map-visual .c3d-status { display: none; }
+
+.map-card {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 0; text-align: left; min-width: 0; min-height: 44px;
+  padding: 6px 11px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
+  cursor: pointer; font: inherit; line-height: 1.35; transition: border-color var(--t-fast), background var(--t-fast);
+}
+.map-card:hover { border-color: var(--border-strong); background: var(--surface-3); }
+.map-card.selected { border-color: var(--accent); background: var(--surface-accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.map-card.lit { border-color: var(--ok); }
+.map-card.selected.lit { border-color: var(--accent-bright); }
+.map-card-name { font-size: var(--fs-small); font-weight: 600; }
+.map-card-sends { font-size: var(--fs-xs); color: var(--text-dim); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.map-card-note { font-size: var(--fs-overline); color: var(--mark-macro); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.map-card.tone-remapped .map-card-sends, .map-editor .tone-remapped { color: var(--mark-remapped); }
+.map-card.tone-disabled .map-card-sends, .map-editor .tone-disabled { color: var(--error-text); }
+.map-card.tone-unsent .map-card-sends, .map-editor .tone-unsent { color: var(--text-faint); font-style: italic; }
+.mapping-hint { text-align: center; margin: 0; padding: 14px; border: 1px dashed var(--border); border-radius: var(--radius-lg); color: var(--text-dim); }
+
+/* Editor for the selected control, under the controller. */
+.map-editor { border: 1px solid var(--border-strong); border-radius: var(--radius-lg); background: var(--surface-1); padding: var(--sp-4) var(--sp-5) var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-3); animation: page-in var(--t) var(--ease); }
+.map-editor header { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); }
+.map-editor-title { display: flex; align-items: baseline; gap: var(--sp-3); flex-wrap: wrap; min-width: 0; }
+.map-editor h3 { margin: 0; font-size: var(--fs-section); font-weight: 600; color: var(--text); }
+.map-editor-notes { font-size: var(--fs-small); color: var(--mark-macro); }
+.map-arrow { color: var(--text-faint); margin: 0 4px; }
+.map-close { display: grid; place-items: center; background: none; border: 1px solid transparent; color: var(--text-dim); border-radius: var(--radius-sm); width: 30px; height: 30px; cursor: pointer; font-size: var(--fs-card); }
+.map-close:hover { color: var(--text); border-color: var(--border-strong); background: var(--surface-2); }
+.map-tabs { display: flex; gap: 6px; flex-wrap: wrap; padding-bottom: var(--sp-3); border-bottom: 1px solid var(--divider); }
+.map-tabs button { height: 28px; padding: 0 12px; border-radius: var(--radius-sm); border: 1px solid var(--border-strong); background: transparent; color: var(--text-dim); cursor: pointer; font-size: var(--fs-small); font-weight: 500; transition: color var(--t-fast), border-color var(--t-fast), background var(--t-fast); }
+.map-tabs button:hover { color: var(--text); background: var(--surface-2); }
+.map-tabs button.selected { color: var(--accent-bright); border-color: var(--accent); background: var(--accent-wash); }
+.map-editor-body { display: flex; flex-direction: column; gap: var(--sp-3); }
+.map-field { display: flex; flex-direction: column; gap: 6px; }
+.map-field-inline { flex-direction: row; align-items: center; flex-wrap: wrap; gap: 8px 12px; }
+.map-field-inline .select { width: auto; min-width: 220px; max-width: 340px; flex: 0 1 auto; }
+.map-field-label { font-size: var(--fs-small); font-weight: 500; color: var(--text-dim); min-width: 92px; }
+.map-chips { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 6px; }
+.map-chip { display: flex; flex-direction: column; align-items: flex-start; gap: 0; padding: 6px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface-inset); color: var(--text); cursor: pointer; font: inherit; font-size: var(--fs-small); text-align: left; line-height: 1.35; transition: border-color var(--t-fast), background var(--t-fast); }
+.map-chip small { font-size: var(--fs-xs); color: var(--text-faint); }
+.map-chip:hover { border-color: var(--border-strong); background: var(--surface-2); }
+.map-chip.active { border-color: var(--accent); background: var(--accent-wash); }
+.map-chip.active small { color: var(--accent-bright); }
+.map-chip.danger.active { border-color: var(--error); background: var(--error-wash); }
+.map-chip.danger.active small { color: var(--error-text); }
+.map-layer-list { margin: 0; padding-left: 18px; font-size: var(--fs-body); }
+.map-macro-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.map-macro-list li { display: flex; align-items: center; gap: var(--sp-3); padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-inset); }
+.map-macro-list li .btn-ghost { margin-left: auto; }
+.map-editor footer { border-top: 1px solid var(--divider); padding-top: 10px; }
+
+/* ---- 3D controller (components/controller3d) ---------------------------- */
+.c3d {
+  position: relative; width: 100%; aspect-ratio: 16 / 11; min-height: 300px; max-height: 72vh; margin: 0 auto;
+  border-radius: var(--radius); overflow: hidden; user-select: none;
+  background: radial-gradient(ellipse 70% 60% at 50% 42%, #1f2229 0%, #15171b 55%, transparent 100%);
+}
+.c3d > div:first-child { position: absolute !important; inset: 0; }
+.c3d canvas { display: block; touch-action: none; cursor: grab; }
+.c3d canvas:active { cursor: grabbing; }
+.c3d.hovering canvas { cursor: pointer; }
+.c3d-loading { animation: c3d-pulse 1.4s ease-in-out infinite; }
+@keyframes c3d-pulse { 50% { opacity: 0.6; } }
+.c3d-toolbar {
+  position: absolute; right: 10px; bottom: 10px; display: flex; align-items: center; gap: 2px; padding: 3px;
+  background: rgba(14, 15, 18, 0.82); border: 1px solid var(--border); border-radius: var(--radius); backdrop-filter: blur(6px);
+}
+.c3d-toolbar button {
+  min-width: 28px; height: 26px; padding: 0 9px; border: 0; border-radius: var(--radius-xs); background: transparent;
+  color: var(--text-dim); font: 500 12px var(--font); cursor: pointer; transition: background var(--t-fast), color var(--t-fast);
+}
+.c3d-toolbar button:hover { color: var(--text); background: var(--surface-3); }
+.c3d-toolbar button.selected { color: var(--accent-bright); background: var(--accent-wash); }
+.c3d-toolbar button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.c3d-sep { width: 1px; height: 16px; background: var(--border-strong); margin: 0 3px; }
+.c3d-status {
+  position: absolute; top: 12px; left: 50%; transform: translateX(-50%); padding: 4px 12px; border-radius: 999px;
+  background: rgba(14, 15, 18, 0.85); border: 1px solid var(--border-strong); color: var(--text-dim); font-size: var(--fs-xs); pointer-events: none;
+}
+.c3d-hint { position: absolute; left: 12px; top: 12px; color: var(--text-faint); font-size: var(--fs-xs); pointer-events: none; }
+.c3d-unavailable {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; text-align: center;
+  width: 100%; min-height: 220px; padding: var(--sp-6); border-radius: var(--radius); border: 1px dashed var(--border-strong); background: var(--surface-inset);
+  color: var(--text-dim); font-size: var(--fs-small);
+}
+.c3d-unavailable strong, .c3d-unavailable b { color: var(--text); }
+.c3d-credit {
+  position: absolute; left: 10px; right: 10px; bottom: 50px; padding: 8px 12px; border-radius: var(--radius-sm);
+  background: rgba(14, 15, 18, 0.92); border: 1px solid var(--border); color: var(--text-dim); font-size: var(--fs-xs); line-height: 1.45;
+}
+.c3d-finish i { display: block; width: 13px; height: 13px; border-radius: 50%; border: 1px solid var(--border-strong); }
+.c3d-finish.black i { background: linear-gradient(135deg, #3a3c42, #121316); }
+.c3d-finish.white i { background: linear-gradient(135deg, #ffffff, #c9ccd3); }
+@media (prefers-reduced-motion: reduce) { .c3d-loading { animation: none; } }
+@media (max-width: 720px) { .c3d-hint { display: none; } }
+
+/* ---- Responsive -------------------------------------------------------- */
+@media (max-width: 1240px) {
+  .two-col, .tune-grid, .settings-grid { grid-template-columns: 1fr; }
+  .tune-preview { position: static; }
+  .remap-list { grid-template-columns: 1fr; }
+  .remap-row { grid-template-columns: auto 1fr 150px; }
+  .remap-row > span[aria-hidden] { display: none; }
+  .mapping-stage { gap: 8px 18px; grid-template-columns: minmax(112px, 140px) minmax(0, 1fr) minmax(112px, 140px); }
+  .map-top, .map-bottom { grid-template-columns: repeat(5, minmax(0, 136px)); gap: 6px 10px; }
+  .map-bottom { grid-template-columns: repeat(3, minmax(0, 136px)); }
+}
+/* Narrow: the picture on top and the cards below it (no connectors). */
+@media (max-width: 1000px) {
+  .mapping-stage { grid-template-columns: 1fr 1fr; grid-template-areas: "pad pad" "top top" "left right" "bottom bottom"; }
+  .mapping-lines { display: none; }
+  .map-top { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  .map-bottom { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .map-bottom .map-card { grid-column: auto !important; }
+  .feature-row { grid-template-columns: 1fr; }
+}

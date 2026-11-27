@@ -1,35 +1,62 @@
-import { Icon, type IconName } from "./Icons";
-import { useControllerPhase } from "./StatusPill";
+import { useEffect, useState } from "react";
+import { Icon } from "./Icons";
+import { NAV_GROUPS, type PageId } from "../lib/navigation";
 
-export type PageId =
-  | "dashboard" | "controller" | "live-viewer" | "macro-studio" | "profiles" | "performance" | "settings";
-
-export const NAV: Array<{ id: PageId; label: string; icon: IconName }> = [
-  { id: "dashboard", label: "Dashboard", icon: "dashboard" },
-  { id: "controller", label: "Controller", icon: "controller" },
-  { id: "live-viewer", label: "Live Viewer", icon: "stick" },
-  { id: "macro-studio", label: "Macro Studio", icon: "macro" },
-  { id: "profiles", label: "Profiles", icon: "profiles" },
-  { id: "performance", label: "Performance", icon: "performance" },
-];
+export type { PageId } from "../lib/navigation";
 
 function NexusMark() {
   return (
-    <svg width="30" height="30" viewBox="0 0 32 32" aria-hidden="true">
+    <svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true">
       <defs>
-        <linearGradient id="nx-gold" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#f3d488" />
-          <stop offset="1" stopColor="#b88a2e" />
+        <linearGradient id="nx-mark" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#8fbaff" />
+          <stop offset="1" stopColor="#2f6fe4" />
         </linearGradient>
       </defs>
-      <path d="M16 2 28 9v14l-12 7-12-7V9Z" fill="none" stroke="url(#nx-gold)" strokeWidth="2" />
-      <path d="M11 21V11l10 10V11" fill="none" stroke="url(#nx-gold)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+      <rect x="1" y="1" width="30" height="30" rx="8" fill="#121a2b" stroke="url(#nx-mark)" strokeWidth="1.5" />
+      <path d="M11 21.5V10.5l10 11V10.5" fill="none" stroke="url(#nx-mark)" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
 
+/**
+ * Main navigation. Labels are always visible at the app's supported window
+ * sizes (the window is at least 1100 px wide); below 1040 px it becomes an
+ * icon rail (styles/shell.css), where the labels show as tooltips and stay
+ * readable to screen readers.
+ * Controller and profile status live in the top bar (components/TopBar.tsx).
+ */
+/** Matches styles/shell.css: below this width the sidebar is an icon rail. */
+const RAIL_QUERY = "(max-width: 1040px)";
+
+/** Whether the sidebar is the icon rail now (labels hidden), so it can offer tooltips only then. */
+function useRail(): boolean {
+  const [rail, setRail] = useState(() => window.matchMedia?.(RAIL_QUERY).matches ?? false);
+  useEffect(() => {
+    const mq = window.matchMedia?.(RAIL_QUERY);
+    if (!mq) return;
+    const on = () => setRail(mq.matches);
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, []);
+  return rail;
+}
+
 export function Sidebar({ page, onNavigate }: { page: PageId; onNavigate: (p: PageId) => void }) {
-  const phase = useControllerPhase();
+  // Native tooltips only in the rail: with the labels visible they would repeat them.
+  const rail = useRail();
+  const item = (id: PageId, label: string, icon: Parameters<typeof Icon>[0]["name"]) => (
+    <button
+      key={id}
+      className={`nav-item${page === id ? " active" : ""}`}
+      onClick={() => onNavigate(id)}
+      aria-current={page === id ? "page" : undefined}
+      title={rail ? label : undefined}
+    >
+      <Icon name={icon} size={17} />
+      <span>{label}</span>
+    </button>
+  );
   return (
     <aside className="sidebar">
       <div className="brand">
@@ -41,37 +68,21 @@ export function Sidebar({ page, onNavigate }: { page: PageId; onNavigate: (p: Pa
       </div>
 
       <nav className="nav" aria-label="Main">
-        {NAV.map((item) => (
-          <button
-            key={item.id}
-            className={`nav-item${page === item.id ? " active" : ""}`}
-            onClick={() => onNavigate(item.id)}
-            aria-current={page === item.id ? "page" : undefined}
-          >
-            <Icon name={item.icon} />
-            <span>{item.label}</span>
-          </button>
+        {NAV_GROUPS.map((group) => (
+          <div key={group.label ?? "top"} className="nav-group" role="group" aria-label={group.label ?? undefined}>
+            {group.label && <div className="nav-group-label" aria-hidden="true">{group.label}</div>}
+            {group.items.map((i) => item(i.id, i.label, i.icon))}
+          </div>
         ))}
       </nav>
 
-      <button className="search-button" onClick={() => window.dispatchEvent(new Event("nexus:search"))}
-        aria-label="Search settings (Ctrl+K)">
-        <span>Search settings</span><kbd>Ctrl K</kbd>
-      </button>
-
       <div className="sidebar-footer">
-        <div className={`mini-status tone-${phase.tone}`}>
-          <span className="dot" />
-          <span>{phase.label}</span>
-        </div>
-        <button
-          className={`nav-item${page === "settings" ? " active" : ""}`}
-          onClick={() => onNavigate("settings")}
-          aria-current={page === "settings" ? "page" : undefined}
-        >
-          <Icon name="settings" />
-          <span>Settings</span>
+        <button className="search-button" onClick={() => window.dispatchEvent(new Event("nexus:search"))}
+          aria-label="Search settings (Ctrl+K)" title={rail ? "Search settings (Ctrl+K)" : undefined}>
+          <Icon name="search" size={15} />
+          <span>Search</span><kbd>Ctrl K</kbd>
         </button>
+        {item("settings", "Settings", "settings")}
       </div>
     </aside>
   );

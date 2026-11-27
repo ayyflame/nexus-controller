@@ -1,11 +1,13 @@
-import { usePrimaryDevice } from "../../hooks/useEngine";
-import { BUTTONS, LIMITS, MODES, pressedButtons, triggerBlockers } from "../../lib/macros";
+import { useState } from "react";
+import { Icon } from "../Icons";
+import { BUTTONS, LIMITS, MODES, triggerBlockers } from "../../lib/macros";
 import type { Macro, PlaybackMode, ValidationIssue } from "../../types/engine";
 import { ButtonChip } from "./ButtonChip";
-import { ButtonPad } from "./ButtonPad";
+import { usePick } from "./ButtonPicker";
 import { Advanced, Issues, MsInput, Switch } from "./common";
 
 const MODE_ORDER: PlaybackMode[] = ["once", "repeatWhileHeld", "toggle"];
+const MODE_ICON = { once: "play", repeatWhileHeld: "repeat", toggle: "power" } as const;
 
 export function AssignPanel({ draft, others, onChange, issues }: {
   draft: Macro;
@@ -13,77 +15,75 @@ export function AssignPanel({ draft, others, onChange, issues }: {
   onChange: (patch: Partial<Macro>) => void;
   issues: ValidationIssue[];
 }) {
-  const device = usePrimaryDevice();
-  const live = pressedButtons(device?.input);
   const blocked = triggerBlockers(draft, others);
+  // Choosing uses the editor's controller: one click sets the button.
+  const [choosing, setChoosing] = useState(false);
+  usePick("trigger", choosing ? {
+    priority: 2, kind: "choose", title: "Click the button that starts this macro",
+    selected: draft.trigger ? [draft.trigger] : [], blocked,
+    onPick: (b) => { onChange({ trigger: b }); setChoosing(false); }, onDone: () => setChoosing(false),
+  } : null);
   const triggerInSequence = draft.trigger !== null
     && draft.steps.some((s) => s.buttons.includes(draft.trigger!));
 
   return (
     <div className="assign">
       <section>
-        <h3 className="section-title">Which button starts this macro?</h3>
-        <p className="muted small">
-          Click a button.{device?.input ? " Tip: press it on your controller to see it light up here." : ""}
-          {" "}Buttons used by other macros are greyed out.
-        </p>
-        <div className="assign-pad">
-          <ButtonPad
-            selected={draft.trigger ? [draft.trigger] : []}
-            onPick={(b) => onChange({ trigger: draft.trigger === b ? null : b })}
-            blocked={blocked}
-            lit={live}
-            label="Trigger button"
-          />
-          <div className="assign-summary">
-            {draft.trigger ? (
-              <>
-                <span className="muted small">Starts with</span>
-                <ButtonChip button={draft.trigger} size="lg" active />
-                <strong>{BUTTONS[draft.trigger].name}</strong>
-                <button className="btn-ghost" onClick={() => onChange({ trigger: null })}>Clear</button>
-              </>
-            ) : (
-              <span className="muted">No button chosen yet</span>
-            )}
-          </div>
-        </div>
-        <div className="paddle-note" data-tip="Back paddle input isn't read yet; this will be added in a later update.">
-          <span className="chip chip-md">LB</span><span className="chip chip-md">RB</span>
-          <span>DualSense Edge back paddles: <b>not supported yet</b></span>
+        <h3 className="section-title">Starts with</h3>
+        <div className="assign-summary">
+          {draft.trigger ? <>
+            <ButtonChip button={draft.trigger} size="lg" active />
+            <strong>{BUTTONS[draft.trigger].name}</strong>
+          </> : <span className="muted">No button yet</span>}
+          <button type="button" className={choosing ? "btn-primary small" : "btn-ghost small"} aria-pressed={choosing}
+            onClick={() => setChoosing((c) => !c)}>{choosing ? "Done" : draft.trigger ? "Change" : "Choose on controller"}</button>
+          {draft.trigger && <button type="button" className="btn-ghost small" onClick={() => onChange({ trigger: null })}>Clear</button>}
         </div>
         {triggerInSequence && (
-          <div className="notice dev small">
-            Your sequence also presses {BUTTONS[draft.trigger!].name}. That's allowed: games will still receive it from the macro.
-          </div>
+          <p className="muted small">The sequence also presses {BUTTONS[draft.trigger!].name}; games still receive it.</p>
         )}
         <Issues issues={issues} field="trigger" />
       </section>
 
       <section>
-        <h3 className="section-title">How should it play?</h3>
+        <h3 className="section-title">Plays</h3>
         <div className="mode-cards" role="radiogroup" aria-label="Playback mode">
           {MODE_ORDER.map((mode) => (
             <button key={mode} type="button" role="radio" aria-checked={draft.mode === mode}
               className={`mode-card${draft.mode === mode ? " selected" : ""}`}
               onClick={() => onChange({ mode })}>
-              <span className={`mode-icon mode-${mode}`} aria-hidden="true" />
+              <span className={`mode-icon mode-${mode}`} aria-hidden="true"><Icon name={MODE_ICON[mode]} size={15} /></span>
               <strong>{MODES[mode].title}</strong>
               <span className="muted small">{MODES[mode].description}</span>
             </button>
           ))}
         </div>
+        {draft.mode === "once" && (
+          <label className="repeat-count">
+            <span className="field-label" data-tip="Times the sequence plays per press, with the pause between repeats in between">Play</span>
+            <input className="text-input" type="number" min={1} max={LIMITS.maxRepeatCount} value={draft.repeatCount ?? 1}
+              aria-label="Times to play per press"
+              onChange={(e) => {
+                const n = Math.round(Number(e.target.value));
+                if (Number.isFinite(n)) onChange({ repeatCount: Math.max(1, Math.min(LIMITS.maxRepeatCount, n)) });
+              }} />
+            <span className="muted small">time{(draft.repeatCount ?? 1) === 1 ? "" : "s"} per press</span>
+          </label>
+        )}
       </section>
 
       <Advanced>
-        {draft.mode !== "once" && (
+        <span data-tip="The trigger must be held this long before the macro reacts; a quick tap does nothing. 0: reacts at once.">
+          <MsInput label="Hold to activate" value={draft.activationMs ?? 0} min={0} max={LIMITS.maxActivationMs}
+            onChange={(activationMs) => onChange({ activationMs })} />
+        </span>
+        {(draft.mode !== "once" || (draft.repeatCount ?? 1) > 1) && (
           <MsInput label="Pause between repeats" value={draft.repeatDelayMs} min={0} max={LIMITS.maxDelayMs}
             onChange={(repeatDelayMs) => onChange({ repeatDelayMs })} />
         )}
         <Switch checked={draft.blockTrigger} onChange={(blockTrigger) => onChange({ blockTrigger })}
           label="Hide the trigger button from games"
-          tip="When on, games don't see the trigger button itself, only the macro." />
-        <p className="muted small">Turn this off if you want the trigger button to keep its normal job in the game as well.</p>
+          tip="When on, games see only the macro, not the trigger button itself. Turn off to keep the button's normal job too." />
       </Advanced>
     </div>
   );

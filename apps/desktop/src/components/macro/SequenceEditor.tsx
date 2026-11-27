@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Icon } from "../Icons";
 import type { History } from "../../hooks/useHistory";
-import { LIMITS, buttonNames, formatMs, newStep, sequenceAt, stateWithButtons, totalDuration, uid } from "../../lib/macros";
-import type { Macro, MacroButton, MacroStep, PlaybackMode } from "../../types/engine";
-import { ControllerVisual } from "../ControllerVisual";
-import { ButtonPad } from "./ButtonPad";
+import { BUTTONS, LIMITS, buttonNames, formatMs, heldBefore, newStep, sequenceStateAt, totalDuration, uid } from "../../lib/macros";
+import type { Macro, MacroButton, MacroStep, PlaybackMode, StepKind } from "../../types/engine";
+import { deletesActions } from "../../lib/buttonPicker";
+import { usePick } from "./ButtonPicker";
 import { RecordPanel } from "./RecordPanel";
 import { StepInspector } from "./StepInspector";
 import { BulkTiming } from "./BulkTiming";
@@ -12,8 +13,9 @@ import { Timeline } from "./Timeline";
 
 /** Plays the sequence on screen. Never touches the controller or games.
  *  Looping modes repeat with the pause between repeats until stopped. */
-function usePreview(steps: MacroStep[], loopPauseMs: number | null) {
+function usePreview(steps: MacroStep[], loopPauseMs: number | null, passes = 1, pauseMs = 0) {
   const [elapsed, setElapsed] = useState<number | null>(null);
+  const [pass, setPass] = useState(0);
   const raf = useRef<number | null>(null);
   const stop = useCallback(() => {
     if (raf.current !== null) cancelAnimationFrame(raf.current);
@@ -24,18 +26,19 @@ function usePreview(steps: MacroStep[], loopPauseMs: number | null) {
     if (raf.current !== null) cancelAnimationFrame(raf.current);
     const t0 = performance.now();
     const tick = () => {
-      const p = previewAt(steps, performance.now() - t0, loopPauseMs);
+      const p = previewAt(steps, performance.now() - t0, loopPauseMs, passes, pauseMs);
       if (p.done) { stop(); return; }
       setElapsed(p.cycleMs);
+      setPass(p.pass);
       raf.current = requestAnimationFrame(tick);
     };
     raf.current = requestAnimationFrame(tick);
-  }, [steps, stop, loopPauseMs]);
+  }, [steps, stop, loopPauseMs, passes, pauseMs]);
   useEffect(() => stop, [stop]);
   // Editing the sequence or the repeat settings ends a running preview.
-  useEffect(() => { stop(); }, [steps, stop, loopPauseMs]);
-  const point = elapsed === null ? null : sequenceAt(steps, elapsed);
-  return { playing: elapsed !== null, elapsed: elapsed ?? 0, point, play, stop };
+  useEffect(() => { stop(); }, [steps, stop, loopPauseMs, passes, pauseMs]);
+  const state = elapsed === null ? null : sequenceStateAt(steps, elapsed);
+  return { playing: elapsed !== null, elapsed: elapsed ?? 0, pass, point: state?.point ?? null, down: state?.down ?? [], play, stop };
 }
 
 type Source = "record" | "manual";
@@ -43,7 +46,7 @@ type Source = "record" | "manual";
 /** In-app clipboard shared by every editor, so actions can be copied between macros. */
 let clipboard: MacroStep[] = [];
 
-export function SequenceEditor({ history, initialSource = "record", library = [], mode = "once", repeatDelayMs = 0 }: {
+export function SequenceEditor({ history, initialSource = "record", library = [], mode = "once", repeatDelayMs = 0, repeatCount = 1 }: {
   history: History<MacroStep[]>;
   initialSource?: Source;
   /** Other macros whose sequences can be inserted as reusable blocks. */
@@ -52,12 +55,15 @@ export function SequenceEditor({ history, initialSource = "record", library = []
    *  same-button gap check at the repeat boundary. */
   mode?: PlaybackMode;
   repeatDelayMs?: number;
+  /** Play Once: passes per press (the preview plays them all). */
+  repeatCount?: number;
 }) {
   const steps = history.value;
   const [source, setSource] = useState<Source>(initialSource);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selection, setSelection] = useState<string[]>([]);
   const [clipCount, setClipCount] = useState(clipboard.length);
+  const [addKind, setAddKind] = useState<StepKind>("tap");
   const selected_ = selection.length ? selection : selectedId ? [selectedId] : [];
 
   const select = (id: string, mode: "single" | "toggle" | "range") => {
@@ -92,7 +98,14 @@ export function SequenceEditor({ history, initialSource = "record", library = []
     setSelection(fresh.map((s) => s.id));
   };
   const looping = mode !== "once";
-  const preview = usePreview(steps, looping ? repeatDelayMs : null);
+  const preview = usePreview(steps, looping ? repeatDelayMs : null, looping ? 1 : repeatCount, repeatDelayMs);
+  const held = heldBefore(steps);
+  const heldAtEnd = steps.length ? (() => {
+    const last = steps[steps.length - 1]!;
+    const before = held[steps.length - 1]!;
+    return last.kind === "hold" ? [...before, ...last.buttons.filter((b) => !before.includes(b))]
+      : last.kind === "release" ? before.filter((b) => !last.buttons.includes(b)) : before;
+  })() : [];
   const risks = mergeRisks(steps, mode, repeatDelayMs);
   const riskyWaits = new Set(risks.filter((r) => !r.repeat).map((r) => r.after));
   const selectedIndex = steps.findIndex((s) => s.id === selectedId);
@@ -102,7 +115,7 @@ export function SequenceEditor({ history, initialSource = "record", library = []
 
   const add = (b: MacroButton) => {
     if (steps.length >= LIMITS.maxSteps) return;
-    const step = newStep([b]);
+    const step = newStep([b], addKind);
     update((s) => [...s, step]);
     setSelectedId(step.id);
   };
@@ -123,7 +136,7 @@ export function SequenceEditor({ history, initialSource = "record", library = []
     setSelectedId(copy.id);
   };
 
-  // Keyboard: Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z / Delete.
+  // Keyboard: Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z / Delete (not from the controller: see deletesActions).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
@@ -134,16 +147,26 @@ export function SequenceEditor({ history, initialSource = "record", library = []
       else if (mod && e.key.toLowerCase() === "a") { e.preventDefault(); setSelection(steps.map((s) => s.id)); }
       else if (mod && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? history.redo() : history.undo(); }
       else if (mod && e.key.toLowerCase() === "y") { e.preventDefault(); history.redo(); }
-      else if ((e.key === "Delete" || e.key === "Backspace") && selected_.length > 1) { e.preventDefault(); removeSelected(); }
-      else if ((e.key === "Delete" || e.key === "Backspace") && selectedIndex >= 0) { e.preventDefault(); remove(selectedIndex); }
+      else if (deletesActions(e.key, target) && selected_.length > 1) { e.preventDefault(); removeSelected(); }
+      else if (deletesActions(e.key, target) && selectedIndex >= 0) { e.preventDefault(); remove(selectedIndex); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  const pressedNow = preview.point?.pressed && preview.point.step !== null
-    ? steps[preview.point.step]!.buttons : [];
+  const pressedNow = preview.down;
   const total = totalDuration(steps);
+  // The editor's controller: Build Manually adds an action per click; the preview plays on it.
+  const addBlocked: Partial<Record<MacroButton, string>> = Object.fromEntries((Object.keys(BUTTONS) as MacroButton[])
+    .filter((b) => addKind === "release" ? !heldAtEnd.includes(b) : heldAtEnd.includes(b))
+    .map((b) => [b, addKind === "release" ? "not held, so there's nothing to release" : "still held: add a Release first"]));
+  usePick("add", source === "manual" ? {
+    priority: 1,
+    title: addKind === "tap" ? "Click a button to add a press" : addKind === "hold" ? "Click a button to press and keep it held" : "Click a held button to release it",
+    selected: [], blocked: addBlocked,
+    onPick: (b) => { add(b); if (addKind === "release") setAddKind("tap"); },
+  } : null);
+  usePick("preview", preview.playing ? { priority: 3, title: "Preview (nothing is sent to games)", selected: pressedNow } : null);
 
   return (
     <div className="seq-editor">
@@ -151,12 +174,12 @@ export function SequenceEditor({ history, initialSource = "record", library = []
         <button role="tab" aria-selected={source === "record"} className={source === "record" ? "selected" : ""}
           onClick={() => setSource("record")}>
           <span className="tab-icon rec-dot" aria-hidden="true" />
-          <span><strong>Record</strong><small>Press buttons on your controller</small></span>
+          <span><strong>Record</strong></span>
         </button>
         <button role="tab" aria-selected={source === "manual"} className={source === "manual" ? "selected" : ""}
           onClick={() => setSource("manual")}>
-          <span className="tab-icon" aria-hidden="true">✚</span>
-          <span><strong>Build Manually</strong><small>Click buttons to add actions</small></span>
+          <span className="tab-icon" aria-hidden="true"><Icon name="plus" size={13} /></span>
+          <span><strong>Build Manually</strong></span>
         </button>
       </div>
 
@@ -167,22 +190,30 @@ export function SequenceEditor({ history, initialSource = "record", library = []
         }} />
       ) : (
         <div className="manual-panel">
-          <p className="muted small">Click a button to add it to the end of your sequence. Click an action in the timeline to change its timing or press several buttons together.</p>
-          <ButtonPad selected={[]} onPick={add} label="Add an action" />
+          <div className="row gap-sm wrap add-kind">
+            <span className="field-label">Add as</span>
+            <div className="segmented small" role="radiogroup" aria-label="Kind of action to add">
+              {([["tap", "Press", "Pressed, held for the press time, then released"], ["hold", "Press & keep held", "Stays down while the next actions run, until a Release"], ["release", "Release", "Lets go of a held button"]] as Array<[StepKind, string, string]>).map(([k, label, tip]) => (
+                <button key={k} type="button" role="radio" aria-checked={addKind === k} className={addKind === k ? "selected" : ""}
+                  data-tip={tip} disabled={k === "release" && heldAtEnd.length === 0} onClick={() => setAddKind(k)}>{label}</button>
+              ))}
+            </div>
+            {heldAtEnd.length > 0 && <span className="muted small">Held: {buttonNames(heldAtEnd)}</span>}
+          </div>
         </div>
       )}
 
       <div className="seq-toolbar">
         <div className="row gap-sm">
           {preview.playing ? (
-            <button className="btn-primary" onClick={preview.stop} data-tip="Stop the preview">■ Stop</button>
+            <button className="btn-primary" onClick={preview.stop} data-tip="Stop the preview"><Icon name="stop" size={14} filled /> Stop</button>
           ) : (
             <button className="btn-primary" onClick={preview.play} disabled={steps.length === 0}
               data-tip={looping ? "Play on screen, repeating like the real macro until you press Stop (does not press anything in games)" : "Play the sequence on screen once (does not press anything in games)"}>
-              ▶ Play preview{looping ? " (loops)" : ""}</button>
+              <Icon name="play" size={14} filled /> Play preview{looping ? " (loops)" : ""}</button>
           )}
-          <button className="btn-icon" onClick={history.undo} disabled={!history.canUndo} data-tip="Undo (Ctrl+Z)" aria-label="Undo">↶</button>
-          <button className="btn-icon" onClick={history.redo} disabled={!history.canRedo} data-tip="Redo (Ctrl+Y)" aria-label="Redo">↷</button>
+          <button className="btn-icon" onClick={history.undo} disabled={!history.canUndo} data-tip="Undo (Ctrl+Z)" aria-label="Undo"><Icon name="undo" size={16} /></button>
+          <button className="btn-icon" onClick={history.redo} disabled={!history.canRedo} data-tip="Redo (Ctrl+Y)" aria-label="Redo"><Icon name="redo" size={16} /></button>
           <span className="divider" />
           <button className="btn-ghost" onClick={copy} disabled={!selected_.length} data-tip="Copy selected actions (Ctrl+C)">Copy</button>
           <button className="btn-ghost" onClick={paste} disabled={!clipCount} data-tip="Paste after the selection (Ctrl+V)">Paste{clipCount ? ` (${clipCount})` : ""}</button>
@@ -199,8 +230,8 @@ export function SequenceEditor({ history, initialSource = "record", library = []
           )}
         </div>
         <span className="muted small">
-          {steps.length} action{steps.length === 1 ? "" : "s"} · {formatMs(total)}
-          {preview.playing && <> · <span className="gold mono">{formatMs(preview.elapsed)}</span></>}
+          {steps.length} action{steps.length === 1 ? "" : "s"} · {formatMs(total)}{!looping && repeatCount > 1 ? ` × ${repeatCount}` : ""}
+          {preview.playing && <> · <span className="gold mono">{formatMs(preview.elapsed)}</span>{!looping && repeatCount > 1 ? ` · pass ${preview.pass + 1} of ${repeatCount}` : ""}</>}
         </span>
       </div>
       {preview.playing && (
@@ -215,19 +246,12 @@ export function SequenceEditor({ history, initialSource = "record", library = []
         <div className="notice warn small" role="status">
           {risks.map((r) => (
             <div key={`${r.after}-${r.repeat}`}>
-              ⚠ {r.repeat
+              {r.repeat
                 ? <>Repeat boundary: action {steps.length} and action 1 both press {buttonNames(r.buttons)} with only {r.gapMs} ms between them (wait after action {steps.length} + pause between repeats).</>
                 : <>Actions {r.after + 1} and {r.after + 2} both press {buttonNames(r.buttons)} with only {r.gapMs} ms between them.</>}
               {" "}A game may see one long press instead of two. Use at least {LIMITS.minReleaseGapMs} ms.
             </div>
           ))}
-        </div>
-      )}
-
-      {preview.playing && (
-        <div className="preview-visual">
-          <ControllerVisual state={stateWithButtons(pressedNow)} live flat />
-          <span className="badge dev">Preview only</span>
         </div>
       )}
 
@@ -237,7 +261,7 @@ export function SequenceEditor({ history, initialSource = "record", library = []
 
       {selected && selected_.length <= 1 && !preview.playing && (
         <StepInspector
-          step={selected} index={selectedIndex} count={steps.length}
+          step={selected} index={selectedIndex} count={steps.length} steps={steps} held={held[selectedIndex] ?? []}
           waitBefore={waitBefore(steps, selectedIndex)}
           gapWarning={riskyWaits.has(selectedIndex) || risks.some((r) => r.repeat && selectedIndex === steps.length - 1)}
           startsAt={startTimes(steps)[selectedIndex] ?? 0}
@@ -245,7 +269,7 @@ export function SequenceEditor({ history, initialSource = "record", library = []
           onChange={(s) => {
             const cur = steps.find((x) => x.id === s.id);
             const same = cur && cur.holdMs === s.holdMs && cur.delayAfterMs === s.delayAfterMs
-              && cur.buttons.join() === s.buttons.join();
+              && cur.buttons.join() === s.buttons.join() && (cur.kind ?? "tap") === (s.kind ?? "tap");
             if (!same) update((all) => all.map((x) => (x.id === s.id ? s : x))); // no undo step for no-op edits
           }}
           onMove={(d) => { const to = selectedIndex + d; if (to >= 0 && to < steps.length) move(selectedIndex, to); }}

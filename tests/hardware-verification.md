@@ -59,9 +59,9 @@ Setup steps: `docs/windows-setup.md`. Useful tools: **Settings → HID Devices (
 
 | # | Step | Expected | Result |
 |---|---|---|---|
-| 22 | Create Macro → Record → press Square, Triangle → Stop | Two actions with roughly your timing | |
+| 22 | Macro Library → **＋ New macro** → empty sequence → **Create and edit** → Record → press Square, Triangle → **Stop Recording** | Two actions with roughly your timing | |
 | 23 | Repeat over Bluetooth | Same result | *Out of scope (Bluetooth)* |
-| 24 | Assign R3, Play Once, save; press R3 | "Test with your controller" shows Square then Triangle; *Playing* badge | |
+| 24 | Assign R3, Play Once (it saves by itself: wait for ✓ Saved); press R3 | The **Test** panel shows *Running*, action 1 (Square) then action 2 (Triangle) | |
 | 25 | Repeat While Held / Toggle | Repeats while held / until pressed again | |
 | 26 | Unplug the controller while a Toggle macro plays | Macro stops; nothing stays pressed after reconnect | |
 | 27 | Close NEXUS during recording, then reopen | App closes cleanly; saved macros still listed | |
@@ -70,7 +70,7 @@ Setup steps: `docs/windows-setup.md`. Useful tools: **Settings → HID Devices (
 
 | # | Step | Expected | Result |
 |---|---|---|---|
-| 28 | Controller › Live: move each stick and trigger | "Your controller" and "Sent to the game" both move; deadzone circle visible | |
+| 28 | Live Viewer › Live: move each stick and trigger | "Your controller" and "Sent to the game" both move; deadzone circle visible | |
 | 29 | Sticks: set deadzone 30%, move the stick slightly | Gold dot stays centred until past the circle | |
 | 30 | Sticks: Precise curve, then Custom (drag a point) | Output follows the curve shown | |
 | 31 | Triggers: deadzone 20%, Full press at 60% | Output 0 below 20%, 100% from 60% | |
@@ -85,7 +85,7 @@ Setup steps: `docs/windows-setup.md`. Useful tools: **Settings → HID Devices (
 
 | # | Step | Expected | Result |
 |---|---|---|---|
-| 38 | Controller › Sticks › Calibrate (both sticks) | Rest reads 0,0 afterwards; full circle reaches the edge | |
+| 38 | Sticks › Calibrate (both sticks) | Rest reads 0,0 afterwards; full circle reaches the edge | |
 | 39 | Triggers › Calibrate; set Click point 20% | L2 counts as pressed at a light pull (Buttons tab lights) | |
 | 40 | Gyro › Live motion: turn, tilt, roll | Correct bars move; record the sign of each | |
 | 41 | Gyro on, While holding L2; turn right | Right stick moves right (else note: inverted) | |
@@ -143,7 +143,7 @@ Prerequisites:
 
 - ViGEmBus 1.22 installed by you (`docs/virtual-output.md`);
 - DualSense connected by USB;
-- Controller › Virtual Output → **Use the experimental virtual controller** on, then **Xbox 360**.
+- Virtual Controller → **Use the experimental virtual controller** on, then **Xbox 360**.
 
 Use Windows tools and offline or single-player games only.
 
@@ -151,7 +151,7 @@ Re-test V6–V12 on each new build that changes macro or output code. M4.5 chang
 
 | # | Step | Expected | Result |
 |---|---|---|---|
-| V1 | *(Optional: only after reinstalling ViGEmBus)* Virtual Output tab before installing ViGEmBus | "Not installed" with install steps; Xbox 360 cannot be selected while the switch is off | |
+| V1 | *(Optional: only after reinstalling ViGEmBus)* Virtual Controller page before installing ViGEmBus | "Not installed" with install steps; Xbox 360 cannot be selected while the switch is off | |
 | V2 | *(Optional)* Install ViGEmBus, click **Check again** | "Installed and ready" | |
 | V3 | Switch on, choose Xbox 360 | "Xbox 360 connected" | **Pass** (owner, 2026-11-16, build 711f0d4, CI run 43817242201) |
 | V4 | `joy.cpl` (Win+R) | **Controller (XBOX 360 For Windows)** listed. Properties: buttons, sticks and triggers follow the DualSense (Cross = button 1 / A) | **Pass**: Windows recognises the virtual Xbox 360 controller (owner, 2026-11-16, build 711f0d4, CI run 43817242201) |
@@ -167,11 +167,17 @@ Re-test V6–V12 on each new build that changes macro or output code. M4.5 chang
 | V14 | One offline or single-player game you choose | Record the title, whether the game uses the Xbox controller, macro behaviour, and any double input | **Pass**: macro output works in an offline/single-player game; title to be recorded (owner, 2026-11-16, build 711f0d4, CI run 43817242201) |
 | V15 | Two profiles with the same Repeat While Held macro. Hold the trigger, switch profile (Profiles page or game auto-switch) | Macro stops and does **not** restart while still held; releasing and pressing again starts it | |
 | V16 | Two macros on different triggers (e.g. R3 and L3), hold both, then release one | Both repeat; releasing one stops only that one; nothing stays lit | |
-| V17 | NEXUS running, output on: Device Manager › System devices › **Nefarius Virtual Gamepad Emulation Bus** › Disable device; watch Virtual Output; then Enable device and click **Check again** | While disabled: virtual controller shown as not connected, with a message (no crash or freeze). After Enable + **Check again**: **Xbox 360 connected** again, without re-plugging or restarting NEXUS | |
+| V17 | NEXUS running, output on: Device Manager › System devices › **Nefarius Virtual Gamepad Emulation Bus** › Disable device; watch the Virtual Controller page; then Enable device and click **Check again** | While disabled: virtual controller shown as not connected, with a message (no crash or freeze). After Enable + **Check again**: **Xbox 360 connected** again, without re-plugging or restarting NEXUS | |
 | V18 | Record a macro, then edit one action's press time and wait (Exact timing), save; hold its trigger with `joy.cpl` Properties open | Timing visibly follows the edit (e.g. 2× slower is clearly slower); no re-recording needed | |
 | V19 | Select all actions, **2× faster**, save, test again; then Ctrl+Z | Faster playback; undo restores the recorded timing | |
 | V20 | Record: tap Square, then Triangle quickly (Square released before Triangle) | Two separate actions, not one "Square + Triangle" action | |
 | V21 | Build YY (Triangle, Triangle) with wait 0 ms and pause between repeats 0 ms | ⚠ on the wait and two warnings under the timeline. After setting both to 50 ms, warnings disappear and `joy.cpl` shows Y blinking in pairs while held | |
+| V22 | New macro from the **Hold L2 while tapping** template (template button Cross), Play Once on L1. Press L1 with `joy.cpl` Properties open | The Z axis (left trigger) moves and stays while Button 1 blinks twice, then Z returns to rest. Test panel: *Running*, action 1–4, then *Waiting* | |
+| V23 | Same macro, hold L1 to start it, then unplug the USB cable while L2 is held by the macro | Nothing stays pressed in `joy.cpl` after reconnecting; the macro does not restart until L1 is pressed again | |
+| V24 | Same macro: turn it off with the switch while it runs (Repeat While Held, hold L1) | Left trigger released at once | |
+| V25 | Record: hold L2, tap Cross twice, release L2 | Review shows *Press & keep held* L2, two Cross presses, *Release* L2; playback matches | |
+| V26 | Play Once, **Play 3 times per press**, pause between repeats 100 ms | One press of the trigger plays the sequence three times; Test panel shows *pass 1/2/3 of 3* | |
+| V27 | Macro Studio › **Show in Mapping**, then **Edit in Macro Studio**; then in Mapping **Remove from L1** | Mapping opens with L1 selected on its Macro tab; the editor reopens the same macro; after removing, the macro is still in Macro Studio with *No button* | |
 
 ## Duplicate input, with and without HidHide (optional)
 
@@ -182,8 +188,8 @@ Virtual output must be on (Xbox 360). Run D1–D3 **before** installing HidHide.
 | D1 | No HidHide. `joy.cpl` | Record which controllers are listed (expected: DualSense **and** Xbox 360) | |
 | D2 | No HidHide. Browser gamepad tester; press Cross once | Record whether both controllers register the press (double input) | |
 | D3 | No HidHide. Steam running (Settings › Controller) | Record which controllers Steam lists and whether a press counts twice | |
-| D4 | Install HidHide from the official release page; click **Check again** | Virtual Output shows HidHide **Installed**; NEXUS still works | |
-| D5 | Configuration Client: add NEXUS (path copied from the Virtual Output tab) to Applications; tick the DualSense in Devices; enable hiding | NEXUS keeps showing the DualSense connected; macros still work | |
+| D4 | Install HidHide from the official release page; click **Check again** | The Virtual Controller page shows HidHide **Installed**; NEXUS still works | |
+| D5 | Configuration Client: add NEXUS (path copied from the Virtual Controller page) to Applications; tick the DualSense in Devices; enable hiding | NEXUS keeps showing the DualSense connected; macros still work | |
 | D6 | Repeat D1–D3 | Only the Xbox 360 controller is visible; one press counts once | |
 | D7 | Close NEXUS with hiding on; open `joy.cpl` | No controller listed (expected, documented) | |
 | D8 | Remove NEXUS from Applications (hiding still on), restart NEXUS | NEXUS shows no controller **and** the hint "HidHide may be hiding it from NEXUS too"; adding NEXUS back restores it | |
@@ -213,6 +219,132 @@ Virtual output must be on (Xbox 360). Run D1–D3 **before** installing HidHide.
 | Duplicate input | Without HidHide, the physical DualSense stays visible to games and Steam, and some may react to both controllers. Optional: HidHide set up by the user (`docs/hidhide-setup.md`), or turn off PlayStation controller support in the game or Steam. Rows D1–D10 not yet run. |
 | Multiple controllers | Each physical controller gets its own virtual controller, but all share one profile, settings and macro set (per-controller settings are planned for M5). |
 | MZ Titan paddles | Mapped mode works as the mapped button. Independent paddles are **not** supported; no capture evidence exists yet (T1–T10). |
-| Driver installed while NEXUS runs | Click **Check again** on the Virtual Output tab. |
+| Driver installed while NEXUS runs | Click **Check again** on the Virtual Controller page. |
 | Online games | Not tested and not targeted. Many online games prohibit macros. NEXUS does not try to avoid anti-cheat detection. |
 | Installer | Not code-signed (personal use); SmartScreen shows a warning on first install. |
+
+## Core functionality (November 2026): needs a real DualSense on Windows
+
+Simulated and CI tests cover the logic; these confirm it on hardware.
+
+| # | Check | Expected |
+|---|---|---|
+| CF1 | Virtual output on (Xbox 360), **Live Viewer › Output Check**, press every button, pull both triggers, move both sticks | Every row stays green; "Windows receives exactly what NEXUS sends" |
+| CF2 | Same, with a game (e.g. Warzone) running in the background | Still green; no differences that stay while input is held still |
+| CF3 | **Performance**, play for 30+ minutes | *Virtual controller driver call* p99 stays well under 1 ms; *Slow driver calls* shows 0 over 50 ms and almost none over 4 ms; report rate ~250 Hz; late reports over 50 ms stay at or near 0. Note any spikes: any call over 50 ms means the latest-frame handoff in `docs/driver-performance.md` should be built |
+| CF4 | **Mapping › Button combinations**: L1 + R1 → Triangle, hide on | Holding L1+R1 gives Y in `joy.cpl`/Output Check, not LB/RB; releasing one doesn't flash LB/RB; L1 alone still gives LB |
+| CF5 | Macro with **Hold to activate** 300 ms, each mode | A quick tap does nothing; holding fires it; releasing stops Repeat While Held at once |
+| CF6 | Profiles › **Make default**, switch to another profile, restart NEXUS | NEXUS starts on the default profile |
+| CF7 | Unplug the controller while a macro is running and a button is held | The virtual controller is removed; Output Check / `joy.cpl` show nothing stuck; reconnect resumes |
+
+## Windows integration and stick mapping (November 2026): needs Windows, the DualSense for SM checks
+
+The rules are unit-tested and the installer check runs in CI on a GitHub Windows machine; these confirm behaviour on a real PC.
+
+| # | Check | Expected |
+|---|---|---|
+| WI1 | Close the window (default settings) while a game uses the controller | NEXUS stays in the tray; the game keeps the controller; clicking the tray icon brings the window back where it was |
+| WI2 | Tray right-click › **Quit NEXUS** while holding a button / while a macro plays | NEXUS exits within ~2 s; `joy.cpl` shows the Xbox controller gone, nothing stuck in the game |
+| WI3 | *Settings › Windows*: Close button → *Quit NEXUS*, close the window | NEXUS exits and releases the controller (as WI2) |
+| WI4 | *Minimise → Hide to the tray*, minimise | No taskbar button; tray click restores it |
+| WI5 | **Start with Windows** on, sign out and in | NEXUS starts in the tray (no window), the DualSense and virtual controller work without opening it |
+| WI6 | Same with *When started with Windows → Open the window* | The window opens at sign-in |
+| WI7 | Task Manager › Startup apps › NEXUS → Disabled, then open *Settings › Windows* | *Start with Windows* shows off with the Task Manager note; turning it on works at the next sign-in |
+| WI8 | Start NEXUS from the Start menu while it already runs (hidden or not) | No second copy (Task Manager shows one `nexus-desktop.exe`); the existing window comes to the front |
+| WI9 | Resize/move the window, go to Performance, quit and start again | Same size, position and page |
+| WI10 | Uninstall from Windows Settings › Apps with Start with Windows on | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` has no `NEXUS` value; `%APPDATA%\com.nexus.controllerengine` is still there |
+| WI11 | Update to a newer build with Start with Windows on | Still starts with Windows afterwards; profiles kept |
+| SM1 | *Sticks › Stick swap › Swap sticks*, move each stick in `joy.cpl` / Output Check | Left stick moves the right axes and the other way round, with the full range; L3/R3 unchanged |
+| SM2 | Left stick deadzone 30 %, right 5 %, swapped | The left stick's drift is still hidden (its deadzone travels with it) |
+| SM3 | Gyro on, sticks swapped | Gyro still aims with the game's right stick |
+| SM4 | *Stick to buttons* on the left stick, *Use as d-pad*, analog off | Pushing the stick presses the d-pad in the game; the game's left stick stays centred |
+| SM5 | Same, threshold 50 %, release margin 10 %: rest the stick near half travel and wobble it | No flicker of the d-pad button (Output Check / `joy.cpl`) |
+| SM6 | 4 directions, roll the stick from up to right | Never both buttons at once; up releases before right presses |
+| SM7 | *Also move the stick in games* on, Precise curve | The d-pad presses and the stick still moves with the curve applied |
+| SM8 | Switch to a profile without stick mapping while a stick-button is held | The button releases at once; nothing stuck |
+| DS1 | **Performance** during 30+ minutes of play | *Stale reports skipped after slow calls* stays at 0 (any skips mean NEXUS fell 8 ms or more behind, almost always because of slow driver calls: note when) |
+
+## Release preparation (November 2026): needs Windows, a DualSense for RP1–RP3
+
+| # | Check | Expected |
+|---|---|---|
+| RP1 | Fresh install, first start, follow the welcome guide and the Dashboard's **Get ready to play** checklist from nothing | Each step turns green in order; every failing step's advice is accurate (no ViGEmBus, output off, controller unplugged, a second Xbox controller holding player 1) |
+| RP2 | Start Warzone (or any game) once, then *Profiles* › a profile › **Pick a recently used program** | The game's program is listed; picking it links it; switching happens when the game is in front |
+| RP3 | *Profiles* › **Restore points**: restore yesterday's daily backup, then the *Saved before a restore* point | Profiles and macros go back each time; nothing is lost |
+| RP4 | Install an update with the updater (once it is switched on), then *Restore points* › *Saved before updating* | The pre-update data restores |
+| RP5 | *Settings* › **Copy diagnostics report**, paste into a text editor | No Windows account name, serial number, MAC address or profile/macro names appear |
+
+## Everyday use (November 2026): needs Windows and the DualSense
+
+| # | Check | Expected |
+|---|---|---|
+| EU1 | Toggle a shift layer on (or toggle gyro on), then change a slider in *Sticks* | The layer (or gyro) stays on |
+| EU2 | Hold a toggle-layer button while a game gains focus and switches the profile | The layer doesn't toggle by itself |
+| EU3 | Use a combination with *hide*, release one button, change a setting while still holding the other | No stray LB/RB reaches the game |
+| EU4 | Sidebar › *Active profile*: switch profiles from any page | Mappings change at once; the sidebar, Dashboard and Profiles agree on the active profile |
+| EU5 | Edit a setting, and within half a second alt-tab into a game linked to another profile | The edit is saved to the profile you were editing; the game's profile is unchanged |
+| EU6 | Sidebar footer with ViGEmBus off, output off, another Xbox controller as player 1, and everything working | *Xbox output* reads no driver / off / player 2 / on; hovering explains the fix |
+
+## Game performance (November 2026): needs Windows, the DualSense and Warzone
+
+Procedure, tools and what to record: `docs/performance-investigation.md` §5.
+
+| # | Check | Expected |
+|---|---|---|
+| WZ1 | Scenarios A–F, old build and new build, NEXUS placed where it is during play | With the new build, C–F are within run-to-run variation of A (average FPS and 1% lows); WebView2 near 0% GPU while the game has focus |
+| WZ2 | D-min and D-3D (new build) | D-3D ≈ D-min: the 3D view doesn't redraw while the game is focused, and the status lines update about 4 times a second |
+| WZ3 | Click NEXUS while D-3D runs, then back into the game | NEXUS shows the current state at once and updates smoothly while focused; back in the game, it slows down again |
+
+## Input feel through NEXUS (November 2026): needs Windows, the controller and Warzone
+
+Procedure and how to read the numbers: `docs/input-timing.md` §5.
+
+| # | Check | Expected |
+|---|---|---|
+| IT1 | `joy.cpl` while playing | Only *Controller (XBOX 360 For Windows)* is listed (no double input from the PlayStation controller) |
+| IT2 | Performance page after a minute of play, scenarios B–D | Time between reports and between frames sent: median ≈ 4 ms, 99th < 5 ms; reports already waiting 0; stale reports skipped 0; processing 99th < 1 ms |
+| IT3 | Compare A (controller used directly) with B, then C and D | Note which feels different and the Performance numbers for it |
+| IT4 | NEXUS stick deadzone at 0 vs the default 5 %, same Warzone settings | Note whether small aim movements feel closer to A |
+
+## DualShock 4 (November 2026): needs Windows and a DualShock 4 on USB
+
+Report format and how it was checked: `docs/dualshock4-protocol.md`. Note the revision (*Settings › Device scan*: CUH-ZCT1 or CUH-ZCT2) with each result.
+
+| # | Check | Expected |
+|---|---|---|
+| D41 | Plug in the DualShock 4 with a Micro-USB data cable | Within about a second the Dashboard and sidebar say **DualShock 4**; *Live Viewer › Health* shows *DualShock 4 USB report 0x01* and about 250 reports/s |
+| D42 | *Live Viewer › Test* | Every step passes (there's no Mute step); Share, Options and PS register; both triggers reach 0 and 100 %; both sticks reach every edge and return to centre |
+| D43 | *Live Viewer › Live* with nothing touched; then each stick to each edge; then a finger on the touchpad's corners | Sticks rest at (or within a few steps of) 0; up is positive; touch reaches about 1919 × 941 |
+| D44 | `joy.cpl` with Xbox output on: every button, d-pad diagonals, sticks, triggers | Each lights the matching Xbox control; nothing stays pressed after release |
+| D45 | Remap Cross → B, a hold-to-activate macro, a combination, switch profiles from the sidebar | Same behaviour as with a DualSense |
+| D46 | Unplug while holding a button and while a macro plays; plug back in | The Xbox controller goes neutral and is removed; after replugging it starts neutral and nothing is held |
+| D47 | DualSense and DualShock 4 plugged in together | Both are listed with their own model; each one's input shows only on its own entry |
+| D48 | *Lighting & Haptics*: light bar on with a colour, *Test vibration* | The light bar changes colour; both motors run and stop |
+
+## Profile Manager (November 2026): needs Windows, a controller and two games
+
+Simulated-engine and unit tests cover the store, the switching rules and the page; these checks need real games in front.
+
+| # | Check | Expected | Result |
+|---|---|---|---|
+| PM1 | Link game A to profile A, auto switching on; start game A, wait 2 s | Profile A becomes active (sidebar and *Profiles*), its mapping works in the game | |
+| PM2 | Alt-tab to the desktop for 2 s, then back | The profile before the game returns on the desktop; profile A again in the game | |
+| PM3 | Close game A | The previous profile returns | |
+| PM4 | Link game B to profile B; switch straight from game A to game B | Profile B in game B; after closing both, the original profile | |
+| PM5 | In game A, pick another profile by hand | It stays; leaving the game does not override your choice | |
+| PM6 | Hold a button while a game switches the profile (e.g. hold R2 while alt-tabbing in) | No stuck or doubled input; the new profile's mapping applies from the next press | |
+| PM7 | Duplicate profile A, change the copy's mapping; switch between them | Each keeps its own settings; the original is unchanged | |
+
+## Release gate
+
+No release (versioned or announced) until all of these are done on a real Windows 11 PC with a USB DualSense, and the results are recorded here with the date and NEXUS commit:
+
+1. **CF1–CF3, CF7** (Output Check, with Warzone running, 30+ minutes of play on the Performance page, unplug with a held button and a running macro).
+2. **DS1**: no stale skips and no slow driver calls over 50 ms during that play session. Any call over 50 ms means the output-thread design in `docs/driver-performance.md` is needed before a release.
+3. **WI1, WI2, WI5, WI8, WI10** (close to tray during a game, Quit releases everything, start with Windows, single copy, uninstall cleanup).
+4. **SM1, SM4, SM5** (stick swap, stick as d-pad, no flicker near the threshold), if those features are to be used.
+5. **WZ1–WZ3** (Warzone frame rate with NEXUS running).
+6. **D41–D48** if NEXUS is to be used with a DualShock 4.
+7. A Warzone session with the profile you'll actually play: inputs respond normally, nothing stays pressed after alt-tab, after closing NEXUS to the tray, or after quitting it. NEXUS does not try to avoid anti-cheat; if Warzone rejects virtual controllers or macros, stop using NEXUS there.
+
+Automated results (unit, simulated-engine and installer tests on GitHub's Windows machines) do not count towards this gate.

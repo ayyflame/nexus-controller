@@ -2,10 +2,22 @@
 // so the exported fields can be tested.
 
 import { hex } from "./format.ts";
-import type { AppInfo, EngineStatus, HidDiagnostic, LogEntry, RawReport } from "../types/engine";
+import type { AppInfo, EngineStatus, HidDiagnostic, LogEntry, RawReport, WindowsIntegration } from "../types/engine";
 
-/** Bumped when fields are added. Version 1 had no `build` and no `processingTime`. */
-export const DIAGNOSTICS_VERSION = 2;
+/**
+ * Bumped when fields are added. Version 1 had no `build` and no `processingTime`;
+ * version 2 had no virtual-controller status, slow driver calls or Windows settings.
+ */
+export const DIAGNOSTICS_VERSION = 3;
+
+/**
+ * Replaces the account name in Windows user-folder paths
+ * (`C:\Users\<name>\…`, also with forward slashes or JSON-escaped
+ * backslashes) wherever they appear, e.g. inside an error message.
+ */
+export function scrubUserPaths(text: string): string {
+  return text.replace(/([A-Za-z]:(?:\\{1,2}|\/)Users(?:\\{1,2}|\/))([^\\/"'\r\n:*?<>|]+)/gi, "$1<user>");
+}
 
 /**
  * What `processingTime` measures in this build. Stated in every report,
@@ -33,6 +45,7 @@ export function diagnosticsReport(
   log: LogEntry[],
   userAgent: string,
   now: Date,
+  windows: WindowsIntegration | null = null,
 ): string {
   const report = {
     kind: "nexus-diagnostics",
@@ -47,6 +60,15 @@ export function diagnosticsReport(
       requestedOutput: status.requestedOutput,
       outputBackend: status.outputBackend,
       outputBackendStatus: status.outputBackendStatus,
+      drivers: status.drivers,
+    },
+    windows: windows && {
+      behaviour: windows.behaviour,
+      startWithWindows: {
+        enabled: windows.startWithWindows.enabled,
+        disabledInWindows: windows.startWithWindows.disabledInWindows,
+        error: windows.startWithWindows.error,
+      },
     },
     connectionStats: status.stats,
     processingTimeDefinition: PROCESSING_TIME_DEFINITION,
@@ -61,6 +83,15 @@ export function diagnosticsReport(
       totalReports: d.totalReports,
       parseErrors: d.parseErrors,
       sequenceGaps: d.sequenceGaps,
+      staleReportsSkipped: d.staleReportsSkipped ?? 0,
+      slowDriverCalls: d.stageLatency?.slowOutput ?? null,
+      virtualController: {
+        requested: d.output.requested,
+        active: d.output.active,
+        playerIndex: d.output.playerIndex ?? null,
+        retrying: d.output.retrying ?? false,
+        lastError: d.output.lastError,
+      },
       reportIntervals: d.reportIntervals,
       // Null until the first 64 reports have been measured.
       processingTime: d.pipelineLatency.samples > 0
@@ -84,5 +115,6 @@ export function diagnosticsReport(
     })),
     log: log.map((l) => ({ t: l.timestampMs, level: l.level, category: l.category, message: l.message })),
   };
-  return JSON.stringify(report, null, 2);
+  // Error and log text can quote file paths; no account name leaves the PC.
+  return scrubUserPaths(JSON.stringify(report, null, 2));
 }

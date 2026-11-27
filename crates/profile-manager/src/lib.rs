@@ -26,9 +26,12 @@ pub const MAX_PROFILE_NAME_LEN: usize = 40;
 const KEY_LAST_PROFILE: &str = "last_profile_id";
 
 mod macros;
+mod meta;
 mod portable;
 mod smart;
 
+pub use macros::MacroMeta;
+pub use meta::ProfileMeta;
 pub use portable::{
     ConfigBundle, ImportMode, ImportPreview, ImportReport, PortableProfile, BUNDLE_FORMAT,
 };
@@ -59,6 +62,8 @@ pub enum ProfileError {
     NameTaken(String),
     #[error("You can't delete your only profile.")]
     LastProfile,
+    #[error("“{0}” is the profile NEXUS starts with, so it is protected. Choose another start-up profile first, then delete it.")]
+    Protected(String),
     #[error("{0}")]
     InvalidGame(String),
     #[error("“{game}” already switches to the profile “{profile}”.")]
@@ -341,28 +346,43 @@ impl ProfileStore {
     }
 
     /// Copies a profile: settings, virtual output and which macros are on.
+    /// Linked games stay with the original (a game switches to one profile).
     pub fn duplicate_profile(&mut self, id: i64) -> Result<Profile, ProfileError> {
+        self.duplicate_profile_named(id, None)
+    }
+
+    /// Copies a profile under `name`, or "<name> (copy)" etc. when `None`.
+    pub fn duplicate_profile_named(
+        &mut self,
+        id: i64,
+        name: Option<&str>,
+    ) -> Result<Profile, ProfileError> {
         let source = self.get_profile(id)?;
-        let names: Vec<String> = self
-            .list_profiles()?
-            .into_iter()
-            .map(|p| p.name.to_lowercase())
-            .collect();
-        let base: String = source
-            .name
-            .chars()
-            .take(MAX_PROFILE_NAME_LEN - 10)
-            .collect();
-        let name = (1..)
-            .map(|n| {
-                if n == 1 {
-                    format!("{base} (copy)")
-                } else {
-                    format!("{base} (copy {n})")
-                }
-            })
-            .find(|c| !names.contains(&c.to_lowercase()))
-            .expect("an unused name exists");
+        let name = match name {
+            Some(n) => self.check_profile_name(n, None)?,
+            None => {
+                let names: Vec<String> = self
+                    .list_profiles()?
+                    .into_iter()
+                    .map(|p| p.name.to_lowercase())
+                    .collect();
+                let base: String = source
+                    .name
+                    .chars()
+                    .take(MAX_PROFILE_NAME_LEN - 10)
+                    .collect();
+                (1..)
+                    .map(|n| {
+                        if n == 1 {
+                            format!("{base} (copy)")
+                        } else {
+                            format!("{base} (copy {n})")
+                        }
+                    })
+                    .find(|c| !names.contains(&c.to_lowercase()))
+                    .expect("an unused name exists")
+            }
+        };
         let now = now_ms();
         let tx = self.conn.transaction()?;
         tx.execute(
@@ -379,21 +399,41 @@ impl ProfileStore {
         self.get_profile(new_id)
     }
 
-    /// Deletes a profile. The last profile can't be deleted; deleting the
-    /// active profile makes the first remaining profile active.
+    /// Deletes a profile: its settings, linked games and which macros it
+    /// switches on. Nothing else (the macros themselves, other profiles, app
+    /// settings) is touched. The last profile and the protected profile
+    /// ([`ProfileStore::protected_profile`]) can't be deleted; deleting the
+    /// active profile makes the protected profile active.
     pub fn delete_profile(&mut self, id: i64) -> Result<Profile, ProfileError> {
-        self.get_profile(id)?;
+        let profile = self.get_profile(id)?;
         if self.list_profiles()?.len() <= 1 {
             return Err(ProfileError::LastProfile);
+        }
+        if self.protected_profile()? == id {
+            return Err(ProfileError::Protected(profile.name));
         }
         let was_active = self.active_profile()?.id == id;
         self.conn
             .execute("DELETE FROM profiles WHERE id = ?1", [id])?;
+        self.forget_profile_meta(id)?;
         if was_active {
-            let first = self.list_profiles()?.remove(0);
-            self.set_active_profile(first.id)?;
+            let fallback = self.protected_profile()?;
+            self.set_active_profile(fallback)?;
         }
         self.active_profile()
+    }
+
+    /// The profile that can't be deleted: the one NEXUS starts with, or (if
+    /// none is chosen) the oldest profile, which NEXUS falls back to.
+    pub fn protected_profile(&self) -> Result<i64, ProfileError> {
+        if let Some(id) = self.default_profile()? {
+            return Ok(id);
+        }
+        Ok(self
+            .conn
+            .query_row("SELECT id FROM profiles ORDER BY id LIMIT 1", [], |r| {
+                r.get(0)
+            })?)
     }
 
     pub fn set_processing(
@@ -439,6 +479,8 @@ impl ProfileStore {
             .map_err(Into::into)
     }
 
+    /// Makes a profile active (by hand, at start-up or by a game) and
+    /// records when it was last used.
     pub fn set_active_profile(&mut self, id: i64) -> Result<Profile, ProfileError> {
         let profile = self.get_profile(id)?;
         self.conn.execute(
@@ -446,6 +488,7 @@ impl ProfileStore {
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             params![KEY_LAST_PROFILE, id.to_string()],
         )?;
+        self.record_profile_used(id, now_ms())?;
         Ok(profile)
     }
 

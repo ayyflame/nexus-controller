@@ -37,6 +37,9 @@ pub enum ControllerModel {
     /// Recognised and parsed with the DualSense base layout. Edge-only inputs
     /// (back paddles, Fn buttons) are not yet decoded.
     DualSenseEdge,
+    /// PlayStation 4 DUALSHOCK 4 (CUH-ZCT1 or CUH-ZCT2), over USB. Its own
+    /// report format, parsed by `nexus-dualshock4`.
+    DualShock4,
 }
 
 impl ControllerModel {
@@ -44,6 +47,7 @@ impl ControllerModel {
         match self {
             ControllerModel::DualSense => "DualSense Wireless Controller",
             ControllerModel::DualSenseEdge => "DualSense Edge Wireless Controller",
+            ControllerModel::DualShock4 => "DUALSHOCK 4 Wireless Controller",
         }
     }
 }

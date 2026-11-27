@@ -1,6 +1,42 @@
 # Automatic updates: one-time setup
 
+> **The complete, ordered setup (updates and signing) is in [release-setup-checklist.md](release-setup-checklist.md).** A release now also requires Authenticode signing; the configuration check refuses one without it.
+
 > **Status:** the updater is implemented, and a real installed-to-installed update passed on Windows in CI ([`update-verification.md`](update-verification.md)). It is **not live** yet, because no signing key, update host or GitHub secrets have been configured. Until the steps below are done, every build reports *"Automatic updates aren't set up in this build"* and never contacts anything. Publishing a release fails on purpose, with a message naming what is missing.
+
+## What's missing, exactly (checklist)
+
+Nothing below can be created from the code; each needs the owner's accounts. Until **all** of it exists, builds don't check for updates and a release fails before building, naming what's missing.
+
+| # | Item | Where | Kind |
+|---|---|---|---|
+| 1 | Updater key pair (`nexus-updater.key` + `.pub`) and its password | Your PC, then a password manager and an offline copy (step 1) | Created with `npx tauri signer generate` |
+| 2 | `TAURI_SIGNING_PRIVATE_KEY` | GitHub secret | Contents of the private key |
+| 3 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | GitHub secret | The key's password |
+| 4 | `TAURI_UPDATER_PUBKEY` | GitHub variable | Contents of the `.pub` file |
+| 5 | Update host: a bucket with public HTTPS reads (e.g. Cloudflare R2) | Cloudflare (or any S3-compatible host) account | Step 2 |
+| 6 | `UPDATE_S3_ACCESS_KEY_ID`, `UPDATE_S3_SECRET_ACCESS_KEY` | GitHub secrets | An API token limited to that bucket, read and write |
+| 7 | `UPDATE_S3_ENDPOINT`, `UPDATE_S3_BUCKET` | GitHub variables | e.g. `https://<account>.r2.cloudflarestorage.com`, `nexus-updates` |
+| 8 | `UPDATE_PUBLIC_BASE_URL` | GitHub variable | The public HTTPS address, ideally a domain you own (it can't change later without a manual reinstall) |
+| 9 | A first updater-enabled release, installed by hand once | GitHub Release `v0.2.0` (newer than every 0.1.0 build) | Step 4 |
+| 10 | Authenticode signing (SignPath, Trusted Signing or a certificate) | [code-signing.md](code-signing.md) | Required for any release |
+
+The updater signature is created **after** Authenticode signing, over the exact file users download (`tauri signer sign` in the workflow). `make-manifest` refuses a `latest.json` whose URL doesn't name that file, whose signature doesn't verify, or whose version isn't newer than the published one. Every development build runs this whole path with throwaway keys (*Release pipeline dry run*).
+
+## When an update fails
+
+Every outcome is handled:
+
+| What happens | What NEXUS does |
+|---|---|
+| Check or download fails (offline, host down, timeout) | Shows the reason quietly in *Settings › Updates*; tries again at the next scheduled check. Nothing is installed. |
+| The download doesn't match the signature (tampered or corrupted) | Rejected by the updater plugin and checked again before install. Nothing is installed. There is no override. |
+| Backing up your data fails | Nothing is installed ("couldn't back up your data first"). |
+| The installer can't start | NEXUS keeps running the current version and says so. |
+| The installer ran but the old version is still running after the restart | Reported as *update not applied* (expected vs running version). Your data is unchanged. |
+| The new version starts but something is wrong with it | **Manual rollback:** install the previous version's setup from its GitHub Release (or the immutable `stable/<version>/` file on the update host). Profiles, macros and settings stay; *Profiles › Restore points › Saved before updating* restores the data exactly as it was before the update. |
+
+There is no automatic rollback to the previous program files. The NSIS installer replaces them in place, and keeping a second copy would double the install size for a rare case. Downgrading by hand is allowed (`allowDowngrades` in the NSIS installer is Tauri's default).
 
 ## How it works
 
@@ -29,7 +65,7 @@ download → plugin verifies signature → "Restart and install"
 - Only the **NSIS** installer (`-setup.exe`) is used for updates. The manifest publishes only the `windows-x86_64-nsis` key, so a copy installed from the `.msi` is told to download the new setup `.exe` and is never cross-upgraded into a second installation.
 - HTTPS is required for the manifest and the download. The app refuses `http://`.
 
-**Tauri updater signatures are not Windows code signing.** They prove an update came from you. They do **not** remove the Windows SmartScreen warning on first install. That needs an Authenticode code-signing certificate, which is a separate, still-open item.
+**Tauri updater signatures are not Windows code signing.** They prove an update came from you. They do **not** remove the Windows SmartScreen warning on first install. That needs an Authenticode code-signing certificate, which is a separate, still-open item: see [code-signing.md](code-signing.md).
 
 ## 1. Create the update signing key (on your PC)
 
@@ -85,7 +121,9 @@ The app checks `UPDATE_PUBLIC_BASE_URL/stable/latest.json`. That URL and the pub
 
 ## 4. First release
 
-Follow [releasing.md](releasing.md) and publish **v0.1.0** as the first updater-enabled release. Builds downloaded before this (workflow artifacts) don't contain the update settings. Install the v0.1.0 release once by hand, and updates are automatic from then on.
+Follow [release-setup-checklist.md](release-setup-checklist.md) §6 and publish **v0.2.0** as the first updater-enabled release (every earlier build is 0.1.0). Builds downloaded before this (workflow artifacts, *Latest build*) don't contain the update settings. Install the v0.2.0 release once by hand, and updates are automatic from then on.
+
+Then work through [update-verification.md](update-verification.md) with v0.2.1.
 
 Then work through [update-verification.md](update-verification.md) with v0.1.1.
 

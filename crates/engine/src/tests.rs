@@ -34,6 +34,9 @@ fn config() -> EngineConfig {
         devices: DeviceManagerConfig {
             scan_interval: Duration::from_millis(10),
             read_timeout: Duration::from_millis(5),
+            // A loaded test machine can pause any thread for over 8 ms;
+            // only the stall tests use the real stale-input threshold.
+            stale_after: Duration::from_secs(1),
         },
         // Mock devices never produce OS device notifications. With
         // notifications on (real Windows), polling would relax to the 5 s
@@ -146,13 +149,15 @@ fn disconnect_and_reconnect_are_published_as_events() {
     backend.plug(usb_info());
     wait_status(&e, "reconnect", |s| s.devices.len() == 1);
 
-    let device_events: Vec<DeviceEvent> = events
-        .try_iter()
-        .filter_map(|ev| match ev {
-            EngineEvent::Device(d) => Some(d),
-            _ => None,
-        })
-        .collect();
+    // The snapshot can show the device a moment before its event is
+    // broadcast, so wait for the events themselves.
+    let mut device_events: Vec<DeviceEvent> = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while device_events.len() < 3 && Instant::now() < deadline {
+        if let Ok(EngineEvent::Device(d)) = events.recv_timeout(Duration::from_millis(50)) {
+            device_events.push(d);
+        }
+    }
     let kinds: Vec<&str> = device_events
         .iter()
         .map(|d| match d {
@@ -300,11 +305,14 @@ fn jump_macro(mode: PlaybackMode) -> Macro {
             buttons: vec![MacroButton::South],
             hold_ms: 2000,
             delay_after_ms: 0,
+            kind: nexus_macro_engine::StepKind::Tap,
         }],
         trigger: Some(MacroButton::RightStick),
         mode,
         repeat_delay_ms: 50,
         block_trigger: true,
+        activation_ms: 0,
+        repeat_count: 1,
         created_at_ms: 0,
         updated_at_ms: 0,
     }
@@ -468,6 +476,7 @@ fn device_change_notification_connects_without_waiting_for_poll() {
             devices: DeviceManagerConfig {
                 scan_interval: Duration::from_secs(60), // polling effectively off
                 read_timeout: Duration::from_millis(5),
+                ..Default::default()
             },
             hotplug: false,
             ..Default::default()
@@ -547,6 +556,41 @@ fn pipeline_latency_is_measured() {
     });
     let l = s.devices[0].pipeline_latency;
     assert!(l.p50_us <= l.p99_us && l.p99_us <= l.max_us);
+}
+
+#[test]
+fn per_stage_latency_is_published_and_adds_up() {
+    let (backend, e) = connected_engine();
+    for _ in 0..70 {
+        backend.push_report(PATH, report(&[]));
+    }
+    let s = wait_status(&e, "stage latency", |s| {
+        s.devices[0].stage_latency.mapping.samples >= 64
+    });
+    let d = &s.devices[0];
+    let st = d.stage_latency;
+    for (name, x) in [
+        ("input", st.input),
+        ("mapping", st.mapping),
+        ("macros", st.macros),
+        ("output", st.output),
+    ] {
+        assert!(x.samples >= 64, "{name}: {x:?}");
+        assert!(
+            x.p50_ns <= x.p99_ns && x.p99_ns <= x.max_ns,
+            "{name}: {x:?}"
+        );
+    }
+    // The stages are parts of the total: their medians can't exceed the total's maximum.
+    let parts = st.input.p50_ns as u64
+        + st.mapping.p50_ns as u64
+        + st.macros.p50_ns as u64
+        + st.output.p50_ns as u64;
+    assert!(
+        parts <= (d.pipeline_latency.max_us as u64 + 1) * 1000,
+        "{parts} ns vs {:?}",
+        d.pipeline_latency
+    );
 }
 
 #[test]
@@ -1271,6 +1315,11 @@ struct RecordingPad {
     next: u64,
     /// Simulates whether ViGEmBus is installed.
     installed: Arc<std::sync::atomic::AtomicBool>,
+    /// Simulates a slow driver: each update takes this long (ms). While it
+    /// is `u64::MAX`, updates block until it changes (a hung driver call).
+    stall_ms: Arc<AtomicU64>,
+    /// While set, every update fails like a driver error.
+    fail: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl VirtualControllerBackend for RecordingPad {
@@ -1298,6 +1347,17 @@ impl VirtualControllerBackend for RecordingPad {
         Ok(VirtualDeviceHandle(self.next))
     }
     fn update(&mut self, h: VirtualDeviceHandle, s: &ControllerState) -> Result<(), OutputError> {
+        if self.fail.load(Ordering::SeqCst) {
+            return Err(OutputError::Backend("simulated driver error".into()));
+        }
+        let stall = self.stall_ms.load(Ordering::SeqCst);
+        if stall == u64::MAX {
+            while self.stall_ms.load(Ordering::SeqCst) == u64::MAX {
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        } else if stall > 0 {
+            std::thread::sleep(Duration::from_millis(stall));
+        }
         self.log
             .0
             .lock()
@@ -1322,6 +1382,7 @@ fn rapid_macro() -> Macro {
             buttons: vec![MacroButton::South],
             hold_ms: 30,
             delay_after_ms: 30,
+            kind: nexus_macro_engine::StepKind::Tap,
         }],
         repeat_delay_ms: 0,
         ..jump_macro(PlaybackMode::RepeatWhileHeld)
@@ -1339,6 +1400,14 @@ fn xbox_engine() -> (MockHidBackend, Engine, PadLog) {
 fn xbox_engine_with(
     installed: Arc<std::sync::atomic::AtomicBool>,
 ) -> (MockHidBackend, Engine, PadLog) {
+    xbox_engine_stalling(installed, Default::default(), config().devices.stale_after)
+}
+
+fn xbox_engine_stalling(
+    installed: Arc<std::sync::atomic::AtomicBool>,
+    stall_ms: Arc<AtomicU64>,
+    stale_after: Duration,
+) -> (MockHidBackend, Engine, PadLog) {
     let backend = MockHidBackend::new();
     backend.plug(usb_info());
     let log = PadLog::default();
@@ -1351,10 +1420,16 @@ fn xbox_engine_with(
                 log: factory_log.clone(),
                 next: 0,
                 installed: installed.clone(),
+                stall_ms: stall_ms.clone(),
+                fail: Default::default(),
             })
         }),
         EngineConfig {
             initial_output: VirtualOutputKind::Xbox360,
+            devices: DeviceManagerConfig {
+                stale_after,
+                ..config().devices
+            },
             ..config()
         },
     );
@@ -2785,6 +2860,8 @@ fn closing_and_restarting_nexus_leaves_no_pad_behind_and_works_again() {
                 log: factory_log.clone(),
                 next: 0,
                 installed: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+                stall_ms: Default::default(),
+                fail: Default::default(),
             })
         }),
         EngineConfig {
@@ -2963,4 +3040,679 @@ fn stick_and_trigger_calibration_shape_what_the_virtual_pad_receives() {
             .last()
             .is_some_and(|r| r.thumb_lx > 1000 && r.left_trigger == 6)
     });
+}
+
+#[test]
+fn output_check_compares_what_was_sent_with_what_xinput_reads() {
+    use crate::output_check::{check_output, OutputCheck};
+    use nexus_virtual_controller::xinput::XInputPad;
+    let (backend, e, _log) = xbox_engine();
+    // Cross held: the virtual controller is sent A.
+    backend.push_report(PATH, report(&[CROSS]));
+    let mut s = wait_status(&e, "processed", |s| {
+        s.devices[0]
+            .processed
+            .as_ref()
+            .is_some_and(|p| p.buttons.south)
+    });
+    assert_eq!(
+        check_output(&s, |_| unreachable!()),
+        OutputCheck::SlotUnknown,
+        "slot not known yet"
+    );
+    s.devices[0].output.player_index = Some(0);
+    let sent = XInputPad {
+        buttons: xusb::A,
+        ..Default::default()
+    };
+    // Windows reads the same: a match.
+    match check_output(&s, |slot| {
+        assert_eq!(slot, 0);
+        Ok(Some(sent))
+    }) {
+        OutputCheck::Compared {
+            differences,
+            sent: got,
+            ..
+        } => {
+            assert!(differences.is_empty());
+            assert_eq!(got.buttons & xusb::A, xusb::A);
+        }
+        other => panic!("{other:?}"),
+    }
+    // Windows reads nothing pressed: the difference is named.
+    match check_output(&s, |_| Ok(Some(XInputPad::default()))) {
+        OutputCheck::Compared { differences, .. } => {
+            assert_eq!(
+                differences,
+                vec!["A: sent pressed, Windows reads released".to_string()]
+            );
+        }
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(
+        check_output(&s, |_| Ok(None)),
+        OutputCheck::Missing { slot: 0 }
+    );
+    assert_eq!(
+        check_output(&s, |_| Err("no XInput".into())),
+        OutputCheck::Unavailable {
+            reason: "no XInput".into()
+        }
+    );
+    s.devices[0].output.active = None;
+    assert_eq!(
+        check_output(&s, |_| unreachable!()),
+        OutputCheck::NotXbox { active: None }
+    );
+    s.devices.clear();
+    assert_eq!(
+        check_output(&s, |_| unreachable!()),
+        OutputCheck::NoController
+    );
+}
+
+#[test]
+fn a_button_combination_reaches_the_virtual_controller() {
+    use nexus_controller_core::Button;
+    use nexus_input_processing::{ComboRule, ProcessingConfig};
+    let (backend, e, log) = xbox_engine();
+    e.set_processing(ProcessingConfig {
+        combos: vec![ComboRule {
+            buttons: vec![Button::LeftShoulder, Button::RightShoulder],
+            sends: vec![Button::North],
+            hide_inputs: true,
+        }],
+        ..Default::default()
+    });
+    // L1 + R1 held together → the game sees Y, not LB/RB.
+    backend.push_report(PATH, report(&[(1, 0x01 | 0x02)]));
+    log.wait("Y from the combination", |p| {
+        p.iter().any(|x| {
+            matches!(x, Pad::Report(_, r) if r.buttons & xusb::Y != 0
+            && r.buttons & (xusb::LEFT_SHOULDER | xusb::RIGHT_SHOULDER) == 0)
+        })
+    });
+    // Released: Y goes away.
+    backend.push_report(PATH, report(&[]));
+    log.wait(
+        "released",
+        |p| matches!(p.last(), Some(Pad::Report(_, r)) if r.buttons == 0),
+    );
+}
+
+// ---- Slow and hung virtual controller driver calls (simulated) -------------
+
+fn stalling_xbox() -> (MockHidBackend, Engine, PadLog, Arc<AtomicU64>) {
+    let stall = Arc::new(AtomicU64::new(0));
+    let installed = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let (backend, e, log) = xbox_engine_stalling(
+        installed,
+        stall.clone(),
+        nexus_device_manager::STALE_INPUT_AFTER,
+    );
+    log.wait("virtual controller", |p| p.contains(&Pad::Connect(1)));
+    e.set_processing(ProcessingConfig::passthrough());
+    (backend, e, log, stall)
+}
+
+#[test]
+fn after_a_slow_driver_call_stale_presses_are_skipped_not_replayed_late() {
+    let (backend, e, log, stall) = stalling_xbox();
+    expect_pad(&backend, &log, &held(0, 0), pad(0), "settled");
+    let before = log.reports().len();
+    // Cross is pressed and its driver call takes 60 ms.
+    stall.store(60, Ordering::SeqCst);
+    backend.push_report(PATH, held(0, 0x20).usb_report());
+    std::thread::sleep(Duration::from_millis(6)); // the reader is inside the call
+                                                  // Meanwhile the player taps Circle, then Circle + Cross, then lets go.
+                                                  // Windows queues these reports.
+    for p in [held(0, 0x40), held(0, 0x20 | 0x40), held(0, 0)] {
+        backend.push_report(PATH, p.usb_report());
+        std::thread::sleep(Duration::from_millis(4));
+    }
+    stall.store(0, Ordering::SeqCst); // later calls are fast again
+    log.wait("the newest state after the stall", |_| {
+        log.reports().len() >= before + 2
+    });
+    std::thread::sleep(Duration::from_millis(30));
+    let sent: Vec<u16> = log.reports()[before..].iter().map(|r| r.buttons).collect();
+    assert_eq!(
+        sent,
+        [xusb::A, 0],
+        "the stalled frame, then straight to the current state: the queued \
+         Circle presses are never sent late"
+    );
+    let d = wait_status(&e, "skips published", |s| {
+        s.devices[0].stale_reports_skipped == 2
+    })
+    .devices[0]
+        .clone();
+    assert_eq!(
+        d.sequence_gaps, 0,
+        "skipped reports are not counted as dropped"
+    );
+    // The slow call itself is counted for the whole connection.
+    for _ in 0..80 {
+        backend.push_report(PATH, Payload::neutral().usb_report());
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    let s = wait_status(&e, "slow calls", |s| {
+        s.devices[0].stage_latency.slow_output.over_50ms >= 1
+    });
+    let slow = s.devices[0].stage_latency.slow_output;
+    assert!(slow.over_4ms >= slow.over_50ms);
+    assert!(slow.longest_ns >= 60_000_000, "{slow:?}");
+    assert!(slow.calls >= 64, "{slow:?}");
+}
+
+#[test]
+fn normal_report_timing_never_skips_anything() {
+    let (backend, e, log, _stall) = stalling_xbox();
+    let before = log.reports().len();
+    for i in 0..40u8 {
+        let p = if i % 2 == 0 {
+            held(0, 0x20)
+        } else {
+            held(0, 0)
+        };
+        backend.push_report(PATH, p.usb_report());
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    log.wait("all 40", |_| log.reports().len() >= before + 40);
+    let presses = log.reports()[before..]
+        .iter()
+        .filter(|r| r.buttons == xusb::A)
+        .count();
+    assert_eq!(presses, 20, "every tap reaches the game");
+    assert_eq!(e.status().devices[0].stale_reports_skipped, 0);
+}
+
+#[test]
+fn a_held_button_released_during_a_stall_is_released_right_after_it() {
+    let (backend, e, log, stall) = stalling_xbox();
+    expect_pad(&backend, &log, &held(0, 0x20), pad(xusb::A), "A held");
+    stall.store(80, Ordering::SeqCst);
+    backend.push_report(PATH, held(0, 0x20).usb_report());
+    std::thread::sleep(Duration::from_millis(6));
+    for _ in 0..5 {
+        backend.push_report(PATH, held(0, 0).usb_report()); // released during the stall
+        std::thread::sleep(Duration::from_millis(4));
+    }
+    stall.store(0, Ordering::SeqCst);
+    log.wait(
+        "released",
+        |p| matches!(p.last(), Some(Pad::Report(_, r)) if r.buttons == 0),
+    );
+    assert!(e.status().devices[0].stale_reports_skipped >= 1);
+}
+
+#[test]
+fn a_hung_driver_call_does_not_keep_nexus_from_exiting() {
+    let (backend, e, log, stall) = stalling_xbox();
+    expect_pad(&backend, &log, &held(0, 0x20), pad(xusb::A), "A held");
+    stall.store(u64::MAX, Ordering::SeqCst);
+    backend.push_report(PATH, held(0, 0x20).usb_report());
+    std::thread::sleep(Duration::from_millis(30)); // the reader is now inside the call
+
+    let t = Instant::now();
+    assert!(!e.shutdown_within(Duration::from_millis(150)));
+    assert!(t.elapsed() < Duration::from_secs(1), "{:?}", t.elapsed());
+    assert!(e
+        .recent_log(5)
+        .iter()
+        .any(|l| l.message.contains("not released within 150 ms")));
+
+    // If the call does return after all, the controller is still released
+    // properly: a neutral frame, then the virtual controller is removed.
+    stall.store(0, Ordering::SeqCst);
+    log.wait("removed", |p| p.contains(&Pad::Disconnect(1)));
+    let all = log.all();
+    let n = all.len();
+    assert_eq!(
+        all[n - 2..],
+        [Pad::Report(1, XusbReport::default()), Pad::Disconnect(1)]
+    );
+    e.shutdown(); // already given up on: returns at once
+}
+
+#[test]
+fn exit_releases_held_buttons_and_running_macros_before_removing_the_pad() {
+    let (backend, e, log) = xbox_engine();
+    e.set_macros(vec![rapid_macro()]);
+    pump(&backend, PATH, 3);
+    // R3 starts the repeating macro; Square is held at the same time.
+    for _ in 0..20 {
+        backend.push_report(PATH, report(&[(0, 0x10), R3]));
+        std::thread::sleep(Duration::from_millis(4));
+    }
+    wait_status(&e, "macro playing", |s| {
+        !s.devices[0].playing_macros.is_empty()
+    });
+    let t = Instant::now();
+    assert!(e.shutdown_within(Duration::from_secs(2)));
+    assert!(t.elapsed() < Duration::from_secs(1));
+    let all = log.all();
+    let n = all.len();
+    assert_eq!(
+        all[n - 2..],
+        [Pad::Report(1, XusbReport::default()), Pad::Disconnect(1)],
+        "nothing stays pressed in the game"
+    );
+    assert_eq!(log.live(), 0);
+}
+
+#[test]
+fn swapped_sticks_and_a_stick_mapped_to_the_dpad_reach_the_virtual_controller() {
+    use nexus_controller_core::Button;
+    use nexus_input_processing::{StickButtons, StickSource};
+    let (backend, e, log) = passthrough_xbox();
+    let mut c = ProcessingConfig::passthrough();
+    // Physical right stick → the game's left stick; physical left stick → d-pad only.
+    c.stick_routing.left_output = StickSource::Right;
+    c.stick_routing.right_output = StickSource::Off;
+    c.left_stick.buttons = StickButtons {
+        enabled: true,
+        up: Some(Button::DpadUp),
+        down: Some(Button::DpadDown),
+        left: Some(Button::DpadLeft),
+        right: Some(Button::DpadRight),
+        ..StickButtons::default()
+    };
+    e.set_processing(c);
+    let mut p = Payload::neutral();
+    p.ly = 0; // physical left stick fully up
+    p.rx = 255; // physical right stick fully right
+    backend.push_report(PATH, p.usb_report());
+    log.wait("d-pad up and the game's left stick right", |pads| {
+        pads.iter().any(|x| {
+            matches!(x, Pad::Report(_, r) if r.buttons == xusb::DPAD_UP
+                && r.thumb_lx == i16::MAX && r.thumb_ly == 0 && r.thumb_rx == 0 && r.thumb_ry == 0)
+        })
+    });
+    backend.push_report(PATH, Payload::neutral().usb_report());
+    log.wait(
+        "released and centred",
+        |pads| matches!(pads.last(), Some(Pad::Report(_, r)) if r.buttons == 0 && r.thumb_lx == 0),
+    );
+}
+
+// ---- Driver errors and feature interplay (simulated) --------------------------
+
+#[test]
+fn a_driver_error_while_a_button_is_held_leaves_nothing_stuck_after_recovery() {
+    let backend = MockHidBackend::new();
+    backend.plug(usb_info());
+    let log = PadLog::default();
+    let fail = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (factory_log, factory_fail) = (log.clone(), fail.clone());
+    let e = Engine::start(
+        Arc::new(backend.clone()),
+        vec![Arc::new(DualSenseDriver)],
+        Arc::new(move || {
+            Box::new(RecordingPad {
+                log: factory_log.clone(),
+                next: 0,
+                installed: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+                stall_ms: Default::default(),
+                fail: factory_fail.clone(),
+            })
+        }),
+        EngineConfig {
+            initial_output: VirtualOutputKind::Xbox360,
+            processing: ProcessingConfig::passthrough(),
+            ..config()
+        },
+    );
+    wait_status(&e, "connect", |s| s.devices.len() == 1);
+    log.wait("virtual controller", |p| p.contains(&Pad::Connect(1)));
+    expect_pad(&backend, &log, &held(0, 0x20), pad(xusb::A), "A held");
+
+    // The driver starts failing while A is held: the broken virtual
+    // controller is removed (the game sees it unplugged, so A can't stay held).
+    fail.store(true, Ordering::SeqCst);
+    backend.push_report(PATH, held(0, 0x20).usb_report());
+    log.wait("failed pad removed", |p| p.contains(&Pad::Disconnect(1)));
+    wait_status(&e, "retrying shown", |s| s.devices[0].output.retrying);
+    // A is released while the driver is broken.
+    fail.store(false, Ordering::SeqCst);
+    for _ in 0..400 {
+        backend.push_report(PATH, held(0, 0).usb_report());
+        std::thread::sleep(Duration::from_millis(5));
+        if log.all().contains(&Pad::Connect(2)) {
+            break;
+        }
+    }
+    log.wait("re-created", |p| p.contains(&Pad::Connect(2)));
+    log.wait("current state on the new pad", |p| {
+        p.iter().any(|x| matches!(x, Pad::Report(2, _)))
+    });
+    let new_pad: Vec<u16> = log
+        .all()
+        .iter()
+        .filter_map(|p| match p {
+            Pad::Report(2, r) => Some(r.buttons),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        new_pad.iter().all(|b| *b == 0),
+        "A never reappears: {new_pad:?}"
+    );
+    assert_eq!(log.live(), 1, "exactly one virtual controller again");
+    let s = wait_status(&e, "recovered", |s| !s.devices[0].output.retrying);
+    assert!(s.devices[0].output.active.is_some());
+    assert!(e
+        .recent_log(20)
+        .iter()
+        .any(|l| l.message.contains("Virtual controller re-created")));
+}
+
+#[test]
+fn stick_buttons_layers_combinations_and_macros_work_together() {
+    use nexus_controller_core::Button;
+    use nexus_input_processing::{ComboRule, LayerMode, MappingLayer, RemapRule, StickButtons};
+    let (backend, e, log) = passthrough_xbox();
+    let mut c = ProcessingConfig::passthrough();
+    c.left_stick.buttons = StickButtons {
+        enabled: true,
+        up: Some(Button::DpadUp),
+        ..StickButtons::default()
+    };
+    c.layers = vec![MappingLayer {
+        name: "Shift".into(),
+        activator: Button::LeftShoulder,
+        mode: LayerMode::Hold,
+        remap: vec![RemapRule::new(Button::South, Some(Button::East))],
+    }];
+    c.combos = vec![ComboRule {
+        buttons: vec![Button::North, Button::West],
+        sends: vec![Button::Start],
+        hide_inputs: true,
+    }];
+    e.set_processing(c);
+    e.set_macros(vec![jump_macro(PlaybackMode::Once)]); // R3 → holds Cross (A)
+    pump(&backend, PATH, 2);
+
+    // Stick up + L1 (layer) + Cross: d-pad up from the stick, B from the layer.
+    let mut p = held(0, 0x20);
+    p.buttons[1] |= 0x01;
+    p.ly = 0;
+    expect_pad(
+        &backend,
+        &log,
+        &p,
+        pad(xusb::DPAD_UP | xusb::B),
+        "stick + layer",
+    );
+    // Triangle + Square (combination) with the stick still up: Start + d-pad up.
+    let mut p = held(0, 0x80 | 0x10);
+    p.ly = 0;
+    expect_pad(
+        &backend,
+        &log,
+        &p,
+        pad(xusb::DPAD_UP | xusb::START),
+        "stick + combination",
+    );
+    // The macro still starts from R3 and adds A next to the stick's d-pad.
+    let mut p = held(1, 0x80);
+    p.ly = 0;
+    expect_pad(
+        &backend,
+        &log,
+        &p,
+        pad(xusb::DPAD_UP | xusb::A),
+        "stick + macro",
+    );
+    // Everything released: nothing left over.
+    expect_pad(&backend, &log, &Payload::neutral(), pad(0), "released");
+}
+
+#[test]
+fn many_slightly_slow_driver_calls_never_build_up_a_backlog_of_old_input() {
+    // Each driver call takes 6 ms (under the 8 ms single-call limit) while
+    // reports arrive every 2 ms. Without catching up, the queue would grow
+    // and a release would reach the game hundreds of ms late.
+    let (backend, e, log, stall) = stalling_xbox();
+    expect_pad(&backend, &log, &held(0, 0x20), pad(xusb::A), "A held");
+    stall.store(6, Ordering::SeqCst);
+    for _ in 0..100 {
+        backend.push_report(PATH, held(0, 0x20).usb_report());
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    let released_at = Instant::now();
+    backend.push_report(PATH, held(0, 0).usb_report());
+    log.wait(
+        "release",
+        |p| matches!(p.last(), Some(Pad::Report(_, r)) if r.buttons == 0),
+    );
+    let lag = released_at.elapsed();
+    stall.store(0, Ordering::SeqCst);
+    assert!(
+        lag < Duration::from_millis(100),
+        "the release reached the game {lag:?} late"
+    );
+    let s = wait_status(&e, "skips counted", |s| {
+        s.devices[0].stale_reports_skipped > 0
+    });
+    assert!(s.devices[0].stale_reports_skipped > 0);
+}
+
+#[test]
+fn editing_settings_keeps_a_toggled_layer_and_switching_profile_resets_it() {
+    use nexus_controller_core::Button;
+    use nexus_input_processing::{LayerMode, MappingLayer, RemapRule};
+    let (backend, e, log) = passthrough_xbox();
+    let mut c = ProcessingConfig::passthrough();
+    c.layers = vec![MappingLayer {
+        name: "Shift".into(),
+        activator: Button::Touchpad,
+        mode: LayerMode::Toggle,
+        remap: vec![RemapRule::new(Button::South, Some(Button::East))],
+    }];
+    e.set_processing(c.clone());
+    pump(&backend, PATH, 2);
+    // Toggle the layer on with a touchpad click (bit 0x02 of byte 2), release it.
+    backend.push_report(PATH, report(&[(2, 0x02)]));
+    expect_pad(
+        &backend,
+        &log,
+        &Payload::neutral(),
+        pad(0),
+        "toggle released",
+    );
+    expect_pad(
+        &backend,
+        &log,
+        &held(0, 0x20),
+        pad(xusb::B),
+        "layer on: Cross → B",
+    );
+
+    // A settings edit (e.g. a deadzone slider) keeps it on.
+    let mut edited = c.clone();
+    edited.left_stick.deadzone = 0.2;
+    e.set_processing(edited);
+    expect_pad(
+        &backend,
+        &log,
+        &Payload::neutral(),
+        pad(0),
+        "after the edit",
+    );
+    expect_pad(
+        &backend,
+        &log,
+        &held(0, 0x20),
+        pad(xusb::B),
+        "still on after an edit",
+    );
+
+    // Switching to a profile (same settings here) starts with toggles off.
+    e.switch_processing(c);
+    expect_pad(
+        &backend,
+        &log,
+        &Payload::neutral(),
+        pad(0),
+        "after the switch",
+    );
+    expect_pad(
+        &backend,
+        &log,
+        &held(0, 0x20),
+        pad(xusb::A),
+        "off after a profile switch",
+    );
+}
+
+// ---- DualShock 4 (synthetic reports) --------------------------------------------
+
+#[path = "ds4_tests.rs"]
+mod ds4;
+
+// ---- Input flow diagnostics (simulated) -------------------------------------
+
+#[test]
+fn flow_diagnostics_count_backlog_repeated_frames_and_spacing() {
+    let (backend, e) = connected_engine();
+    // 70 identical reports a few ms apart: each is waited for, and every
+    // frame after the first is a repeat for the game.
+    for _ in 0..70 {
+        backend.push_report(PATH, report(&[]));
+        std::thread::sleep(Duration::from_millis(3));
+    }
+    let s = wait_status(&e, "flow published", |s| s.devices[0].flow.outputs >= 64);
+    let f = s.devices[0].flow;
+    assert!(
+        f.unchanged_outputs + 2 >= f.outputs,
+        "identical frames are counted as repeats: {f:?}"
+    );
+    assert!(f.report_gaps.samples > 0 && f.output_gaps.samples > 0);
+    assert!(f.report_gaps.p50_us >= 1_000, "spaced reports: {f:?}");
+    let queued_before = f.queued_reports;
+    // A burst of 200 reports at once: NEXUS is behind for most of them.
+    // (The figures are published every 64 reports.)
+    for i in 0..200u8 {
+        backend.push_report(PATH, report(&[(0, if i % 2 == 0 { 0x20 } else { 0 })]));
+    }
+    let s = wait_status(&e, "burst counted", |s| {
+        s.devices[0].flow.queued_reports >= queued_before + 100
+    });
+    let f = s.devices[0].flow;
+    assert!(
+        f.longest_backlog >= 50,
+        "a long run of queued reports: {f:?}"
+    );
+    assert!(
+        f.unchanged_outputs < f.outputs,
+        "alternating frames are not repeats"
+    );
+}
+
+#[test]
+fn a_profile_switch_is_never_seen_half_applied() {
+    let (backend, e) = connected_engine();
+    // Profile A: no remapping; R3 starts a macro that holds Cross.
+    e.switch_profile(
+        nexus_input_processing::ProcessingConfig::passthrough(),
+        vec![jump_macro(PlaybackMode::Once)],
+    );
+    backend.push_report(PATH, report(&[]));
+    wait_status(&e, "profile A applied", |s| {
+        s.devices[0].processed.is_some_and(|p| !p.buttons.south)
+    });
+
+    // Profile B is half written: its settings (Circle remapped to Square) are
+    // in, its macros (none) not yet.
+    let switch = e.hold_profile_switch();
+    let mut b = nexus_input_processing::ProcessingConfig::passthrough();
+    b.remap = vec![nexus_input_processing::RemapRule::new(
+        MacroButton::East,
+        Some(MacroButton::West),
+    )];
+    e.switch_processing(b);
+    backend.push_report(PATH, report(&[CIRCLE, R3]));
+    std::thread::sleep(Duration::from_millis(150));
+    let s = e.status();
+    assert!(
+        !s.devices[0].input.is_some_and(|i| i.buttons.east),
+        "the report waits for the switch to finish instead of running half of it"
+    );
+    e.set_macros(vec![]);
+    drop(switch);
+
+    let s = wait_status(&e, "profile B applied", |s| {
+        s.devices[0].input.is_some_and(|i| i.buttons.east)
+    });
+    let out = s.devices[0].processed.unwrap();
+    assert!(out.buttons.west && !out.buttons.east, "B's remapping");
+    assert!(
+        !out.buttons.south && s.devices[0].playing_macros.is_empty(),
+        "and not A's macro: R3 starts nothing in profile B"
+    );
+}
+
+#[test]
+fn switching_profiles_applies_settings_and_macros_together() {
+    let (backend, e) = connected_engine();
+    let mut cfg = nexus_input_processing::ProcessingConfig::passthrough();
+    cfg.remap = vec![nexus_input_processing::RemapRule::new(
+        MacroButton::East,
+        Some(MacroButton::West),
+    )];
+    e.switch_profile(cfg, vec![jump_macro(PlaybackMode::Once)]);
+    backend.push_report(PATH, report(&[]));
+    backend.push_report(PATH, report(&[CIRCLE, R3]));
+    let s = wait_status(&e, "both applied", |s| {
+        !s.devices[0].playing_macros.is_empty()
+    });
+    let out = s.devices[0].processed.unwrap();
+    assert!(
+        out.buttons.west && !out.buttons.east,
+        "remap from the new profile"
+    );
+    assert!(out.buttons.south, "macro from the new profile");
+    // Back to a plain profile: the macro stops, Circle is Circle again.
+    e.switch_profile(
+        nexus_input_processing::ProcessingConfig::passthrough(),
+        vec![],
+    );
+    backend.push_report(PATH, report(&[CIRCLE]));
+    let s = wait_status(&e, "plain profile", |s| {
+        s.devices[0].processed.is_some_and(|p| p.buttons.east)
+    });
+    assert!(s.devices[0].playing_macros.is_empty());
+    assert!(!s.devices[0].processed.unwrap().buttons.south);
+}
+
+#[test]
+fn the_start_up_profile_has_its_macros_from_the_first_report() {
+    let backend = MockHidBackend::new();
+    backend.plug(usb_info());
+    let mut cfg = nexus_input_processing::ProcessingConfig::passthrough();
+    cfg.remap = vec![nexus_input_processing::RemapRule::new(
+        MacroButton::East,
+        Some(MacroButton::West),
+    )];
+    let e = Engine::start(
+        Arc::new(backend.clone()),
+        vec![Arc::new(DualSenseDriver)],
+        Arc::new(|| Box::new(UnavailableBackend)),
+        EngineConfig {
+            processing: cfg,
+            macros: vec![jump_macro(PlaybackMode::Once)],
+            ..config()
+        },
+    );
+    wait_status(&e, "connect", |s| s.devices.len() == 1);
+    backend.push_report(PATH, report(&[]));
+    backend.push_report(PATH, report(&[CIRCLE, R3]));
+    let s = wait_status(&e, "macro", |s| !s.devices[0].playing_macros.is_empty());
+    let out = s.devices[0].processed.unwrap();
+    assert!(
+        out.buttons.west && out.buttons.south,
+        "settings and macro both active from the start"
+    );
 }

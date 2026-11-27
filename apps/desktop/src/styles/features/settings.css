@@ -1,0 +1,77 @@
+/* Settings (pages/Settings.tsx): a section list on the left, grouped
+ * sections on the right; also the Virtual Controller page's setting rows. */
+
+.settings-layout { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: var(--sp-8); align-items: start; }
+.settings-index { position: sticky; top: 12px; display: flex; flex-direction: column; gap: 2px; }
+.settings-index button {
+  display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 10px; border: 0; border-radius: var(--radius-sm); background: transparent;
+  color: var(--text-dim); font: inherit; font-size: var(--fs-body); font-weight: 500; text-align: left; cursor: pointer;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.settings-index button svg { color: var(--text-faint); flex: none; }
+.settings-index button:hover { background: var(--surface-1); color: var(--text); }
+.settings-index button.current { background: var(--surface-2); color: var(--text); }
+.settings-index button.current svg { color: var(--accent-bright); }
+.settings-sections { display: flex; flex-direction: column; gap: var(--sp-8); min-width: 0; }
+.settings-section { display: flex; flex-direction: column; gap: var(--sp-3); scroll-margin-top: 16px; }
+.settings-section > header h2 { font-size: var(--fs-section); margin: 0; }
+.settings-section > header p { color: var(--text-dim); font-size: var(--fs-small); margin-top: 4px; max-width: 640px; }
+.settings-section .card > h2 { font-size: var(--fs-card); }
+.settings-section .settings-grid { grid-template-columns: 1fr 1fr; }
+.settings-note { color: var(--text-dim); font-size: var(--fs-small); line-height: 1.55; margin-top: var(--sp-2); }
+
+@media (max-width: 1240px) {
+  .settings-section .settings-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 1000px) {
+  .settings-layout { grid-template-columns: 1fr; gap: var(--sp-4); }
+  .settings-index { position: static; flex-direction: row; flex-wrap: wrap; gap: 4px; }
+  .settings-index button { height: 30px; border: 1px solid var(--border); }
+}
+
+/* ---- Virtual Controller (pages/VirtualController.tsx) ------------------ */
+.vc-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 360px); gap: var(--sp-3); align-items: start; }
+.vc-col { display: flex; flex-direction: column; gap: var(--sp-3); min-width: 0; }
+.vc-consent { display: flex; flex-direction: column; gap: 6px; padding-bottom: var(--sp-3); border-bottom: 1px solid var(--divider); }
+.vc-consent .notice { margin-top: 4px; }
+.vc-options-wrap { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3) 0 var(--sp-2); }
+.vc-options { display: flex; flex-direction: column; gap: 6px; }
+.vc-options[aria-busy="true"] { cursor: progress; }
+.vc-option {
+  display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: center; gap: var(--sp-3); width: 100%; padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-inset); color: var(--text); text-align: left; cursor: pointer; font: inherit;
+  transition: border-color var(--t-fast), background var(--t-fast);
+}
+.vc-option:hover:not([aria-disabled="true"]) { border-color: var(--border-hover); background: var(--surface-2); }
+.vc-option:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.vc-option.checked { border-color: var(--accent-line); background: var(--surface-accent); }
+.vc-option.state-active { border-color: var(--ok-line); }
+.vc-option[aria-disabled="true"] { cursor: not-allowed; }
+.vc-option[aria-disabled="true"] strong { color: var(--text-dim); }
+.vc-option-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.vc-option-text strong { font-size: var(--fs-body); font-weight: 600; }
+.vc-option-text span { color: var(--text-dim); line-height: 1.4; }
+.vc-radio { width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid var(--border-control); background: var(--surface-2); position: relative; }
+.vc-option.checked .vc-radio { border-color: var(--accent); }
+.vc-option.checked .vc-radio::after { content: ""; position: absolute; inset: 3px; border-radius: 50%; background: var(--accent); }
+.vc-option .badge { white-space: nowrap; }
+.vc-check { display: flex; gap: 8px; align-items: flex-start; margin-top: var(--sp-3); }
+.vc-check svg { flex: none; margin-top: 2px; color: var(--ok-text); }
+.vc-inline { display: inline-flex; align-items: center; gap: 6px; }
+.vc-visual { margin: 0 0 var(--sp-2); }
+.vc-visual .c3d { min-height: 190px; aspect-ratio: 4 / 3; max-height: 260px; }
+.vc-visual .c3d-unavailable { min-height: 150px; padding: var(--sp-4); }
+.vc-visual .c3d-hint { display: none; }
+/* The side column is narrower than the 3D toolbar: it wraps inside the picture instead of being cut off. */
+.vc-visual .c3d { max-height: 290px; }
+.vc-visual .c3d-toolbar { left: 6px; right: 6px; bottom: 6px; flex-wrap: wrap; justify-content: center; row-gap: 2px; }
+.vc-visual .c3d-toolbar button { min-width: 24px; padding: 0 5px; }
+.vc-fact-group .kv-row > .mono { white-space: nowrap; }
+.vc-facts { display: flex; flex-direction: column; gap: var(--sp-3); }
+.vc-fact-group .kv-row { min-height: 34px; padding: 6px 0; font-size: var(--fs-small); align-items: baseline; }
+.vc-fact-group .kv-row > .muted { flex: 1 1 auto; min-width: 0; }
+.vc-fact-group .kv-row > span:last-child { flex: 0 1 auto; max-width: 55%; text-align: right; }
+.vc-fact-hint { display: block; margin-top: 2px; font-size: var(--fs-xs); color: var(--text-faint); line-height: 1.4; }
+.vc-fact-head { margin: 0 0 2px; font-size: var(--fs-small); font-weight: 600; color: var(--text-dim); display: flex; align-items: center; }
+.vc-facts > .map-link { align-self: flex-start; }
+@media (max-width: 1040px) { .vc-layout { grid-template-columns: 1fr; } }
